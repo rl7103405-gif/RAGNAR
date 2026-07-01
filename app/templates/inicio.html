@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titulo %}Inicio - Deportivos Quini{% endblock %}
+{% block contenido %}
+<div class="tarjeta">
+    <h2>Bienvenido, {{ usuario.nombre_completo }}</h2>
+    <p>Selecciona una estacion:</p>
+</div>
+<div class="grid-2">
+    <a class="boton" href="/produccion">Produccion</a>
+    <a class="boton" href="/ruteadores">Ruteadores</a>
+    <a class="boton" href="/procesos">Procesos Finales (America)</a>
+    <a class="boton" href="/embarque">Embarque (America)</a>
+    <a class="boton boton-secundario" href="/admin">Administracion</a>
+</div>
+{% endblock %}

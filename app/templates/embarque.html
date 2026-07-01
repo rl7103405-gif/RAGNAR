@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block titulo %}Embarque - Deportivos Quini{% endblock %}
+{% block nombre_estacion %}Embarque (America){% endblock %}
+{% block contenido %}
+<div class="tarjeta">
+    <div id="mensaje" class="mensaje" style="display:none;"></div>
+    <label for="select-pedido">Pedido activo a embarcar</label>
+    <select id="select-pedido"><option value="">-- Selecciona un pedido --</option></select>
+</div>
+
+<div class="tarjeta" id="tarjeta-escaneo" style="display:none;">
+    <label for="campo-folio">Escanear folio del bulto</label>
+    <input type="text" id="campo-folio" autocomplete="off" placeholder="Escanea el codigo de barras del folio">
+    <p id="progreso-pedido" style="font-size:18px; font-weight:bold;"></p>
+    <table id="tabla-folios">
+        <thead><tr><th>Folio</th><th>Producto</th><th>Docenas</th><th>Peso (g)</th><th>Estatus</th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <br>
+    <button class="boton boton-grande boton-verde" id="btn-generar" disabled>Generar documento de salida</button>
+</div>
+
+<div class="tarjeta" id="tarjeta-documento" style="display:none;">
+    <h3>Documento generado</h3>
+    <p id="resumen-documento"></p>
+    <a class="boton" id="link-documento" href="#" target="_blank">Descargar PDF</a>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const selectPedido = document.getElementById("select-pedido");
+const campoFolio = document.getElementById("campo-folio");
+let pedidoActual = null;
+
+async function cargarPedidos() {
+    try {
+        const pedidos = await llamarApi("/api/embarque/pedidos");
+        selectPedido.innerHTML = '<option value="">-- Selecciona un pedido --</option>';
+        pedidos.forEach((p) => {
+            const opt = document.createElement("option");
+            opt.value = p.pedido_id;
+            opt.textContent = `${p.pedido_id} (${p.bultos_embarcados}/${p.total_bultos} bultos)${p.completo ? " - COMPLETO" : ""}`;
+            selectPedido.appendChild(opt);
+        });
+    } catch (e) {
+        mostrarMensaje("mensaje", e.message, "error");
+    }
+}
+
+selectPedido.addEventListener("change", async () => {
+    pedidoActual = selectPedido.value;
+    if (!pedidoActual) {
+        document.getElementById("tarjeta-escaneo").style.display = "none";
+        return;
+    }
+    document.getElementById("tarjeta-escaneo").style.display = "block";
+    document.getElementById("tarjeta-documento").style.display = "none";
+    await refrescarPedido();
+    campoFolio.focus();
+});
+
+async function refrescarPedido() {
+    const detalle = await llamarApi(`/api/embarque/pedido/${encodeURIComponent(pedidoActual)}`);
+    const tbody = document.querySelector("#tabla-folios tbody");
+    tbody.innerHTML = "";
+    let embarcados = 0;
+    detalle.folios.forEach((f) => {
+        if (f.embarcado) embarcados++;
+        const tr = document.createElement("tr");
+        const badge = f.embarcado
+            ? '<span class="estatus-badge estatus-verde">Embarcado</span>'
+            : f.listo_para_embarcar
+                ? '<span class="estatus-badge estatus-amarillo">Listo</span>'
+                : '<span class="estatus-badge estatus-gris">' + f.estatus + '</span>';
+        tr.innerHTML = `<td>${f.folio}</td><td>${f.codigo_producto || "-"}</td><td>${f.docenas || "-"}</td><td>${f.peso ? f.peso.toFixed(1) : "-"}</td><td>${badge}</td>`;
+        tbody.appendChild(tr);
+    });
+    document.getElementById("progreso-pedido").textContent = `Escaneados: ${embarcados} / ${detalle.folios.length}`;
+    document.getElementById("btn-generar").disabled = embarcados !== detalle.folios.length;
+}
+
+campoFolio.addEventListener("keydown", async (ev) => {
+    if (ev.key !== "Enter") return;
+    const folio = campoFolio.value.trim();
+    if (!folio || !pedidoActual) return;
+    ocultarMensaje("mensaje");
+    try {
+        const resultado = await llamarApi("/api/embarque/escanear", {
+            method: "POST",
+            body: JSON.stringify({ folio, pedido_id: pedidoActual }),
+        });
+        mostrarMensaje("mensaje", `Folio ${resultado.folio} validado y embarcado.`, "exito");
+        await refrescarPedido();
+    } catch (e) {
+        mostrarMensaje("mensaje", e.message, "error");
+    }
+    campoFolio.value = "";
+});
+
+document.getElementById("btn-generar").addEventListener("click", async () => {
+    try {
+        const resultado = await llamarApi("/api/embarque/generar", {
+            method: "POST",
+            body: JSON.stringify({ pedido_id: pedidoActual }),
+        });
+        document.getElementById("resumen-documento").textContent =
+            `Bultos: ${resultado.total_bultos} | Docenas: ${resultado.total_docenas} | Peso: ${resultado.total_peso.toFixed(1)} g`;
+        document.getElementById("link-documento").href = resultado.url_documento;
+        document.getElementById("tarjeta-documento").style.display = "block";
+        mostrarMensaje("mensaje", "Documento de embarque generado correctamente.", "exito");
+        await cargarPedidos();
+    } catch (e) {
+        mostrarMensaje("mensaje", e.message, "error");
+    }
+});
+
+cargarPedidos();
+</script>
+{% endblock %}

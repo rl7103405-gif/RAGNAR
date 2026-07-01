@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block titulo %}Deportivos Quini{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    {% if usuario %}
+    <header class="barra-superior">
+        <h1>Deportivos Quini &mdash; {% block nombre_estacion %}Trazabilidad{% endblock %}</h1>
+        <nav>
+            <span>{{ usuario.nombre_completo }}</span>
+            <a href="/">Inicio</a>
+            <a href="/logout">Cerrar sesion</a>
+        </nav>
+    </header>
+    {% endif %}
+    <main>
+        {% block contenido %}{% endblock %}
+    </main>
+    <script src="/static/app.js"></script>
+    {% block script %}{% endblock %}
+</body>
+</html>
