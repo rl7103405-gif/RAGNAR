@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block titulo %}Administracion - Deportivos Quini{% endblock %}
+{% block nombre_estacion %}Administracion{% endblock %}
+{% block contenido %}
+<div class="tarjeta">
+    <h3>Estatus del sistema</h3>
+    <div id="estatus-sistema"></div>
+</div>
+
+<div class="tarjeta">
+    <h3>Calibracion de rango de peso</h3>
+    <div id="rango-peso"></div>
+</div>
+
+<div class="tarjeta">
+    <h3>Reporte de diferencias (procesos finales)</h3>
+    <table id="tabla-diferencias">
+        <thead><tr><th>Folio</th><th>Peso prod.</th><th>Peso final</th><th>Diferencia</th><th>%</th><th>Alerta</th></tr></thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<div class="tarjeta">
+    <h3>Log de todos los bultos</h3>
+    <table id="tabla-bultos">
+        <thead><tr><th>Folio</th><th>Estatus</th><th>Pedido</th><th>Cliente</th><th>Peso prod.</th><th>Peso final</th></tr></thead>
+        <tbody></tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+async function cargarEstatus() {
+    const datos = await llamarApi("/api/admin/estatus-sistema");
+    document.getElementById("estatus-sistema").innerHTML = `
+        <div class="fila-datos"><span class="etiqueta">Total de bultos</span><span class="valor">${datos.total_bultos}</span></div>
+        <div class="fila-datos"><span class="etiqueta">En produccion</span><span class="valor">${datos.por_estatus.produccion}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Ruteados</span><span class="valor">${datos.por_estatus.ruteado}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Procesos finales</span><span class="valor">${datos.por_estatus.procesos_finales}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Embarcados</span><span class="valor">${datos.por_estatus.embarcado}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Total de embarques</span><span class="valor">${datos.total_embarques}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Conexion Atalanta</span><span class="valor">${datos.atalanta_disponible ? "Conectado" : "No configurada"}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Impresora Zebra</span><span class="valor">${datos.zebra_configurada ? "Configurada" : "No configurada"}</span></div>
+    `;
+}
+
+async function cargarRangoPeso() {
+    const datos = await llamarApi("/api/admin/rango-peso");
+    if (!datos.calibrado) {
+        document.getElementById("rango-peso").innerHTML = `
+            <div class="mensaje info">En fase de calibracion: ${datos.bultos_muestra_actuales} bultos de muestra registrados.</div>`;
+        return;
+    }
+    const c = datos.config;
+    document.getElementById("rango-peso").innerHTML = `
+        <div class="mensaje exito">Rango calibrado (${c.bultos_muestra} muestras el ${new Date(c.fecha_calculo).toLocaleString()})</div>
+        <div class="fila-datos"><span class="etiqueta">Promedio de diferencia</span><span class="valor">${c.promedio_diferencia}%</span></div>
+        <div class="fila-datos"><span class="etiqueta">Tolerancia</span><span class="valor">&plusmn;${c.tolerancia_porcentaje}%</span></div>
+    `;
+}
+
+async function cargarDiferencias() {
+    const datos = await llamarApi("/api/admin/reporte-diferencias");
+    const tbody = document.querySelector("#tabla-diferencias tbody");
+    tbody.innerHTML = "";
+    datos.forEach((d) => {
+        const tr = document.createElement("tr");
+        const badge = d.alerta === true
+            ? '<span class="estatus-badge estatus-rojo">Fuera de rango</span>'
+            : d.alerta === false
+                ? '<span class="estatus-badge estatus-verde">OK</span>'
+                : '<span class="estatus-badge estatus-gris">Calibracion</span>';
+        tr.innerHTML = `<td>${d.folio}</td><td>${d.peso_produccion.toFixed(1)}</td><td>${d.peso_procesos_finales.toFixed(1)}</td><td>${d.diferencia_gramos.toFixed(1)}</td><td>${d.diferencia_porcentaje.toFixed(2)}%</td><td>${badge}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+async function cargarBultos() {
+    const datos = await llamarApi("/api/admin/bultos");
+    const tbody = document.querySelector("#tabla-bultos tbody");
+    tbody.innerHTML = "";
+    datos.forEach((b) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${b.folio}</td><td>${b.estatus}</td><td>${b.pedido_id || "-"}</td><td>${b.cliente || "-"}</td><td>${b.peso_produccion ? b.peso_produccion.toFixed(1) : "-"}</td><td>${b.peso_procesos_finales ? b.peso_procesos_finales.toFixed(1) : "-"}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+cargarEstatus();
+cargarRangoPeso();
+cargarDiferencias();
+cargarBultos();
+</script>
+{% endblock %}

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block titulo %}Procesos Finales - Deportivos Quini{% endblock %}
+{% block nombre_estacion %}Procesos Finales (America){% endblock %}
+{% block contenido %}
+<div class="tarjeta">
+    <div id="mensaje" class="mensaje" style="display:none;"></div>
+
+    <label for="campo-folio">Escanear folio</label>
+    <input type="text" id="campo-folio" autofocus autocomplete="off" placeholder="Escanea el codigo de barras del folio">
+</div>
+
+<div class="tarjeta" id="tarjeta-detalle" style="display:none;">
+    <div class="fila-datos"><span class="etiqueta">Folio</span><span class="valor" id="d-folio"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Peso en produccion</span><span class="valor" id="d-peso-prod"></span></div>
+
+    <div class="peso-grande" id="peso-actual">--- g</div>
+    <button class="boton boton-grande" id="btn-capturar-peso">Capturar peso actual</button>
+
+    <div id="comparacion" style="display:none; margin-top:20px;">
+        <div class="fila-datos"><span class="etiqueta">Diferencia</span><span class="valor" id="d-diferencia"></span></div>
+        <div id="resultado-comparacion" class="mensaje" style="display:none;"></div>
+        <div id="bloque-confirmacion" style="display:none;">
+            <p>La diferencia esta fuera del rango esperado. ¿Confirma continuar de todas formas?</p>
+            <button class="boton boton-rojo" id="btn-confirmar-fuera-rango">Confirmar y guardar</button>
+        </div>
+        <button class="boton boton-verde" id="btn-guardar" style="margin-top:10px;">Guardar</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const campoFolio = document.getElementById("campo-folio");
+const tarjetaDetalle = document.getElementById("tarjeta-detalle");
+let folioActual = null;
+let pesoCapturado = null;
+
+campoFolio.addEventListener("keydown", async (ev) => {
+    if (ev.key !== "Enter") return;
+    const folio = campoFolio.value.trim();
+    if (!folio) return;
+    ocultarMensaje("mensaje");
+    try {
+        const datos = await llamarApi(`/api/procesos/consultar/${encodeURIComponent(folio)}`);
+        folioActual = folio;
+        pesoCapturado = null;
+        document.getElementById("d-folio").textContent = datos.folio;
+        document.getElementById("d-peso-prod").textContent = datos.peso_produccion.toFixed(1) + " g";
+        document.getElementById("peso-actual").textContent = "--- g";
+        document.getElementById("comparacion").style.display = "none";
+        tarjetaDetalle.style.display = "block";
+        if (datos.ya_procesado) {
+            mostrarMensaje("mensaje", `El folio ${folio} ya paso por procesos finales.`, "alerta");
+        }
+    } catch (e) {
+        tarjetaDetalle.style.display = "none";
+        mostrarMensaje("mensaje", e.message, "error");
+        campoFolio.value = "";
+    }
+});
+
+document.getElementById("btn-capturar-peso").addEventListener("click", async () => {
+    try {
+        const lectura = await leerPesoBascula();
+        if (lectura.error) {
+            mostrarMensaje("mensaje", "Bascula: " + lectura.error, "error");
+            return;
+        }
+        pesoCapturado = lectura.peso;
+        document.getElementById("peso-actual").textContent = pesoCapturado.toFixed(1) + " g";
+        document.getElementById("comparacion").style.display = "block";
+        document.getElementById("bloque-confirmacion").style.display = "none";
+        document.getElementById("resultado-comparacion").style.display = "none";
+
+        const pesoProd = parseFloat(document.getElementById("d-peso-prod").textContent);
+        const diferencia = pesoProd - pesoCapturado;
+        const porcentaje = (diferencia / pesoProd) * 100;
+        document.getElementById("d-diferencia").textContent = `${diferencia.toFixed(1)} g (${porcentaje.toFixed(2)}%)`;
+    } catch (e) {
+        mostrarMensaje("mensaje", "No se pudo conectar con la bascula (bascula_bridge.py). " + e.message, "error");
+    }
+});
+
+async function guardarPeso(confirmarFueraDeRango) {
+    if (!folioActual || pesoCapturado === null) return;
+    try {
+        const resultado = await llamarApi("/api/procesos/guardar", {
+            method: "POST",
+            body: JSON.stringify({
+                folio: folioActual,
+                peso: pesoCapturado,
+                confirmar_fuera_de_rango: confirmarFueraDeRango,
+            }),
+        });
+
+        if (resultado.requiere_confirmacion) {
+            document.getElementById("resultado-comparacion").className = "mensaje alerta";
+            document.getElementById("resultado-comparacion").textContent = resultado.mensaje;
+            document.getElementById("resultado-comparacion").style.display = "block";
+            document.getElementById("bloque-confirmacion").style.display = "block";
+            return;
+        }
+
+        let tipo = "exito";
+        let texto = `Folio ${resultado.folio} guardado. Diferencia: ${resultado.diferencia_gramos.toFixed(1)} g (${resultado.diferencia_porcentaje.toFixed(2)}%).`;
+        if (resultado.fase === "calibracion") {
+            texto += " (Fase de calibracion - sin alertas)";
+            tipo = "info";
+        } else if (resultado.alerta) {
+            texto += " Fuera de rango - confirmado manualmente.";
+            tipo = "alerta";
+        }
+        mostrarMensaje("mensaje", texto, tipo);
+        tarjetaDetalle.style.display = "none";
+        campoFolio.value = "";
+        campoFolio.focus();
+        folioActual = null;
+        pesoCapturado = null;
+    } catch (e) {
+        mostrarMensaje("mensaje", e.message, "error");
+    }
+}
+
+document.getElementById("btn-guardar").addEventListener("click", () => guardarPeso(false));
+document.getElementById("btn-confirmar-fuera-rango").addEventListener("click", () => guardarPeso(true));
+</script>
+{% endblock %}

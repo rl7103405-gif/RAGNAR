@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block titulo %}Ruteadores - Deportivos Quini{% endblock %}
+{% block nombre_estacion %}Ruteadores{% endblock %}
+{% block contenido %}
+<div class="tarjeta">
+    <div id="mensaje" class="mensaje" style="display:none;"></div>
+
+    <label for="campo-folio">Escanear folio</label>
+    <input type="text" id="campo-folio" autofocus autocomplete="off" placeholder="Escanea el codigo de barras del folio">
+</div>
+
+<div class="tarjeta" id="tarjeta-detalle" style="display:none;">
+    <div class="fila-datos"><span class="etiqueta">Folio</span><span class="valor" id="d-folio"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Peso en produccion</span><span class="valor" id="d-peso"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Codigo de producto</span><span class="valor"><input type="text" id="d-codigo" style="width:200px; display:inline-block; margin:0; font-size:18px; padding:6px;"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Docenas</span><span class="valor"><input type="number" id="d-docenas" style="width:120px; display:inline-block; margin:0; font-size:18px; padding:6px;"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Pedido</span><span class="valor"><input type="text" id="d-pedido" style="width:150px; display:inline-block; margin:0; font-size:18px; padding:6px;"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Cliente</span><span class="valor"><input type="text" id="d-cliente" style="width:200px; display:inline-block; margin:0; font-size:18px; padding:6px;"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Fecha entrega</span><span class="valor" id="d-fecha"></span></div>
+    <p id="aviso-atalanta" style="color:#9c640c; display:none;">Atalanta no disponible: captura los datos manualmente.</p>
+    <br>
+    <button class="boton boton-grande boton-verde" id="btn-confirmar">Confirmar e imprimir etiqueta</button>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const campoFolio = document.getElementById("campo-folio");
+const tarjetaDetalle = document.getElementById("tarjeta-detalle");
+let folioActual = null;
+
+campoFolio.addEventListener("keydown", async (ev) => {
+    if (ev.key !== "Enter") return;
+    const folio = campoFolio.value.trim();
+    if (!folio) return;
+    ocultarMensaje("mensaje");
+    try {
+        const datos = await llamarApi(`/api/ruteadores/consultar/${encodeURIComponent(folio)}`);
+        folioActual = folio;
+        document.getElementById("d-folio").textContent = datos.folio;
+        document.getElementById("d-peso").textContent = datos.peso_produccion.toFixed(1) + " g";
+        document.getElementById("d-codigo").value = datos.codigo_producto || "";
+        document.getElementById("d-docenas").value = datos.docenas || "";
+        document.getElementById("d-pedido").value = datos.pedido_id || "";
+        document.getElementById("d-cliente").value = datos.cliente || "";
+        document.getElementById("d-fecha").textContent = datos.fecha_entrega || "-";
+        document.getElementById("aviso-atalanta").style.display = datos.atalanta_disponible ? "none" : "block";
+        tarjetaDetalle.style.display = "block";
+        if (datos.ya_ruteado) {
+            mostrarMensaje("mensaje", `El folio ${folio} ya fue ruteado anteriormente.`, "alerta");
+        }
+    } catch (e) {
+        tarjetaDetalle.style.display = "none";
+        mostrarMensaje("mensaje", e.message, "error");
+        campoFolio.value = "";
+    }
+});
+
+document.getElementById("btn-confirmar").addEventListener("click", async () => {
+    if (!folioActual) return;
+    try {
+        const resultado = await llamarApi("/api/ruteadores/confirmar", {
+            method: "POST",
+            body: JSON.stringify({
+                folio: folioActual,
+                codigo_producto: document.getElementById("d-codigo").value || null,
+                docenas: document.getElementById("d-docenas").value ? parseFloat(document.getElementById("d-docenas").value) : null,
+                pedido_id: document.getElementById("d-pedido").value || null,
+                cliente: document.getElementById("d-cliente").value || null,
+            }),
+        });
+        const tipoMensaje = resultado.impresion.enviado ? "exito" : "alerta";
+        mostrarMensaje("mensaje", `Folio ${resultado.folio} ruteado. ${resultado.impresion.mensaje}`, tipoMensaje);
+        tarjetaDetalle.style.display = "none";
+        campoFolio.value = "";
+        campoFolio.focus();
+        folioActual = null;
+    } catch (e) {
+        mostrarMensaje("mensaje", e.message, "error");
+    }
+});
+</script>
+{% endblock %}
