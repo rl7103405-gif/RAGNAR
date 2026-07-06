@@ -47,7 +47,7 @@ def generar_zpl_etiqueta(
 ^FO30,95^BCN,60,Y,N,N
 ^FD{folio}^FS
 ^CF0,22
-^FO30,180^FDProducto: {codigo_producto}^FS
+^FO30,180^FDCodigo producto: {codigo_producto}^FS
 ^FO30,210^FDDocenas: {docenas}^FS
 ^FO30,240^FDPedido: {pedido_id}^FS
 ^FO30,270^FDCliente: {cliente}^FS
