@@ -137,7 +137,7 @@ def generar_documento_embarque(
     if total_no_embarcados > 0:
         raise HTTPException(
             status_code=409,
-            detail=f"Todavia faltan {total_no_embarcados} folio(s) por escanear en este pedido",
+            detail=f"Todavía faltan {total_no_embarcados} folio(s) por escanear en este pedido",
         )
 
     ruta_pdf = generar_pdf_embarque(datos.pedido_id, bultos, usuario["nombre_completo"])

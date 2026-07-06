@@ -28,7 +28,7 @@ def consultar(folio: str, db: Session = Depends(get_db), usuario: dict = Depends
     if bulto.estatus not in ("ruteado", "procesos_finales"):
         raise HTTPException(
             status_code=409,
-            detail=f"El folio {folio} todavia no ha sido ruteado (estatus actual: {bulto.estatus})",
+            detail=f"El folio {folio} todavía no ha sido ruteado (estatus actual: {bulto.estatus})",
         )
     return {
         "folio": bulto.folio,
@@ -56,9 +56,9 @@ def guardar_peso_final(
     if bulto is None:
         raise HTTPException(status_code=404, detail="Folio no encontrado")
     if bulto.estatus not in ("ruteado", "procesos_finales"):
-        raise HTTPException(status_code=409, detail="El folio todavia no ha sido ruteado")
+        raise HTTPException(status_code=409, detail="El folio todavía no ha sido ruteado")
     if datos.peso <= 0:
-        raise HTTPException(status_code=400, detail="Peso invalido")
+        raise HTTPException(status_code=400, detail="Peso inválido")
 
     bulto.peso_procesos_finales = datos.peso
     db.flush()
@@ -74,7 +74,7 @@ def guardar_peso_final(
             "diferencia_porcentaje": resultado["diferencia_porcentaje"],
             "rango_min": resultado.get("rango_min"),
             "rango_max": resultado.get("rango_max"),
-            "mensaje": "La diferencia de peso esta fuera del rango esperado. Confirme para continuar.",
+            "mensaje": "La diferencia de peso está fuera del rango esperado. Confirme para continuar.",
         }
 
     if resultado.get("alerta"):

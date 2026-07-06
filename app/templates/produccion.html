@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block titulo %}Produccion - Deportivos Quini{% endblock %}
-{% block nombre_estacion %}Produccion{% endblock %}
+{% block titulo %}Producción - Deportivos Quini{% endblock %}
+{% block nombre_estacion %}Producción{% endblock %}
 {% block contenido %}
 <div class="tarjeta">
     <div id="mensaje" class="mensaje" style="display:none;"></div>
 
     <label for="campo-folio">Escanear folio</label>
-    <input type="text" id="campo-folio" autofocus autocomplete="off" placeholder="Escanea el codigo de barras del folio">
+    <input type="text" id="campo-folio" autofocus autocomplete="off" placeholder="Escanea el código de barras del folio">
 
     <div class="peso-grande" id="peso-actual">--- g</div>
 
@@ -16,7 +16,7 @@
 </div>
 
 <div class="tarjeta">
-    <h3>Ultimos folios pesados en esta estacion</h3>
+    <h3>Últimos folios pesados en esta estación</h3>
     <table id="tabla-recientes">
         <thead><tr><th>Folio</th><th>Peso (g)</th><th>Hora</th></tr></thead>
         <tbody></tbody>
@@ -37,7 +37,7 @@ document.getElementById("btn-capturar-peso").addEventListener("click", async () 
     try {
         const lectura = await leerPesoBascula();
         if (lectura.error) {
-            mostrarMensaje("mensaje", "Bascula: " + lectura.error, "error");
+            mostrarMensaje("mensaje", "Báscula: " + lectura.error, "error");
             return;
         }
         pesoCapturado = lectura.peso;
@@ -45,7 +45,7 @@ document.getElementById("btn-capturar-peso").addEventListener("click", async () 
         btnGuardar.disabled = !campoFolio.value.trim();
         ocultarMensaje("mensaje");
     } catch (e) {
-        mostrarMensaje("mensaje", "No se pudo conectar con la bascula (bascula_bridge.py). " + e.message, "error");
+        mostrarMensaje("mensaje", "No se pudo conectar con la báscula (bascula_bridge.py). " + e.message, "error");
     }
 });
 

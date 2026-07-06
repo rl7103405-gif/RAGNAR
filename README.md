@@ -7,13 +7,13 @@ accede desde las demas PCs por navegador.
 
 ## Estaciones
 
-| Ruta | Estacion | Que hace |
+| Ruta | Estación | Qué hace |
 |---|---|---|
-| `/produccion` | Produccion | Pesa el bulto recien armado y lo asocia a un folio |
+| `/produccion` | Producción | Pesa el bulto recién armado y lo asocia a un folio |
 | `/ruteadores` | Ruteadores | Consulta datos del pedido (Atalanta), imprime etiqueta Zebra |
-| `/procesos` | America (procesos finales) | Pesa el bulto terminado y compara contra produccion |
-| `/embarque` | America (embarque) | Valida folios contra el pedido y genera el PDF de salida |
-| `/admin` | Administracion | Log de bultos, estatus del sistema, calibracion de peso |
+| `/procesos` | América (procesos finales) | Pesa el bulto terminado y compara contra producción |
+| `/embarque` | América (embarque) | Valida folios contra el pedido y genera el PDF de salida |
+| `/admin` | Administración | Log de bultos, estatus del sistema, calibración de peso |
 
 ## Requisitos
 

@@ -61,10 +61,10 @@ def crear_usuarios_default(db: Session):
     if db.query(Usuario).count() > 0:
         return
     usuarios_default = [
-        ("produccion", "Operador Produccion", "produccion", "produccion"),
+        ("produccion", "Operador Producción", "produccion", "produccion"),
         ("ruteadores", "Personal Ruteadores", "ruteadores", "ruteadores"),
-        ("america", "America", "america", "procesos"),
-        ("embarque", "America Embarque", "embarque", "embarque"),
+        ("america", "América", "america", "procesos"),
+        ("embarque", "América Embarque", "embarque", "embarque"),
         ("admin", "Administrador", "admin", "admin"),
     ]
     for nombre_usuario, nombre_completo, password, estacion in usuarios_default:

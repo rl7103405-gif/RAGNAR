@@ -26,9 +26,9 @@ def consultar(folio: str, db: Session = Depends(get_db), usuario: dict = Depends
     folio = folio.strip()
     bulto = db.query(Bulto).filter(Bulto.folio == folio).first()
     if bulto is None:
-        raise HTTPException(status_code=404, detail=f"El folio {folio} no ha sido pesado en produccion")
+        raise HTTPException(status_code=404, detail=f"El folio {folio} no ha sido pesado en producción")
     if bulto.peso_produccion is None:
-        raise HTTPException(status_code=409, detail=f"El folio {folio} no tiene peso de produccion registrado")
+        raise HTTPException(status_code=409, detail=f"El folio {folio} no tiene peso de producción registrado")
 
     datos_atalanta = consultar_folio(folio)
     if datos_atalanta:
@@ -72,9 +72,9 @@ def confirmar_ruteo(
     if bulto is None:
         raise HTTPException(status_code=404, detail="Folio no encontrado")
     if bulto.peso_produccion is None:
-        raise HTTPException(status_code=409, detail="El folio no tiene peso de produccion")
+        raise HTTPException(status_code=409, detail="El folio no tiene peso de producción")
 
-    # Permite capturar manualmente los datos si Atalanta no esta disponible.
+    # Permite capturar manualmente los datos si Atalanta no está disponible.
     bulto.codigo_producto = datos.codigo_producto or bulto.codigo_producto
     bulto.docenas = datos.docenas if datos.docenas is not None else bulto.docenas
     bulto.pedido_id = datos.pedido_id or bulto.pedido_id

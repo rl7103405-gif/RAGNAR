@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block titulo %}Administracion - Deportivos Quini{% endblock %}
-{% block nombre_estacion %}Administracion{% endblock %}
+{% block titulo %}Administración - Deportivos Quini{% endblock %}
+{% block nombre_estacion %}Administración{% endblock %}
 {% block contenido %}
 <div class="tarjeta">
     <h3>Estatus del sistema</h3>
@@ -8,7 +8,7 @@
 </div>
 
 <div class="tarjeta">
-    <h3>Calibracion de rango de peso</h3>
+    <h3>Calibración de rango de peso</h3>
     <div id="rango-peso"></div>
 </div>
 
@@ -35,12 +35,12 @@ async function cargarEstatus() {
     const datos = await llamarApi("/api/admin/estatus-sistema");
     document.getElementById("estatus-sistema").innerHTML = `
         <div class="fila-datos"><span class="etiqueta">Total de bultos</span><span class="valor">${datos.total_bultos}</span></div>
-        <div class="fila-datos"><span class="etiqueta">En produccion</span><span class="valor">${datos.por_estatus.produccion}</span></div>
+        <div class="fila-datos"><span class="etiqueta">En producción</span><span class="valor">${datos.por_estatus.produccion}</span></div>
         <div class="fila-datos"><span class="etiqueta">Ruteados</span><span class="valor">${datos.por_estatus.ruteado}</span></div>
         <div class="fila-datos"><span class="etiqueta">Procesos finales</span><span class="valor">${datos.por_estatus.procesos_finales}</span></div>
         <div class="fila-datos"><span class="etiqueta">Embarcados</span><span class="valor">${datos.por_estatus.embarcado}</span></div>
         <div class="fila-datos"><span class="etiqueta">Total de embarques</span><span class="valor">${datos.total_embarques}</span></div>
-        <div class="fila-datos"><span class="etiqueta">Conexion Atalanta</span><span class="valor">${datos.atalanta_disponible ? "Conectado" : "No configurada"}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Conexión Atalanta</span><span class="valor">${datos.atalanta_disponible ? "Conectado" : "No configurada"}</span></div>
         <div class="fila-datos"><span class="etiqueta">Impresora Zebra</span><span class="valor">${datos.zebra_configurada ? "Configurada" : "No configurada"}</span></div>
     `;
 }
@@ -49,7 +49,7 @@ async function cargarRangoPeso() {
     const datos = await llamarApi("/api/admin/rango-peso");
     if (!datos.calibrado) {
         document.getElementById("rango-peso").innerHTML = `
-            <div class="mensaje info">En fase de calibracion: ${datos.bultos_muestra_actuales} bultos de muestra registrados.</div>`;
+            <div class="mensaje info">En fase de calibración: ${datos.bultos_muestra_actuales} bultos de muestra registrados.</div>`;
         return;
     }
     const c = datos.config;
@@ -70,7 +70,7 @@ async function cargarDiferencias() {
             ? '<span class="estatus-badge estatus-rojo">Fuera de rango</span>'
             : d.alerta === false
                 ? '<span class="estatus-badge estatus-verde">OK</span>'
-                : '<span class="estatus-badge estatus-gris">Calibracion</span>';
+                : '<span class="estatus-badge estatus-gris">Calibración</span>';
         tr.innerHTML = `<td>${d.folio}</td><td>${d.peso_produccion.toFixed(1)}</td><td>${d.peso_procesos_finales.toFixed(1)}</td><td>${d.diferencia_gramos.toFixed(1)}</td><td>${d.diferencia_porcentaje.toFixed(2)}%</td><td>${badge}</td>`;
         tbody.appendChild(tr);
     });

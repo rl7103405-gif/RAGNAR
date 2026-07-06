@@ -37,9 +37,9 @@ function enfocarFolio() {
 document.addEventListener("DOMContentLoaded", enfocarFolio);
 window.addEventListener("focus", enfocarFolio);
 
-// Lee el peso desde el bridge local de la bascula (corre en localhost:8001 en esta misma PC).
+// Lee el peso desde el bridge local de la báscula (corre en localhost:8001 en esta misma PC).
 async function leerPesoBascula() {
     const respuesta = await fetch("http://localhost:8001/peso");
-    if (!respuesta.ok) throw new Error("No se pudo leer la bascula");
+    if (!respuesta.ok) throw new Error("No se pudo leer la báscula");
     return respuesta.json();
 }

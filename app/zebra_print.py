@@ -22,7 +22,15 @@ def generar_zpl_etiqueta(
     peso_produccion: str = "",
     fecha: str = "",
 ) -> str:
-    """Genera el comando ZPL de la etiqueta que se pega al bulto."""
+    """
+    Genera el comando ZPL de la etiqueta que se pega al bulto.
+
+    El texto se mantiene sin acentos a proposito: muchas Zebra mas antiguas
+    (como la ZM400) usan la codepage por defecto de la impresora y no
+    interpretan UTF-8 sin el comando ^CI28, que no todos los firmwares
+    soportan. Usar solo ASCII evita imprimir caracteres corruptos en el
+    bulto fisico hasta poder confirmar el soporte de la impresora real.
+    """
     codigo_producto = codigo_producto or "-"
     docenas = docenas or "-"
     pedido_id = pedido_id or "-"

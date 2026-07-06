@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block titulo %}Embarque - Deportivos Quini{% endblock %}
-{% block nombre_estacion %}Embarque (America){% endblock %}
+{% block nombre_estacion %}Embarque (América){% endblock %}
 {% block contenido %}
 <div class="tarjeta">
     <div id="mensaje" class="mensaje" style="display:none;"></div>
@@ -10,7 +10,7 @@
 
 <div class="tarjeta" id="tarjeta-escaneo" style="display:none;">
     <label for="campo-folio">Escanear folio del bulto</label>
-    <input type="text" id="campo-folio" autocomplete="off" placeholder="Escanea el codigo de barras del folio">
+    <input type="text" id="campo-folio" autocomplete="off" placeholder="Escanea el código de barras del folio">
     <p id="progreso-pedido" style="font-size:18px; font-weight:bold;"></p>
     <table id="tabla-folios">
         <thead><tr><th>Folio</th><th>Producto</th><th>Docenas</th><th>Peso (g)</th><th>Estatus</th></tr></thead>
@@ -92,6 +92,8 @@ campoFolio.addEventListener("keydown", async (ev) => {
         });
         mostrarMensaje("mensaje", `Folio ${resultado.folio} validado y embarcado.`, "exito");
         await refrescarPedido();
+        await cargarPedidos();
+        selectPedido.value = pedidoActual;
     } catch (e) {
         mostrarMensaje("mensaje", e.message, "error");
     }

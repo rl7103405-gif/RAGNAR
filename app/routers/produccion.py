@@ -32,9 +32,9 @@ def guardar_peso_produccion(
 ):
     folio = datos.folio.strip()
     if not folio:
-        raise HTTPException(status_code=400, detail="Folio vacio")
+        raise HTTPException(status_code=400, detail="Folio vacío")
     if datos.peso <= 0:
-        raise HTTPException(status_code=400, detail="Peso invalido")
+        raise HTTPException(status_code=400, detail="Peso inválido")
 
     bulto = db.query(Bulto).filter(Bulto.folio == folio).first()
     if bulto is None:
@@ -44,7 +44,7 @@ def guardar_peso_produccion(
     if bulto.estatus != "produccion" or bulto.peso_produccion is not None:
         raise HTTPException(
             status_code=409,
-            detail=f"El folio {folio} ya fue pesado en produccion (estatus actual: {bulto.estatus})",
+            detail=f"El folio {folio} ya fue pesado en producción (estatus actual: {bulto.estatus})",
         )
 
     bulto.peso_produccion = datos.peso

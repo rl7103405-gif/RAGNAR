@@ -37,7 +37,7 @@ def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str) -> 
     elementos.append(Paragraph(f"Generado por: {operador}", styles["Normal"]))
     elementos.append(Spacer(1, 0.5 * cm))
 
-    encabezados = ["Folio", "Codigo", "Modelo/Producto", "Docenas", "Peso (g)"]
+    encabezados = ["Folio", "Código", "Docenas", "Peso (g)"]
     filas = [encabezados]
     total_docenas = 0.0
     total_peso = 0.0
@@ -49,19 +49,18 @@ def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str) -> 
         filas.append([
             b.folio,
             b.codigo_producto or "-",
-            b.codigo_producto or "-",
             f"{docenas:g}",
             f"{peso:,.1f}",
         ])
 
-    tabla = Table(filas, colWidths=[3.5 * cm, 3 * cm, 5 * cm, 2.5 * cm, 3 * cm])
+    tabla = Table(filas, colWidths=[4 * cm, 5 * cm, 3 * cm, 3.5 * cm])
     tabla.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f2f2")]),
-        ("ALIGN", (3, 0), (-1, -1), "CENTER"),
+        ("ALIGN", (2, 0), (-1, -1), "CENTER"),
     ]))
     elementos.append(tabla)
     elementos.append(Spacer(1, 0.5 * cm))
