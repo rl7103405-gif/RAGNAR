@@ -7,6 +7,27 @@ Solo se usa para consultar datos de folios y pedidos ya existentes.
 Mientras no lleguen las credenciales (SQL_SERVER/SQL_DATABASE/SQL_USER vacios
 en el .env), la app funciona en "modo standalone": las consultas devuelven
 None y las vistas muestran los campos como pendientes de captura manual.
+
+Esquema real confirmado con Deportivos Quini (julio 2026):
+- El folio nace en la etapa de tejido y vive en `Produccion`/`ProduccionDetalles`.
+  `ProduccionDetalles` ya trae folio + codigo de producto + docenas + pedido en
+  un solo renglon, y es la fuente que usa Atalanta en el proceso de ruteo.
+- `Folio` siempre es numerico (se guarda como int en Atalanta), aunque el
+  escaner lo entrega como texto — por eso se castea antes de consultar.
+- `Papeleta` es un concepto distinto a `Folio`: agrupa varios folios que un
+  mismo operador proceso en una sesion/turno. Esta app siempre trabaja a
+  nivel Folio (un bulto = un folio); Papeleta no se usa aqui.
+- `Pedidos.NombreCliente` ya trae el nombre del cliente directo, no hace
+  falta unir con CatClientes.
+- `Pedidos.Embarcado` es un campo propio de Atalanta que esta app NUNCA
+  escribe (conexion de solo lectura) — el control de embarque de esta app
+  vive en su propia base SQLite, independiente de ese campo.
+- Nota para el futuro: Quini tambien usa Microsip (ERP) y hojas de Excel en
+  paralelo a Atalanta para ciertos procesos (hay tablas como PedidosMicrosip,
+  tblOrdenesCompraMicrosip, etc.). Por ahora el folio/pedido/producto se
+  resuelve completo dentro de Atalanta y no se necesita tocar Microsip, pero
+  si mas adelante falta un dato que solo vive en Microsip o Excel, hay que
+  agregar esa fuente por separado.
 """
 import logging
 
@@ -48,29 +69,44 @@ def consultar_folio(folio: str) -> dict | None:
     Consulta los datos de un folio en Atalanta: producto, docenas, pedido, cliente,
     fecha de entrega requerida.
 
-    Devuelve None si Atalanta no esta configurada, no responde, o el folio no existe.
-    Ajustar el nombre de tablas/columnas reales cuando se tenga acceso al esquema.
+    Une ProduccionDetalles (folio -> codigo de producto, docenas, pedido) con
+    Pedidos (pedido -> cliente, fecha de entrega). El folio es numerico en
+    Atalanta, asi que se castea antes de comparar.
+
+    Devuelve None si Atalanta no esta configurada, no responde, el folio no
+    es numerico, o el folio no existe.
     """
+    try:
+        folio_num = int(str(folio).strip())
+    except ValueError:
+        logger.warning("Folio no numerico recibido para Atalanta: %r", folio)
+        return None
+
     conn = _get_connection()
     if conn is None:
         return None
     try:
         cursor = conn.cursor()
-        # NOTA: ajustar nombres de tabla/columnas al esquema real de Atalanta.
         cursor.execute(
             """
             SELECT TOP 1
-                folio, codigo_producto, docenas, pedido_id, cliente, fecha_entrega
-            FROM dbo.vw_folios_pedido
-            WHERE folio = ?
+                pd.FOLIO AS folio,
+                pd.CODIGOPRODUCTO AS codigo_producto,
+                pd.DOCENAS AS docenas,
+                pd.NOPEDIDO AS pedido_id,
+                p.NombreCliente AS cliente,
+                p.FechaEntrega AS fecha_entrega
+            FROM dbo.ProduccionDetalles pd
+            LEFT JOIN dbo.Pedidos p ON p.NoPedido = pd.NOPEDIDO
+            WHERE pd.FOLIO = ?
             """,
-            folio,
+            folio_num,
         )
         row = cursor.fetchone()
         if not row:
             return None
         return {
-            "folio": row.folio,
+            "folio": str(row.folio),
             "codigo_producto": row.codigo_producto,
             "docenas": row.docenas,
             "pedido_id": row.pedido_id,
@@ -92,10 +128,10 @@ def consultar_folios_de_pedido(pedido_id: str) -> list[str]:
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT folio FROM dbo.vw_folios_pedido WHERE pedido_id = ?",
+            "SELECT FOLIO FROM dbo.ProduccionDetalles WHERE NOPEDIDO = ?",
             pedido_id,
         )
-        return [row.folio for row in cursor.fetchall()]
+        return [str(row.FOLIO) for row in cursor.fetchall()]
     except Exception as exc:
         logger.warning("Error consultando folios del pedido %s en Atalanta: %s", pedido_id, exc)
         return []
