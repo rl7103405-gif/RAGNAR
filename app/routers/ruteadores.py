@@ -73,6 +73,11 @@ def confirmar_ruteo(
         raise HTTPException(status_code=404, detail="Folio no encontrado")
     if bulto.peso_produccion is None:
         raise HTTPException(status_code=409, detail="El folio no tiene peso de producción")
+    if bulto.estatus in ("procesos_finales", "embarcado"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"El folio {bulto.folio} ya avanzó a '{bulto.estatus}' y no puede regresarse a ruteado",
+        )
 
     # Permite capturar manualmente los datos si Atalanta no está disponible.
     bulto.codigo_producto = datos.codigo_producto or bulto.codigo_producto
