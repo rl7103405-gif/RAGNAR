@@ -33,9 +33,21 @@ def manejar_no_autenticado(request: Request, exc: NoAutenticado):
     return RedirectResponse("/login", status_code=303)
 
 
+def _migraciones_ligeras():
+    """Agrega columnas nuevas a bases de datos creadas con versiones anteriores."""
+    from sqlalchemy import text, inspect
+    inspector = inspect(engine)
+    if "embarques" in inspector.get_table_names():
+        columnas = {c["name"] for c in inspector.get_columns("embarques")}
+        if "maquila" not in columnas:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE embarques ADD COLUMN maquila VARCHAR"))
+
+
 @app.on_event("startup")
 def iniciar_aplicacion():
     Base.metadata.create_all(bind=engine)
+    _migraciones_ligeras()
     db = SessionLocal()
     try:
         crear_usuarios_default(db)

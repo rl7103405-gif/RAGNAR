@@ -16,7 +16,7 @@ CARPETA_PDF = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__fil
 os.makedirs(CARPETA_PDF, exist_ok=True)
 
 
-def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str) -> str:
+def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str, maquila: str | None = None) -> str:
     """Genera el PDF del documento de salida y devuelve la ruta del archivo."""
     fecha = datetime.now()
     nombre_archivo = f"embarque_{pedido_id}_{fecha.strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -33,6 +33,8 @@ def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str) -> 
     elementos.append(Paragraph("Documento de Salida / Embarque", subtitulo_style))
     elementos.append(Spacer(1, 0.3 * cm))
     elementos.append(Paragraph(f"Pedido: {pedido_id}", styles["Normal"]))
+    if maquila:
+        elementos.append(Paragraph(f"Maquila / Destino: {maquila}", styles["Normal"]))
     elementos.append(Paragraph(f"Fecha y hora: {fecha.strftime('%d/%m/%Y %H:%M:%S')}", styles["Normal"]))
     elementos.append(Paragraph(f"Generado por: {operador}", styles["Normal"]))
     elementos.append(Spacer(1, 0.5 * cm))

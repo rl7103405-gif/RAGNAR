@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Bulto, Embarque
+from app.models import Bulto, Embarque, Maquila
 from app.auth import usuario_actual, usuario_actual_api
 from app.services.pdf_embarque import generar_pdf_embarque
 
@@ -115,8 +115,58 @@ def escanear_folio_embarque(
     }
 
 
+# ---------- Catalogo de maquilas (destinos) ----------
+
+@router.get("/api/embarque/maquilas")
+def listar_maquilas(db: Session = Depends(get_db), usuario: dict = Depends(usuario_actual_api)):
+    maquilas = db.query(Maquila).filter(Maquila.activo == True).order_by(Maquila.nombre).all()  # noqa: E712
+    return [{"id": m.id, "nombre": m.nombre} for m in maquilas]
+
+
+class NuevaMaquila(BaseModel):
+    nombre: str
+
+
+@router.post("/api/embarque/maquilas")
+def agregar_maquila(
+    datos: NuevaMaquila,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(usuario_actual_api),
+):
+    nombre = datos.nombre.strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail="El nombre de la maquila no puede estar vacío")
+    existente = db.query(Maquila).filter(Maquila.nombre == nombre).first()
+    if existente:
+        if existente.activo:
+            raise HTTPException(status_code=409, detail=f"La maquila '{nombre}' ya existe")
+        existente.activo = True  # reactivar si estaba desactivada
+        db.commit()
+        return {"ok": True, "id": existente.id, "nombre": existente.nombre}
+    maquila = Maquila(nombre=nombre, activo=True)
+    db.add(maquila)
+    db.commit()
+    db.refresh(maquila)
+    return {"ok": True, "id": maquila.id, "nombre": maquila.nombre}
+
+
+@router.delete("/api/embarque/maquilas/{maquila_id}")
+def desactivar_maquila(
+    maquila_id: int,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(usuario_actual_api),
+):
+    maquila = db.query(Maquila).filter(Maquila.id == maquila_id).first()
+    if maquila is None:
+        raise HTTPException(status_code=404, detail="Maquila no encontrada")
+    maquila.activo = False  # no se borra: los embarques viejos conservan su historial
+    db.commit()
+    return {"ok": True}
+
+
 class GenerarDocumento(BaseModel):
     pedido_id: str
+    maquila: str | None = None
 
 
 @router.post("/api/embarque/generar")
@@ -140,7 +190,9 @@ def generar_documento_embarque(
             detail=f"Todavía faltan {total_no_embarcados} folio(s) por escanear en este pedido",
         )
 
-    ruta_pdf = generar_pdf_embarque(datos.pedido_id, bultos, usuario["nombre_completo"])
+    maquila = (datos.maquila or "").strip() or None
+
+    ruta_pdf = generar_pdf_embarque(datos.pedido_id, bultos, usuario["nombre_completo"], maquila=maquila)
 
     total_docenas = sum(b.docenas or 0 for b in bultos)
     total_peso = sum((b.peso_procesos_finales or b.peso_produccion or 0) for b in bultos)
@@ -154,6 +206,7 @@ def generar_documento_embarque(
         documento_generado=True,
         ruta_documento=ruta_pdf,
         operador=usuario["nombre_completo"],
+        maquila=maquila,
     )
     db.add(embarque)
     db.commit()

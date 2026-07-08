@@ -17,6 +17,12 @@
         <tbody></tbody>
     </table>
     <br>
+    <label for="select-maquila">Maquila / Destino del embarque</label>
+    <select id="select-maquila">
+        <option value="">-- Selecciona la maquila --</option>
+    </select>
+    <button class="boton boton-secundario" id="btn-nueva-maquila" style="font-size:16px; padding:10px;">+ Agregar nueva maquila</button>
+    <br><br>
     <button class="boton boton-grande boton-verde" id="btn-generar" disabled>Generar documento de salida</button>
 </div>
 
@@ -30,8 +36,40 @@
 {% block script %}
 <script>
 const selectPedido = document.getElementById("select-pedido");
+const selectMaquila = document.getElementById("select-maquila");
 const campoFolio = document.getElementById("campo-folio");
 let pedidoActual = null;
+
+async function cargarMaquilas(seleccionar) {
+    try {
+        const maquilas = await llamarApi("/api/embarque/maquilas");
+        selectMaquila.innerHTML = '<option value="">-- Selecciona la maquila --</option>';
+        maquilas.forEach((m) => {
+            const opt = document.createElement("option");
+            opt.value = m.nombre;
+            opt.textContent = m.nombre;
+            selectMaquila.appendChild(opt);
+        });
+        if (seleccionar) selectMaquila.value = seleccionar;
+    } catch (e) {
+        mostrarMensaje("mensaje", e.message, "error");
+    }
+}
+
+document.getElementById("btn-nueva-maquila").addEventListener("click", async () => {
+    const nombre = prompt("Nombre de la nueva maquila / destino:");
+    if (!nombre || !nombre.trim()) return;
+    try {
+        const resultado = await llamarApi("/api/embarque/maquilas", {
+            method: "POST",
+            body: JSON.stringify({ nombre: nombre.trim() }),
+        });
+        await cargarMaquilas(resultado.nombre);
+        mostrarMensaje("mensaje", `Maquila "${resultado.nombre}" agregada.`, "exito");
+    } catch (e) {
+        mostrarMensaje("mensaje", e.message, "error");
+    }
+});
 
 async function cargarPedidos() {
     try {
@@ -101,10 +139,16 @@ campoFolio.addEventListener("keydown", async (ev) => {
 });
 
 document.getElementById("btn-generar").addEventListener("click", async () => {
+    const maquila = selectMaquila.value;
+    if (!maquila) {
+        mostrarMensaje("mensaje", "Selecciona la maquila / destino antes de generar el documento.", "alerta");
+        selectMaquila.focus();
+        return;
+    }
     try {
         const resultado = await llamarApi("/api/embarque/generar", {
             method: "POST",
-            body: JSON.stringify({ pedido_id: pedidoActual }),
+            body: JSON.stringify({ pedido_id: pedidoActual, maquila: maquila }),
         });
         document.getElementById("resumen-documento").textContent =
             `Bultos: ${resultado.total_bultos} | Docenas: ${resultado.total_docenas} | Peso: ${resultado.total_peso.toFixed(1)} g`;
@@ -118,5 +162,6 @@ document.getElementById("btn-generar").addEventListener("click", async () => {
 });
 
 cargarPedidos();
+cargarMaquilas();
 </script>
 {% endblock %}

@@ -67,6 +67,16 @@ class Embarque(Base):
     documento_generado = Column(Boolean, default=False)
     ruta_documento = Column(String, nullable=True)
     operador = Column(String, nullable=True)
+    maquila = Column(String, nullable=True)
+
+
+class Maquila(Base):
+    """Destinos de maquila. Catalogo administrable desde la propia app."""
+    __tablename__ = "maquilas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, unique=True, nullable=False)
+    activo = Column(Boolean, default=True)
 
 
 class ConfigRangoPeso(Base):
