@@ -96,13 +96,22 @@ def _solicitar_peso(conexion) -> None:
     conexion.write(COMANDO_SOLICITUD_PESO)
 
 app = FastAPI(title="Bascula Bridge - Deportivos Quini")
-# CORS restringido al origen real que sirve la app principal: la pagina que
-# el operador tiene abierta (http://localhost:<APP_PORT> o la IP de la LAN
-# del servidor central en ese mismo puerto) es la unica que legitimamente
-# necesita llamar a este bridge desde el navegador de esta PC.
+# CORS restringido a los origenes que legitimamente llaman a este bridge
+# desde el navegador de esta PC: la app vieja (FastAPI+Jinja, puerto
+# APP_PORT) y la app nueva RAGNAR-web (Firebase Hosting + servidor de
+# desarrollo local de Vite).
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=rf"^http://(localhost|127\.0\.0\.1|(\d{{1,3}}\.){{3}}\d{{1,3}}):{APP_PORT}$",
+    allow_origins=[
+        "https://quini-ragnar.web.app",
+        "https://quini-ragnar.firebaseapp.com",
+    ],
+    # El puerto de Vite (5173) es solo para desarrollo local: no se permite
+    # desde una IP de LAN, solo localhost/127.0.0.1. El puerto de la app
+    # vieja (APP_PORT) si acepta IP de LAN, porque otras PCs de la red
+    # acceden a ella por su IP.
+    allow_origin_regex=rf"^http://(localhost|127\.0\.0\.1):5173$"
+    rf"|^http://(localhost|127\.0\.0\.1|(\d{{1,3}}\.){{3}}\d{{1,3}}):{APP_PORT}$",
     allow_methods=["GET"],
     allow_headers=["*"],
 )

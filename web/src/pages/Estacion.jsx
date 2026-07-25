@@ -2,7 +2,7 @@
 // Firestore, imprime etiqueta (via bridge local de Zebra) y genera el PDF de
 // salida del dia -- reemplaza el paso manual de pasarselo a otra persona para
 // que arme el Excel.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   collection,
   doc,
@@ -18,6 +18,7 @@ import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { normalizarFolio, canonizarFolio, validarPesoGramos } from '../utils/validacion'
 import { imprimirEtiqueta } from '../utils/zebraBridge'
+import { leerPesoBascula, motivoLecturaInvalida } from '../utils/basculaBridge'
 import { generarPdfSalida } from '../utils/pdf'
 
 function inicioDeHoy() {
@@ -45,6 +46,8 @@ export default function Estacion() {
   const [capturas, setCapturas] = useState([])
   const [datosConfirmados, setDatosConfirmados] = useState(true)
   const [imprimiendoFolio, setImprimiendoFolio] = useState(null)
+  const [leyendoBascula, setLeyendoBascula] = useState(false)
+  const campoFolioRef = useRef(null)
 
   useEffect(() => {
     let cancelado = false
@@ -93,10 +96,42 @@ export default function Estacion() {
     }
   }, [])
 
+  // Igual que enfocarFolio() en el app.js original: reenfoca el campo de
+  // folio al volver a esta pestana/ventana, para que un lector de folios
+  // (que "escribe" en el campo con foco) siga funcionando sin tener que
+  // hacer clic primero.
+  useEffect(() => {
+    const reenfocar = () => campoFolioRef.current?.focus()
+    window.addEventListener('focus', reenfocar)
+    return () => window.removeEventListener('focus', reenfocar)
+  }, [])
+
   const totalKg = useMemo(
     () => capturas.reduce((acc, c) => acc + (c.pesoGramos || 0), 0) / 1000,
     [capturas]
   )
+
+  const onLeerBascula = async () => {
+    setError('')
+    setAviso('')
+    setLeyendoBascula(true)
+    try {
+      const lectura = await leerPesoBascula()
+      const motivo = motivoLecturaInvalida(lectura)
+      if (motivo) {
+        setError('Bascula: ' + motivo)
+        return
+      }
+      setPesoKg((lectura.peso / 1000).toFixed(2))
+    } catch (err) {
+      setError(
+        'No se pudo conectar con la bascula (bridge/bascula_bridge.py). ' +
+          (err.message || err)
+      )
+    } finally {
+      setLeyendoBascula(false)
+    }
+  }
 
   const onGuardar = async (e) => {
     e.preventDefault()
@@ -175,6 +210,9 @@ export default function Estacion() {
 
       setFolio('')
       setPesoKg('')
+      // Reenfoca el campo de folio para el siguiente escaneo (igual que el
+      // app.js original: campoFolio.focus() tras guardar).
+      campoFolioRef.current?.focus()
 
       // El folio ya quedo guardado, que es lo importante. Si falla la
       // impresion no se deshace el guardado: se avisa distinto y el
@@ -258,22 +296,35 @@ export default function Estacion() {
             <span>Folio</span>
             <input
               type="text"
+              ref={campoFolioRef}
               value={folio}
               onChange={(e) => setFolio(e.target.value)}
               autoFocus
+              autoComplete="off"
               required
             />
           </label>
           <label className="campo">
             <span>Peso (kg)</span>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={pesoKg}
-              onChange={(e) => setPesoKg(e.target.value)}
-              required
-            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={pesoKg}
+                onChange={(e) => setPesoKg(e.target.value)}
+                style={{ flex: 1 }}
+                required
+              />
+              <button
+                type="button"
+                className="btn-secundario"
+                onClick={onLeerBascula}
+                disabled={leyendoBascula}
+              >
+                {leyendoBascula ? 'Leyendo...' : 'Leer bascula'}
+              </button>
+            </div>
           </label>
 
           {error && <div className="alerta-error">{error}</div>}
