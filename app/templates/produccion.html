@@ -8,7 +8,7 @@
     <label for="campo-folio">Escanear folio</label>
     <input type="text" id="campo-folio" autofocus autocomplete="off" placeholder="Escanea el código de barras del folio">
 
-    <div class="peso-grande" id="peso-actual">--- g</div>
+    <div class="peso-grande" id="peso-actual">--- kg</div>
 
     <button class="boton boton-grande" id="btn-capturar-peso">Capturar peso</button>
     <br><br>
@@ -18,7 +18,7 @@
 <div class="tarjeta">
     <h3>Últimos folios pesados en esta estación</h3>
     <table id="tabla-recientes">
-        <thead><tr><th>Folio</th><th>Peso (g)</th><th>Hora</th></tr></thead>
+        <thead><tr><th>Folio</th><th>Peso (kg)</th><th>Hora</th></tr></thead>
         <tbody></tbody>
     </table>
 </div>
@@ -27,6 +27,7 @@
 {% block script %}
 <script>
 let pesoCapturado = null;
+let enviando = false;
 const recientes = [];
 
 const campoFolio = document.getElementById("campo-folio");
@@ -36,12 +37,16 @@ const btnGuardar = document.getElementById("btn-guardar");
 document.getElementById("btn-capturar-peso").addEventListener("click", async () => {
     try {
         const lectura = await leerPesoBascula();
-        if (lectura.error) {
-            mostrarMensaje("mensaje", "Báscula: " + lectura.error, "error");
+        if (lectura.error || lectura.peso === null || lectura.vigente === false || lectura.estable === false) {
+            const motivo = lectura.error
+                || (lectura.peso === null && "todavía no hay una lectura de peso. Verifica que el bulto esté sobre la báscula.")
+                || (lectura.vigente === false && "la báscula no ha enviado una lectura reciente. Verifica que esté encendida y conectada.")
+                || (lectura.estable === false && "espera a que la báscula estabilice antes de capturar.");
+            mostrarMensaje("mensaje", "Báscula: " + motivo, "error");
             return;
         }
         pesoCapturado = lectura.peso;
-        pesoActual.textContent = pesoCapturado.toFixed(1) + " g";
+        pesoActual.textContent = formatearKg(pesoCapturado);
         btnGuardar.disabled = !campoFolio.value.trim();
         ocultarMensaje("mensaje");
     } catch (e) {
@@ -50,27 +55,33 @@ document.getElementById("btn-capturar-peso").addEventListener("click", async () 
 });
 
 campoFolio.addEventListener("input", () => {
-    btnGuardar.disabled = !(campoFolio.value.trim() && pesoCapturado);
+    if (enviando) return;
+    btnGuardar.disabled = !(campoFolio.value.trim() && pesoCapturado !== null);
 });
 
 btnGuardar.addEventListener("click", async () => {
     const folio = campoFolio.value.trim();
-    if (!folio || !pesoCapturado) return;
+    const peso = pesoCapturado;
+    if (!folio || peso === null || enviando) return;
+    enviando = true;
+    btnGuardar.disabled = true; // evita doble clic / doble Enter
     try {
         const resultado = await llamarApi("/api/produccion/guardar", {
             method: "POST",
-            body: JSON.stringify({ folio: folio, peso: pesoCapturado }),
+            body: JSON.stringify({ folio: folio, peso: peso }),
         });
-        mostrarMensaje("mensaje", `Folio ${resultado.folio} guardado con peso ${resultado.peso_produccion.toFixed(1)} g`, "exito");
+        mostrarMensaje("mensaje", `Folio ${resultado.folio} guardado con peso ${formatearKg(resultado.peso_produccion)}`, "exito");
         recientes.unshift(resultado);
         actualizarTabla();
         campoFolio.value = "";
         pesoCapturado = null;
-        pesoActual.textContent = "--- g";
-        btnGuardar.disabled = true;
+        pesoActual.textContent = "--- kg";
         campoFolio.focus();
     } catch (e) {
         mostrarMensaje("mensaje", e.message, "error");
+        btnGuardar.disabled = false;
+    } finally {
+        enviando = false;
     }
 });
 
@@ -80,7 +91,7 @@ function actualizarTabla() {
     recientes.slice(0, 15).forEach((r) => {
         const tr = document.createElement("tr");
         const hora = new Date(r.timestamp).toLocaleTimeString();
-        tr.innerHTML = `<td>${r.folio}</td><td>${r.peso_produccion.toFixed(1)}</td><td>${hora}</td>`;
+        tr.innerHTML = `<td>${esc(r.folio)}</td><td>${kgTexto(r.peso_produccion)}</td><td>${hora}</td>`;
         tbody.appendChild(tr);
     });
 }

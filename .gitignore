@@ -2,8 +2,15 @@ __pycache__/
 *.pyc
 .env
 *.db
+*.db-*
 *.sqlite3
+*.sqlite3-*
 .venv/
 venv/
 *.log
 embarques_pdf/
+*.xlsx
+node_modules/
+web/dist/
+.firebase/
+serviceAccountKey.json

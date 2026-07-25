@@ -6,8 +6,13 @@
     <p>Selecciona una estación:</p>
 </div>
 <div class="grid-2">
+    {% if validacion_activa %}
+    <a class="boton" href="/validacion">Validación</a>
+    {% else %}
+    {# Ocultas mientras la estación de Validación está activa; se reactivan con VALIDACION_ACTIVA=false en .env #}
     <a class="boton" href="/produccion">Producción</a>
     <a class="boton" href="/ruteadores">Ruteadores</a>
+    {% endif %}
     <a class="boton" href="/procesos">Procesos Finales (América)</a>
     <a class="boton" href="/embarque">Embarque (América)</a>
     <a class="boton boton-secundario" href="/admin">Administración</a>

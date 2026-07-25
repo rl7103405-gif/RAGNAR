@@ -42,21 +42,31 @@ datos de pedido, etiqueta solo se genera en ZPL sin enviarse).
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-La base de datos SQLite (`quini_trazabilidad.db`) y los usuarios por
-defecto se crean automaticamente al primer arranque.
+La base de datos SQLite (`quini_trazabilidad.db`) y los usuarios se crean
+automaticamente al primer arranque, con contrasenas ALEATORIAS que se
+imprimen una sola vez en la consola del servidor. Para regenerarlas en
+cualquier momento:
+
+```bash
+python generar_credenciales.py
+```
+
+La app no arranca si `SECRET_KEY` esta vacio o con el valor de ejemplo;
+generar una clave unica con
+`python -c "import secrets; print(secrets.token_hex(32))"` y pegarla en `.env`.
 
 Desde otras PCs de la red, abrir en el navegador:
 `http://<IP-del-servidor>:8000`
 
-### Usuarios por defecto (cambiar en produccion)
+### Usuarios (cada uno solo puede entrar a su estacion; admin entra a todo)
 
-| Usuario | Contrasena | Estacion |
-|---|---|---|
-| produccion | produccion | Produccion |
-| ruteadores | ruteadores | Ruteadores |
-| america | america | Procesos finales |
-| embarque | embarque | Embarque |
-| admin | admin | Administracion |
+| Usuario | Estacion |
+|---|---|
+| produccion | Produccion |
+| ruteadores | Ruteadores |
+| america | Procesos finales |
+| embarque | Embarque |
+| admin | Administracion (acceso total) |
 
 ## Bascula (bridge local)
 

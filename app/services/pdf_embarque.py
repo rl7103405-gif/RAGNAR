@@ -1,6 +1,9 @@
 """Generacion del documento de salida (PDF) al completar un embarque."""
 import os
+import re
+import uuid
 from datetime import datetime
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -19,7 +22,8 @@ os.makedirs(CARPETA_PDF, exist_ok=True)
 def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str, maquila: str | None = None) -> str:
     """Genera el PDF del documento de salida y devuelve la ruta del archivo."""
     fecha = datetime.now()
-    nombre_archivo = f"embarque_{pedido_id}_{fecha.strftime('%Y%m%d_%H%M%S')}.pdf"
+    pedido_archivo = re.sub(r"[^A-Za-z0-9._-]+", "_", str(pedido_id)).strip("._")[:60] or "pedido"
+    nombre_archivo = f"embarque_{pedido_archivo}_{fecha.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.pdf"
     ruta = os.path.join(CARPETA_PDF, nombre_archivo)
 
     styles = getSampleStyleSheet()
@@ -32,14 +36,14 @@ def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str, maq
     elementos.append(Paragraph("DEPORTIVOS QUINI", titulo_style))
     elementos.append(Paragraph("Documento de Salida / Embarque", subtitulo_style))
     elementos.append(Spacer(1, 0.3 * cm))
-    elementos.append(Paragraph(f"Pedido: {pedido_id}", styles["Normal"]))
+    elementos.append(Paragraph(f"Pedido: {escape(str(pedido_id))}", styles["Normal"]))
     if maquila:
-        elementos.append(Paragraph(f"Maquila / Destino: {maquila}", styles["Normal"]))
+        elementos.append(Paragraph(f"Maquila / Destino: {escape(str(maquila))}", styles["Normal"]))
     elementos.append(Paragraph(f"Fecha y hora: {fecha.strftime('%d/%m/%Y %H:%M:%S')}", styles["Normal"]))
-    elementos.append(Paragraph(f"Generado por: {operador}", styles["Normal"]))
+    elementos.append(Paragraph(f"Generado por: {escape(str(operador))}", styles["Normal"]))
     elementos.append(Spacer(1, 0.5 * cm))
 
-    encabezados = ["Folio", "Código", "Docenas", "Peso (g)"]
+    encabezados = ["Folio", "Código", "Docenas", "Peso (kg)"]
     filas = [encabezados]
     total_docenas = 0.0
     total_peso = 0.0
@@ -52,7 +56,7 @@ def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str, maq
             b.folio,
             b.codigo_producto or "-",
             f"{docenas:g}",
-            f"{peso:,.1f}",
+            f"{peso / 1000:,.2f}",
         ])
 
     tabla = Table(filas, colWidths=[4 * cm, 5 * cm, 3 * cm, 3.5 * cm])
@@ -70,7 +74,6 @@ def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str, maq
     resumen = [
         ["Total de bultos", str(len(bultos))],
         ["Total de docenas", f"{total_docenas:g}"],
-        ["Total de peso (g)", f"{total_peso:,.1f}"],
         ["Total de peso (kg)", f"{total_peso / 1000:,.2f}"],
     ]
     tabla_resumen = Table(resumen, colWidths=[8 * cm, 5 * cm])
@@ -90,5 +93,12 @@ def generar_pdf_embarque(pedido_id: str, bultos: list[Bulto], operador: str, maq
     ]))
     elementos.append(tabla_firmas)
 
-    doc.build(elementos)
+    try:
+        doc.build(elementos)
+    except Exception:
+        try:
+            os.remove(ruta)
+        except OSError:
+            pass
+        raise
     return ruta

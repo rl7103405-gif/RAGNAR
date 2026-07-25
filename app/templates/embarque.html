@@ -13,7 +13,7 @@
     <input type="text" id="campo-folio" autocomplete="off" placeholder="Escanea el código de barras del folio">
     <p id="progreso-pedido" style="font-size:18px; font-weight:bold;"></p>
     <table id="tabla-folios">
-        <thead><tr><th>Folio</th><th>Producto</th><th>Docenas</th><th>Peso (g)</th><th>Estatus</th></tr></thead>
+        <thead><tr><th>Folio</th><th>Producto</th><th>Docenas</th><th>Peso (kg)</th><th>Estatus</th></tr></thead>
         <tbody></tbody>
     </table>
     <br>
@@ -110,56 +110,94 @@ async function refrescarPedido() {
             ? '<span class="estatus-badge estatus-verde">Embarcado</span>'
             : f.listo_para_embarcar
                 ? '<span class="estatus-badge estatus-amarillo">Listo</span>'
-                : '<span class="estatus-badge estatus-gris">' + f.estatus + '</span>';
-        tr.innerHTML = `<td>${f.folio}</td><td>${f.codigo_producto || "-"}</td><td>${f.docenas || "-"}</td><td>${f.peso ? f.peso.toFixed(1) : "-"}</td><td>${badge}</td>`;
+                : '<span class="estatus-badge estatus-gris">' + esc(f.estatus) + '</span>';
+        tr.innerHTML = `<td>${esc(f.folio)}</td><td>${esc(f.codigo_producto || "-")}</td><td>${f.docenas ?? "-"}</td><td>${kgTexto(f.peso)}</td><td>${badge}</td>`;
         tbody.appendChild(tr);
     });
     document.getElementById("progreso-pedido").textContent = `Escaneados: ${embarcados} / ${detalle.folios.length}`;
     document.getElementById("btn-generar").disabled = embarcados !== detalle.folios.length;
 }
 
+let escaneando = false; // evita que un doble Enter mande el mismo folio dos veces
+
 campoFolio.addEventListener("keydown", async (ev) => {
     if (ev.key !== "Enter") return;
     const folio = campoFolio.value.trim();
-    if (!folio || !pedidoActual) return;
+    if (!folio || !pedidoActual || escaneando) return;
+    escaneando = true;
     ocultarMensaje("mensaje");
     try {
         const resultado = await llamarApi("/api/embarque/escanear", {
             method: "POST",
             body: JSON.stringify({ folio, pedido_id: pedidoActual }),
         });
-        mostrarMensaje("mensaje", `Folio ${resultado.folio} validado y embarcado.`, "exito");
+        if (resultado.sin_referencia_folios) {
+            mostrarMensaje("mensaje",
+                `Folio ${resultado.folio} embarcado, pero SIN VERIFICAR contra el ruteo (no hay Atalanta ni Excel de folios importado para este pedido). Confirma manualmente que el pedido esté completo.`,
+                "alerta");
+        } else {
+            mostrarMensaje("mensaje", `Folio ${resultado.folio} validado y embarcado.`, "exito");
+        }
         await refrescarPedido();
         await cargarPedidos();
         selectPedido.value = pedidoActual;
     } catch (e) {
         mostrarMensaje("mensaje", e.message, "error");
+    } finally {
+        escaneando = false;
     }
     campoFolio.value = "";
 });
 
-document.getElementById("btn-generar").addEventListener("click", async () => {
+const btnGenerar = document.getElementById("btn-generar");
+
+async function generarDocumento(regenerar) {
     const maquila = selectMaquila.value;
     if (!maquila) {
         mostrarMensaje("mensaje", "Selecciona la maquila / destino antes de generar el documento.", "alerta");
         selectMaquila.focus();
         return;
     }
+    if (btnGenerar.disabled) return;
+    btnGenerar.disabled = true; // evita que un doble clic genere dos documentos
     try {
         const resultado = await llamarApi("/api/embarque/generar", {
             method: "POST",
-            body: JSON.stringify({ pedido_id: pedidoActual, maquila: maquila }),
+            body: JSON.stringify({ pedido_id: pedidoActual, maquila: maquila, regenerar: regenerar }),
         });
+
+        if (resultado.requiere_confirmacion) {
+            // Ya existe un documento para este pedido: mostrarlo y preguntar.
+            document.getElementById("link-documento").href = resultado.url_documento;
+            document.getElementById("tarjeta-documento").style.display = "block";
+            if (confirm(resultado.mensaje)) {
+                btnGenerar.disabled = false;
+                return generarDocumento(true);
+            }
+            mostrarMensaje("mensaje", "Se conserva el documento ya generado (disponible abajo).", "info");
+            return;
+        }
+
         document.getElementById("resumen-documento").textContent =
-            `Bultos: ${resultado.total_bultos} | Docenas: ${resultado.total_docenas} | Peso: ${resultado.total_peso.toFixed(1)} g`;
+            `Bultos: ${resultado.total_bultos} | Docenas: ${resultado.total_docenas} | Peso: ${formatearKg(resultado.total_peso)}`;
         document.getElementById("link-documento").href = resultado.url_documento;
         document.getElementById("tarjeta-documento").style.display = "block";
-        mostrarMensaje("mensaje", "Documento de embarque generado correctamente.", "exito");
+        if (resultado.sin_referencia_folios) {
+            mostrarMensaje("mensaje",
+                "Documento generado, pero SIN VERIFICAR el universo de folios del pedido (no hay Atalanta ni Excel de ruteo importado). Revisa manualmente que no falte ningún bulto.",
+                "alerta");
+        } else {
+            mostrarMensaje("mensaje", "Documento de embarque generado correctamente.", "exito");
+        }
         await cargarPedidos();
     } catch (e) {
         mostrarMensaje("mensaje", e.message, "error");
+    } finally {
+        btnGenerar.disabled = false;
     }
-});
+}
+
+btnGenerar.addEventListener("click", () => generarDocumento(false));
 
 cargarPedidos();
 cargarMaquilas();

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Genera el manual de capacitación imprimible (una hoja por estación)."""
+import os
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import cm
@@ -8,7 +10,7 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 )
 
-SALIDA = "/tmp/claude-0/-home-user-RAGNAR/e4dddf11-d729-5173-832a-239ef7440772/scratchpad/capacitacion_quini.pdf"
+SALIDA = os.path.join(os.path.dirname(__file__), "capacitacion_quini.pdf")
 
 AZUL = colors.HexColor("#1c2833")
 VERDE = colors.HexColor("#27ae60")

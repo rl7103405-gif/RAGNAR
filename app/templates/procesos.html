@@ -13,7 +13,7 @@
     <div class="fila-datos"><span class="etiqueta">Folio</span><span class="valor" id="d-folio"></span></div>
     <div class="fila-datos"><span class="etiqueta">Peso en producción</span><span class="valor" id="d-peso-prod"></span></div>
 
-    <div class="peso-grande" id="peso-actual">--- g</div>
+    <div class="peso-grande" id="peso-actual">--- kg</div>
     <button class="boton boton-grande" id="btn-capturar-peso">Capturar peso actual</button>
 
     <div id="comparacion" style="display:none; margin-top:20px;">
@@ -32,8 +32,15 @@
 <script>
 const campoFolio = document.getElementById("campo-folio");
 const tarjetaDetalle = document.getElementById("tarjeta-detalle");
+const btnGuardar = document.getElementById("btn-guardar");
+const btnConfirmarFueraRango = document.getElementById("btn-confirmar-fuera-rango");
 let folioActual = null;
 let pesoCapturado = null;
+// Peso de producción en gramos, guardado aparte del DOM: el texto visible está
+// en kg y usarlo como fuente de datos rompería el cálculo de diferencia.
+let pesoProduccionGramos = null;
+let sobrescribirAceptado = false; // el operador ya confirmó sobrescribir una re-captura
+let marcaSobrescribir = null;
 
 campoFolio.addEventListener("keydown", async (ev) => {
     if (ev.key !== "Enter") return;
@@ -44,9 +51,12 @@ campoFolio.addEventListener("keydown", async (ev) => {
         const datos = await llamarApi(`/api/procesos/consultar/${encodeURIComponent(folio)}`);
         folioActual = folio;
         pesoCapturado = null;
+        sobrescribirAceptado = false;
+        marcaSobrescribir = null;
+        pesoProduccionGramos = datos.peso_produccion;
         document.getElementById("d-folio").textContent = datos.folio;
-        document.getElementById("d-peso-prod").textContent = datos.peso_produccion.toFixed(1) + " g";
-        document.getElementById("peso-actual").textContent = "--- g";
+        document.getElementById("d-peso-prod").textContent = formatearKg(datos.peso_produccion);
+        document.getElementById("peso-actual").textContent = "--- kg";
         document.getElementById("comparacion").style.display = "none";
         tarjetaDetalle.style.display = "block";
         if (datos.ya_procesado) {
@@ -62,20 +72,27 @@ campoFolio.addEventListener("keydown", async (ev) => {
 document.getElementById("btn-capturar-peso").addEventListener("click", async () => {
     try {
         const lectura = await leerPesoBascula();
-        if (lectura.error) {
-            mostrarMensaje("mensaje", "Báscula: " + lectura.error, "error");
+        if (lectura.error || lectura.peso === null || lectura.vigente === false || lectura.estable === false) {
+            const motivo = lectura.error
+                || (lectura.peso === null && "todavía no hay una lectura de peso. Verifica que el bulto esté sobre la báscula.")
+                || (lectura.vigente === false && "la báscula no ha enviado una lectura reciente. Verifica que esté encendida y conectada.")
+                || (lectura.estable === false && "espera a que la báscula estabilice antes de capturar.");
+            mostrarMensaje("mensaje", "Báscula: " + motivo, "error");
             return;
         }
         pesoCapturado = lectura.peso;
-        document.getElementById("peso-actual").textContent = pesoCapturado.toFixed(1) + " g";
+        document.getElementById("peso-actual").textContent = formatearKg(pesoCapturado);
         document.getElementById("comparacion").style.display = "block";
         document.getElementById("bloque-confirmacion").style.display = "none";
         document.getElementById("resultado-comparacion").style.display = "none";
 
-        const pesoProd = parseFloat(document.getElementById("d-peso-prod").textContent);
-        const diferencia = pesoProd - pesoCapturado;
-        const porcentaje = (diferencia / pesoProd) * 100;
-        document.getElementById("d-diferencia").textContent = `${diferencia.toFixed(1)} g (${porcentaje.toFixed(2)}%)`;
+        if (!Number.isFinite(pesoProduccionGramos) || pesoProduccionGramos <= 0) {
+            mostrarMensaje("mensaje", "El peso de producción registrado no es válido.", "error");
+            return;
+        }
+        const diferenciaGramos = pesoProduccionGramos - pesoCapturado;
+        const porcentaje = (diferenciaGramos / pesoProduccionGramos) * 100;
+        document.getElementById("d-diferencia").textContent = `${formatearKg(diferenciaGramos)} (${porcentaje.toFixed(2)}%)`;
     } catch (e) {
         mostrarMensaje("mensaje", "No se pudo conectar con la báscula (bascula_bridge.py). " + e.message, "error");
     }
@@ -83,6 +100,9 @@ document.getElementById("btn-capturar-peso").addEventListener("click", async () 
 
 async function guardarPeso(confirmarFueraDeRango) {
     if (!folioActual || pesoCapturado === null) return;
+    if (btnGuardar.disabled && btnConfirmarFueraRango.disabled) return; // ya hay un envío en curso
+    btnGuardar.disabled = true;
+    btnConfirmarFueraRango.disabled = true;
     try {
         const resultado = await llamarApi("/api/procesos/guardar", {
             method: "POST",
@@ -90,8 +110,22 @@ async function guardarPeso(confirmarFueraDeRango) {
                 folio: folioActual,
                 peso: pesoCapturado,
                 confirmar_fuera_de_rango: confirmarFueraDeRango,
+                sobrescribir: sobrescribirAceptado,
+                marca_confirmada: marcaSobrescribir,
             }),
         });
+
+        if (resultado.requiere_sobrescribir) {
+            marcaSobrescribir = resultado.marca;
+            if (confirm(resultado.mensaje)) {
+                sobrescribirAceptado = true;
+                btnGuardar.disabled = false;
+                btnConfirmarFueraRango.disabled = false;
+                return guardarPeso(confirmarFueraDeRango);
+            }
+            mostrarMensaje("mensaje", "Captura cancelada: el peso anterior se conserva.", "info");
+            return;
+        }
 
         if (resultado.requiere_confirmacion) {
             document.getElementById("resultado-comparacion").className = "mensaje alerta";
@@ -102,7 +136,7 @@ async function guardarPeso(confirmarFueraDeRango) {
         }
 
         let tipo = "exito";
-        let texto = `Folio ${resultado.folio} guardado. Diferencia: ${resultado.diferencia_gramos.toFixed(1)} g (${resultado.diferencia_porcentaje.toFixed(2)}%).`;
+        let texto = `Folio ${resultado.folio} guardado. Diferencia: ${formatearKg(resultado.diferencia_gramos)} (${resultado.diferencia_porcentaje.toFixed(2)}%).`;
         if (resultado.fase === "calibracion") {
             texto += " (Fase de calibración - sin alertas)";
             tipo = "info";
@@ -116,8 +150,14 @@ async function guardarPeso(confirmarFueraDeRango) {
         campoFolio.focus();
         folioActual = null;
         pesoCapturado = null;
+        pesoProduccionGramos = null;
+        sobrescribirAceptado = false;
+        marcaSobrescribir = null;
     } catch (e) {
         mostrarMensaje("mensaje", e.message, "error");
+    } finally {
+        btnGuardar.disabled = false;
+        btnConfirmarFueraRango.disabled = false;
     }
 }
 

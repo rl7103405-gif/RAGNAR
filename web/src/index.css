@@ -1,0 +1,217 @@
+/* Mismos tokens de diseno que captura-mecanicos: acento azul, fondo claro,
+   botones grandes para tablet. */
+
+:root {
+  --azul: #1d4ed8;
+  --azul-osc: #1e40af;
+  --fondo: #f8fafc;
+  --superficie: #ffffff;
+  --borde: #e2e8f0;
+  --texto: #0f172a;
+  --texto-suave: #64748b;
+  --error: #dc2626;
+  --error-bg: #fef2f2;
+  --radio: 12px;
+  --sombra: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--fondo);
+  color: var(--texto);
+  -webkit-font-smoothing: antialiased;
+}
+
+.layout {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.barra-superior {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--superficie);
+  border-bottom: 1px solid var(--borde);
+  box-shadow: var(--sombra);
+}
+
+.barra-titulo {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.barra-usuario {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.usuario-nombre {
+  font-weight: 600;
+}
+
+.contenido {
+  flex: 1;
+  padding: 18px;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.tarjeta {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 22px;
+}
+
+.centro-pantalla {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+}
+
+.login-titulo {
+  margin: 0 0 4px;
+  font-size: 1.4rem;
+  text-align: center;
+}
+
+.login-sub {
+  margin: 0 0 22px;
+  text-align: center;
+  color: var(--texto-suave);
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.campo input {
+  padding: 14px;
+  font-size: 1rem;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--texto);
+}
+
+.campo input:focus {
+  outline: none;
+  border-color: var(--azul);
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.15);
+}
+
+.btn-primario {
+  background: var(--azul);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn-primario:hover {
+  background: var(--azul-osc);
+}
+
+.btn-primario:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.btn-grande {
+  width: 100%;
+  padding: 16px;
+  font-size: 1.05rem;
+  min-height: 52px;
+}
+
+.btn-secundario {
+  background: transparent;
+  color: var(--azul);
+  border: 1px solid var(--azul);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-height: 40px;
+}
+
+.btn-secundario:hover {
+  background: #eff6ff;
+}
+
+.btn-salir {
+  background: transparent;
+  color: var(--texto-suave);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.btn-salir:hover {
+  background: var(--fondo);
+  color: var(--texto);
+}
+
+.alerta-error {
+  background: var(--error-bg);
+  color: var(--error);
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+
+.alerta-exito {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+
+table th, table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--borde);
+  font-size: 0.9rem;
+}

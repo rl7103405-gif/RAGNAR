@@ -14,5 +14,5 @@ echo Servidor corriendo en http://localhost:8000
 echo Para detenerlo: cierra esta ventana o presiona Ctrl+C
 echo.
 
-.venv\Scripts\uvicorn app.main:app --host 0.0.0.0 --port 8000
+.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 pause

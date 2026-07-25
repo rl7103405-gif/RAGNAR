@@ -28,6 +28,7 @@
 const campoFolio = document.getElementById("campo-folio");
 const tarjetaDetalle = document.getElementById("tarjeta-detalle");
 let folioActual = null;
+let marcaSobrescribir = null;
 
 campoFolio.addEventListener("keydown", async (ev) => {
     if (ev.key !== "Enter") return;
@@ -35,12 +36,13 @@ campoFolio.addEventListener("keydown", async (ev) => {
     if (!folio) return;
     ocultarMensaje("mensaje");
     try {
-        const datos = await llamarApi(`/api/ruteadores/consultar/${encodeURIComponent(folio)}`);
+        const datos = await llamarApi(`/api/ruteadores/consultar/${encodeURIComponent(folio)}`, { method: "POST" });
         folioActual = folio;
+        marcaSobrescribir = null;
         document.getElementById("d-folio").textContent = datos.folio;
-        document.getElementById("d-peso").textContent = datos.peso_produccion.toFixed(1) + " g";
+        document.getElementById("d-peso").textContent = formatearKg(datos.peso_produccion);
         document.getElementById("d-codigo").value = datos.codigo_producto || "";
-        document.getElementById("d-docenas").value = datos.docenas || "";
+        document.getElementById("d-docenas").value = datos.docenas ?? "";
         document.getElementById("d-pedido").value = datos.pedido_id || "";
         document.getElementById("d-cliente").value = datos.cliente || "";
         document.getElementById("d-fecha").textContent = datos.fecha_entrega || "-";
@@ -56,8 +58,11 @@ campoFolio.addEventListener("keydown", async (ev) => {
     }
 });
 
-document.getElementById("btn-confirmar").addEventListener("click", async () => {
-    if (!folioActual) return;
+const btnConfirmar = document.getElementById("btn-confirmar");
+
+async function confirmarRuteo(sobrescribir) {
+    if (!folioActual || btnConfirmar.disabled) return;
+    btnConfirmar.disabled = true; // evita doble clic
     try {
         const resultado = await llamarApi("/api/ruteadores/confirmar", {
             method: "POST",
@@ -67,8 +72,21 @@ document.getElementById("btn-confirmar").addEventListener("click", async () => {
                 docenas: document.getElementById("d-docenas").value ? parseFloat(document.getElementById("d-docenas").value) : null,
                 pedido_id: document.getElementById("d-pedido").value || null,
                 cliente: document.getElementById("d-cliente").value || null,
+                sobrescribir: sobrescribir,
+                marca_confirmada: marcaSobrescribir,
             }),
         });
+
+        if (resultado.requiere_sobrescribir) {
+            marcaSobrescribir = resultado.marca;
+            if (confirm(resultado.mensaje)) {
+                btnConfirmar.disabled = false;
+                return confirmarRuteo(true);
+            }
+            mostrarMensaje("mensaje", "Re-ruteo cancelado: los datos anteriores se conservan.", "info");
+            return;
+        }
+
         const tipoMensaje = resultado.impresion.enviado ? "exito" : "alerta";
         mostrarMensaje("mensaje", `Folio ${resultado.folio} ruteado. ${resultado.impresion.mensaje}`, tipoMensaje);
         tarjetaDetalle.style.display = "none";
@@ -77,7 +95,11 @@ document.getElementById("btn-confirmar").addEventListener("click", async () => {
         folioActual = null;
     } catch (e) {
         mostrarMensaje("mensaje", e.message, "error");
+    } finally {
+        btnConfirmar.disabled = false;
     }
-});
+}
+
+btnConfirmar.addEventListener("click", () => confirmarRuteo(false));
 </script>
 {% endblock %}

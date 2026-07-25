@@ -14,17 +14,23 @@ de peso entre las dos estaciones. Eso es normal. Lo que este modulo hace es:
      con confirmacion manual del operador.
 """
 import statistics
+import math
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.database import flush_seguro
 from app.models import Bulto, ConfigRangoPeso
 
 
 def calcular_diferencia(peso_produccion: float, peso_procesos_finales: float) -> tuple[float, float]:
+    if not math.isfinite(peso_produccion) or peso_produccion <= 0:
+        raise ValueError("El peso de producción debe ser un número finito mayor que cero")
+    if not math.isfinite(peso_procesos_finales) or peso_procesos_finales <= 0:
+        raise ValueError("El peso de procesos finales debe ser un número finito mayor que cero")
     diferencia_gramos = round(peso_produccion - peso_procesos_finales, 2)
-    diferencia_porcentaje = round((diferencia_gramos / peso_produccion) * 100, 3) if peso_produccion else 0.0
+    diferencia_porcentaje = round((diferencia_gramos / peso_produccion) * 100, 3)
     return diferencia_gramos, diferencia_porcentaje
 
 
@@ -78,11 +84,16 @@ def evaluar_peso_final(db: Session, bulto: Bulto) -> dict:
     bulto.diferencia_porcentaje = diferencia_porcentaje
     bulto.diferencia_alerta = None
 
-    muestras_previas = _bultos_calibracion_previos(db)
-    total_muestras = len(muestras_previas)  # el bulto actual ya se cuenta si ya se hizo flush
+    # El bulto actual cuenta como muestra: su diferencia aun no esta en la BD
+    # (autoflush=False), asi que se agrega explicitamente. En una re-captura la
+    # consulta si lo devuelve (identity map), de ahi la verificacion.
+    muestras = _bultos_calibracion_previos(db)
+    if bulto not in muestras:
+        muestras = muestras + [bulto]
+    total_muestras = len(muestras)
 
     if total_muestras >= settings.BULTOS_CALIBRACION:
-        _calcular_y_activar_rango(db, muestras_previas[: settings.BULTOS_CALIBRACION])
+        _calcular_y_activar_rango(db, muestras[: settings.BULTOS_CALIBRACION])
         return {
             "fase": "calibracion_completa",
             "diferencia_gramos": diferencia_gramos,
@@ -123,5 +134,5 @@ def _calcular_y_activar_rango(db: Session, muestras: list[Bulto]) -> ConfigRango
         activo=True,
     )
     db.add(config)
-    db.flush()
+    flush_seguro(db)
     return config

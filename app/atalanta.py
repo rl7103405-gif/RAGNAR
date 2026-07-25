@@ -54,6 +54,7 @@ def _get_connection():
         f"DATABASE={settings.SQL_DATABASE};"
         f"UID={settings.SQL_USER};"
         f"PWD={settings.SQL_PASSWORD};"
+        f"Encrypt=yes;"
         f"TrustServerCertificate=yes;"
     )
     try:
@@ -78,7 +79,7 @@ def consultar_folio(folio: str) -> dict | None:
     """
     try:
         folio_num = int(str(folio).strip())
-    except ValueError:
+    except (TypeError, ValueError):
         logger.warning("Folio no numerico recibido para Atalanta: %r", folio)
         return None
 
@@ -99,6 +100,7 @@ def consultar_folio(folio: str) -> dict | None:
             FROM dbo.ProduccionDetalles pd
             LEFT JOIN dbo.Pedidos p ON p.NoPedido = pd.NOPEDIDO
             WHERE pd.FOLIO = ?
+            ORDER BY pd.NOPEDIDO DESC
             """,
             folio_num,
         )
@@ -131,7 +133,7 @@ def consultar_folios_de_pedido(pedido_id: str) -> list[str]:
             "SELECT FOLIO FROM dbo.ProduccionDetalles WHERE NOPEDIDO = ?",
             pedido_id,
         )
-        return [str(row.FOLIO) for row in cursor.fetchall()]
+        return [str(row.FOLIO) for row in cursor.fetchall() if row.FOLIO is not None]
     except Exception as exc:
         logger.warning("Error consultando folios del pedido %s en Atalanta: %s", pedido_id, exc)
         return []

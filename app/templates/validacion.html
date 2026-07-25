@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block titulo %}Validación - Deportivos Quini{% endblock %}
+{% block nombre_estacion %}Validación{% endblock %}
+{% block contenido %}
+<div class="tarjeta">
+    <div id="mensaje" class="mensaje" style="display:none;"></div>
+    {% if modo == "observacion" %}
+    <div class="mensaje info">Modo observación: se registra la diferencia contra el peso teórico pero ningún bulto se retiene (fase de calibración del multiplicador).</div>
+    {% endif %}
+
+    <label for="campo-folio">Escanear folio</label>
+    <input type="text" id="campo-folio" autofocus autocomplete="off" placeholder="Escanea el código de barras del folio">
+</div>
+
+<div class="tarjeta" id="tarjeta-detalle" style="display:none;">
+    <div class="fila-datos"><span class="etiqueta">Folio</span><span class="valor" id="d-folio"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Código de producto</span><span class="valor" id="d-codigo"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Docenas</span><span class="valor" id="d-docenas"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Pedido</span><span class="valor" id="d-pedido"></span></div>
+    <div class="fila-datos"><span class="etiqueta">Peso teórico</span><span class="valor" id="d-teorico"></span></div>
+
+    <div class="peso-grande" id="peso-actual">--- kg</div>
+    <button class="boton boton-grande" id="btn-capturar-peso">Capturar peso</button>
+
+    <div id="comparacion" style="display:none; margin-top:20px;">
+        <div class="fila-datos"><span class="etiqueta">Diferencia vs teórico</span><span class="valor" id="d-diferencia"></span></div>
+        <button class="boton boton-verde" id="btn-guardar" style="margin-top:10px;">Validar y guardar</button>
+    </div>
+    <button class="boton boton-secundario" id="btn-reimprimir" style="display:none; margin-top:10px;">Reimprimir etiqueta</button>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const campoFolio = document.getElementById("campo-folio");
+const tarjetaDetalle = document.getElementById("tarjeta-detalle");
+const btnGuardar = document.getElementById("btn-guardar");
+const btnReimprimir = document.getElementById("btn-reimprimir");
+let folioActual = null;
+let pesoCapturado = null;
+let pesoTeoricoGramos = null;
+let sobrescribirAceptado = false;
+let marcaSobrescribir = null;
+
+campoFolio.addEventListener("keydown", async (ev) => {
+    if (ev.key !== "Enter") return;
+    if (enviando) return; // evita escanear un folio nuevo mientras se guarda el anterior
+    const folio = campoFolio.value.trim();
+    if (!folio) return;
+    ocultarMensaje("mensaje");
+    try {
+        const datos = await llamarApi(`/api/validacion/consultar/${encodeURIComponent(folio)}`);
+        folioActual = datos.folio;
+        pesoCapturado = null;
+        pesoTeoricoGramos = datos.peso_teorico;
+        sobrescribirAceptado = false;
+        document.getElementById("d-folio").textContent = datos.folio;
+        document.getElementById("d-codigo").textContent = datos.codigo_producto;
+        document.getElementById("d-docenas").textContent = datos.docenas;
+        document.getElementById("d-pedido").textContent = datos.pedido_id || "-";
+        document.getElementById("d-teorico").textContent = formatearKg(datos.peso_teorico);
+        document.getElementById("peso-actual").textContent = "--- kg";
+        document.getElementById("comparacion").style.display = "none";
+        btnReimprimir.style.display = datos.estatus_actual === "validado" ? "inline-block" : "none";
+        tarjetaDetalle.style.display = "block";
+        if (datos.ya_avanzo) {
+            mostrarMensaje("mensaje", `El folio ${datos.folio} ya avanzó a ${datos.estatus_actual} y no puede revalidarse.`, "alerta");
+        } else if (datos.estatus_actual === "retenido") {
+            mostrarMensaje("mensaje", `El folio ${datos.folio} está RETENIDO. Un administrador puede liberarlo, o captura un nuevo peso para revalidar.`, "alerta");
+        } else if (datos.ya_validado) {
+            mostrarMensaje("mensaje", `El folio ${datos.folio} ya fue validado. Si capturas de nuevo se pedirá confirmación.`, "info");
+        }
+    } catch (e) {
+        tarjetaDetalle.style.display = "none";
+        folioActual = null;
+        pesoCapturado = null;
+        pesoTeoricoGramos = null;
+        sobrescribirAceptado = false;
+        mostrarMensaje("mensaje", e.message, "error");
+        campoFolio.value = "";
+    }
+});
+
+document.getElementById("btn-capturar-peso").addEventListener("click", async () => {
+    try {
+        const lectura = await leerPesoBascula();
+        if (lectura.error || lectura.peso === null || lectura.vigente === false || lectura.estable === false) {
+            const motivo = lectura.error
+                || (lectura.peso === null && "todavía no hay una lectura de peso. Verifica que el bulto esté sobre la báscula.")
+                || (lectura.vigente === false && "la báscula no ha enviado una lectura reciente. Verifica que esté encendida y conectada.")
+                || (lectura.estable === false && "espera a que la báscula estabilice antes de capturar.");
+            mostrarMensaje("mensaje", "Báscula: " + motivo, "error");
+            return;
+        }
+        pesoCapturado = lectura.peso;
+        document.getElementById("peso-actual").textContent = formatearKg(pesoCapturado);
+        if (Number.isFinite(pesoTeoricoGramos) && pesoTeoricoGramos > 0) {
+            const difPct = ((pesoCapturado - pesoTeoricoGramos) / pesoTeoricoGramos) * 100;
+            document.getElementById("d-diferencia").textContent =
+                `${formatearKg(pesoCapturado - pesoTeoricoGramos)} (${difPct >= 0 ? "+" : ""}${difPct.toFixed(2)}%)`;
+        }
+        document.getElementById("comparacion").style.display = "block";
+        ocultarMensaje("mensaje");
+    } catch (e) {
+        mostrarMensaje("mensaje", "No se pudo conectar con la báscula (bascula_bridge.py). " + e.message, "error");
+    }
+});
+
+let enviando = false;
+async function guardarValidacion() {
+    if (!folioActual || pesoCapturado === null || enviando) return;
+    enviando = true;
+    btnGuardar.disabled = true;
+    campoFolio.disabled = true;
+    try {
+        const resultado = await llamarApi("/api/validacion/guardar", {
+            method: "POST",
+            body: JSON.stringify({
+                folio: folioActual,
+                peso: pesoCapturado,
+                sobrescribir: sobrescribirAceptado,
+                marca_confirmada: marcaSobrescribir,
+            }),
+        });
+
+        if (resultado.requiere_sobrescribir) {
+            marcaSobrescribir = resultado.marca;
+            if (confirm(resultado.mensaje)) {
+                sobrescribirAceptado = true;
+                enviando = false;
+                btnGuardar.disabled = false;
+                campoFolio.disabled = false;
+                return guardarValidacion();
+            }
+            mostrarMensaje("mensaje", "Captura cancelada: la validación anterior se conserva.", "info");
+            return;
+        }
+
+        const dif = `${resultado.diferencia_porcentaje >= 0 ? "+" : ""}${resultado.diferencia_porcentaje.toFixed(2)}%`;
+        if (resultado.retenido) {
+            mostrarMensaje("mensaje",
+                `Folio ${resultado.folio} RETENIDO: pesó ${formatearKg(resultado.peso)} contra ${formatearKg(resultado.peso_teorico)} teórico (${dif}, tolerancia ±${resultado.tolerancia_porcentaje}%). ` +
+                "Separa el bulto físicamente; un administrador puede liberarlo.", "error");
+        } else {
+            let texto = `Folio ${resultado.folio} VALIDADO (${dif} vs teórico).`;
+            if (resultado.fuera_de_tolerancia && resultado.modo === "observacion") {
+                texto += " Fuera de tolerancia, registrado sin retener (modo observación).";
+            }
+            if (resultado.impresion) {
+                texto += resultado.impresion.enviado
+                    ? " Etiqueta impresa."
+                    : ` Etiqueta NO impresa: ${resultado.impresion.mensaje}`;
+            }
+            mostrarMensaje("mensaje", texto, resultado.fuera_de_tolerancia ? "alerta" : "exito");
+        }
+        tarjetaDetalle.style.display = "none";
+        campoFolio.value = "";
+        campoFolio.focus();
+        folioActual = null;
+        pesoCapturado = null;
+        pesoTeoricoGramos = null;
+        sobrescribirAceptado = false;
+        marcaSobrescribir = null;
+    } catch (e) {
+        mostrarMensaje("mensaje", e.message, "error");
+    } finally {
+        enviando = false;
+        btnGuardar.disabled = false;
+        campoFolio.disabled = false;
+        campoFolio.focus();
+    }
+}
+
+btnGuardar.addEventListener("click", guardarValidacion);
+
+btnReimprimir.addEventListener("click", async () => {
+    if (!folioActual) return;
+    btnReimprimir.disabled = true;
+    try {
+        const resultado = await llamarApi("/api/validacion/reimprimir", {
+            method: "POST",
+            body: JSON.stringify({ folio: folioActual }),
+        });
+        mostrarMensaje("mensaje", resultado.impresion.enviado
+            ? "Etiqueta reimpresa."
+            : `No se pudo imprimir: ${resultado.impresion.mensaje}`, resultado.impresion.enviado ? "exito" : "error");
+    } catch (e) {
+        mostrarMensaje("mensaje", e.message, "error");
+    } finally {
+        btnReimprimir.disabled = false;
+    }
+});
+</script>
+{% endblock %}

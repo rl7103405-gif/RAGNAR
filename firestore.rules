@@ -1,0 +1,55 @@
+rules_version = '2';
+
+// Reglas minimas para la prueba de una sola estacion. El perfil (activo) vive
+// en usuarios/{uid}. Mientras solo exista la cuenta compartida "estacion",
+// cualquier usuario autenticado con perfil activo puede leer/escribir bultos.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estaAutenticado() {
+      return request.auth != null;
+    }
+
+    function perfilActivo() {
+      return estaAutenticado()
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+        && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.activo == true;
+    }
+
+    // Cada quien lee su propio perfil. Nadie escribe desde el cliente: las
+    // altas se hacen con scripts/provisionar_usuario.mjs.
+    match /usuarios/{uid} {
+      allow read: if request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Capturas de folio + peso de la estacion unica de prueba. Se valida
+    // el contenido para que nadie pueda suplantar operadorUid, falsificar
+    // creadoEn, cambiar el folio del documento o vaciar campos.
+    match /bultos/{folio} {
+      allow read: if perfilActivo();
+      allow create: if perfilActivo()
+        && request.resource.data.folio == folio
+        && request.resource.data.folio is string
+        && request.resource.data.folio.size() > 0
+        && request.resource.data.folio.size() <= 50
+        && request.resource.data.pesoGramos is number
+        && request.resource.data.pesoGramos > 0
+        && request.resource.data.pesoGramos <= 100000
+        && request.resource.data.operadorUid == request.auth.uid
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.keys().hasOnly(['folio', 'pesoGramos', 'operadorUid', 'operadorNombre', 'creadoEn']);
+      allow update: if perfilActivo()
+        && request.resource.data.folio == resource.data.folio
+        && request.resource.data.pesoGramos is number
+        && request.resource.data.pesoGramos > 0
+        && request.resource.data.pesoGramos <= 100000
+        && request.resource.data.operadorUid == request.auth.uid
+        // creadoEn representa cuando se capturo por primera vez, no la
+        // ultima edicion: se preserva el valor original del documento.
+        && request.resource.data.creadoEn == resource.data.creadoEn
+        && request.resource.data.keys().hasOnly(['folio', 'pesoGramos', 'operadorUid', 'operadorNombre', 'creadoEn']);
+      allow delete: if false;
+    }
+  }
+}

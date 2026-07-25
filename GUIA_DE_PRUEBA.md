@@ -21,13 +21,17 @@ Luego abre el navegador en: **http://localhost:8000**
 
 ## 3. Usuarios de prueba
 
-| Usuario | Contraseña | Estación |
-|---|---|---|
-| produccion | produccion | Producción |
-| ruteadores | ruteadores | Ruteadores |
-| america | america | Procesos finales |
-| embarque | embarque | Embarque |
-| admin | admin | Administración |
+| Usuario | Estación |
+|---|---|
+| produccion | Producción |
+| ruteadores | Ruteadores |
+| america | Procesos finales |
+| embarque | Embarque |
+| admin | Administración |
+
+Las contraseñas son aleatorias y se generan al primer arranque (o corriendo
+`python generar_credenciales.py`): no son iguales al nombre de usuario. Anótalas
+cuando el programa las muestre; no se vuelven a mostrar.
 
 ## 4. Flujo de prueba sugerido (10 minutos)
 
@@ -68,6 +72,11 @@ se procesa como si lo hubieras tecleado con Enter al final.
   en `.env` y reinicia. Los datos del pedido se llenarán solos al escanear.
 
 ## 7. Acceder desde otras PCs
+
+> **Antes de exponer el servidor a toda la red:** rota las contraseñas de
+> prueba con `python generar_credenciales.py`. Mientras el sistema solo
+> corre en `localhost` el riesgo es bajo, pero en cuanto es alcanzable desde
+> la LAN cualquiera con acceso a la red podría usarlas.
 
 En la ventana del servidor aparece la IP de la PC (ej. `192.168.1.50`).
 Desde cualquier otra PC de la red abre: `http://192.168.1.50:8000`

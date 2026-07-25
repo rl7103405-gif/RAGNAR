@@ -11,6 +11,7 @@ Uso:
 Cuando llegue la bascula real, usar bascula_bridge.py en su lugar.
 """
 import random
+import time
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +21,7 @@ app = FastAPI(title="Bascula SIMULADA - Deportivos Quini")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["*"],
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
 
@@ -31,7 +32,18 @@ PESO_BASE = 1500.0
 @app.get("/peso")
 def obtener_peso():
     peso = round(PESO_BASE + random.uniform(-8, 8), 1)
-    return {"peso": peso, "unidad": "g", "estable": True, "error": None}
+    # "vigente": True porque esta simulacion siempre genera una lectura fresca en cada
+    # llamada (igual que la bascula real, que ahora se consulta activamente con el
+    # comando 'P' aproximadamente una vez por segundo). Mantiene el mismo contrato de respuesta.
+    return {
+        "peso": peso,
+        "unidad": "g",
+        "estable": True,
+        "error": None,
+        "vigente": True,
+        "ultima_actualizacion": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "puerto_detectado": "SIMULADO",
+    }
 
 
 @app.get("/status")
@@ -45,4 +57,4 @@ if __name__ == "__main__":
     print("Devuelve pesos aleatorios de ~1500 g para pruebas.")
     print("Cuando llegue la bascula real usa bascula_bridge.py")
     print("=" * 50)
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="127.0.0.1", port=8001)

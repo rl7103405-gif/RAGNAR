@@ -8,6 +8,41 @@
 </div>
 
 <div class="tarjeta">
+    <h3>Importar Excel del día (estación de Validación)</h3>
+    <div id="mensaje-importar" class="mensaje" style="display:none;"></div>
+    <div class="fila-datos">
+        <span class="etiqueta">Folios de ruteo (se acumulan)</span>
+        <span class="valor">
+            <input type="file" id="archivo-folios" accept=".xlsx">
+            <button class="boton" id="btn-importar-folios">Importar folios</button>
+        </span>
+    </div>
+    <div class="fila-datos">
+        <span class="etiqueta">Catálogo de códigos/pesos (reemplaza el anterior)</span>
+        <span class="valor">
+            <input type="file" id="archivo-catalogo" accept=".xlsx">
+            <button class="boton" id="btn-importar-catalogo">Importar catálogo</button>
+        </span>
+    </div>
+    <p style="color:#666; font-size:14px;">El catálogo grande puede tardar varios segundos en procesarse: no cierres la página.</p>
+</div>
+
+<div class="tarjeta">
+    <h3>Bultos retenidos (validación fuera de tolerancia)</h3>
+    <div id="mensaje-retenidos" class="mensaje" style="display:none;"></div>
+    <table id="tabla-retenidos">
+        <thead><tr><th>Folio</th><th>Código</th><th>Docenas</th><th>Peso real (kg)</th><th>Teórico (kg)</th><th>Dif. %</th><th>Operador</th><th></th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <p id="sin-retenidos" style="display:none; color:#666;">No hay bultos retenidos.</p>
+</div>
+
+<div class="tarjeta">
+    <h3>Calibración del multiplicador de validación</h3>
+    <div id="sugerencia-multiplicador"></div>
+</div>
+
+<div class="tarjeta">
     <h3>Calibración de rango de peso</h3>
     <div id="rango-peso"></div>
 </div>
@@ -15,15 +50,24 @@
 <div class="tarjeta">
     <h3>Reporte de diferencias (procesos finales)</h3>
     <table id="tabla-diferencias">
-        <thead><tr><th>Folio</th><th>Peso prod.</th><th>Peso final</th><th>Diferencia</th><th>%</th><th>Alerta</th></tr></thead>
+        <thead><tr><th>Folio</th><th>Peso prod. (kg)</th><th>Peso final (kg)</th><th>Diferencia (kg)</th><th>%</th><th>Alerta</th></tr></thead>
         <tbody></tbody>
     </table>
 </div>
 
 <div class="tarjeta">
+    <h3>Auditoría de re-capturas (sobrescrituras confirmadas)</h3>
+    <table id="tabla-recapturas">
+        <thead><tr><th>Fecha</th><th>Folio</th><th>Estación</th><th>Qué se sobrescribió</th><th>Operador</th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <p id="sin-recapturas" style="display:none; color:#666;">Sin re-capturas registradas.</p>
+</div>
+
+<div class="tarjeta">
     <h3>Log de todos los bultos</h3>
     <table id="tabla-bultos">
-        <thead><tr><th>Folio</th><th>Estatus</th><th>Pedido</th><th>Cliente</th><th>Peso prod.</th><th>Peso final</th></tr></thead>
+        <thead><tr><th>Folio</th><th>Estatus</th><th>Pedido</th><th>Cliente</th><th>Peso prod. (kg)</th><th>Peso final (kg)</th></tr></thead>
         <tbody></tbody>
     </table>
 </div>
@@ -37,9 +81,14 @@ async function cargarEstatus() {
         <div class="fila-datos"><span class="etiqueta">Total de bultos</span><span class="valor">${datos.total_bultos}</span></div>
         <div class="fila-datos"><span class="etiqueta">En producción</span><span class="valor">${datos.por_estatus.produccion}</span></div>
         <div class="fila-datos"><span class="etiqueta">Ruteados</span><span class="valor">${datos.por_estatus.ruteado}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Validados</span><span class="valor">${datos.por_estatus.validado}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Retenidos</span><span class="valor">${datos.por_estatus.retenido}</span></div>
         <div class="fila-datos"><span class="etiqueta">Procesos finales</span><span class="valor">${datos.por_estatus.procesos_finales}</span></div>
         <div class="fila-datos"><span class="etiqueta">Embarcados</span><span class="valor">${datos.por_estatus.embarcado}</span></div>
         <div class="fila-datos"><span class="etiqueta">Total de embarques</span><span class="valor">${datos.total_embarques}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Validación</span><span class="valor">${datos.validacion_activa ? "Activa (" + esc(datos.validacion_modo) + ")" : "Inactiva"}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Folios de ruteo importados</span><span class="valor">${datos.folios_ruteo_importados} (último: ${datos.ultima_importacion_folios ? new Date(datos.ultima_importacion_folios).toLocaleString() : "nunca"})</span></div>
+        <div class="fila-datos"><span class="etiqueta">Códigos en catálogo</span><span class="valor">${datos.codigos_catalogo} (último: ${datos.ultima_importacion_catalogo ? new Date(datos.ultima_importacion_catalogo).toLocaleString() : "nunca"})</span></div>
         <div class="fila-datos"><span class="etiqueta">Conexión Atalanta</span><span class="valor">${datos.atalanta_disponible ? "Conectado" : "No configurada"}</span></div>
         <div class="fila-datos"><span class="etiqueta">Impresora Zebra</span><span class="valor">${datos.zebra_configurada ? "Configurada" : "No configurada"}</span></div>
     `;
@@ -71,7 +120,7 @@ async function cargarDiferencias() {
             : d.alerta === false
                 ? '<span class="estatus-badge estatus-verde">OK</span>'
                 : '<span class="estatus-badge estatus-gris">Calibración</span>';
-        tr.innerHTML = `<td>${d.folio}</td><td>${d.peso_produccion.toFixed(1)}</td><td>${d.peso_procesos_finales.toFixed(1)}</td><td>${d.diferencia_gramos.toFixed(1)}</td><td>${d.diferencia_porcentaje.toFixed(2)}%</td><td>${badge}</td>`;
+        tr.innerHTML = `<td>${esc(d.folio)}</td><td>${kgTexto(d.peso_produccion)}</td><td>${kgTexto(d.peso_procesos_finales)}</td><td>${kgTexto(d.diferencia_gramos)}</td><td>${d.diferencia_porcentaje.toFixed(2)}%</td><td>${badge}</td>`;
         tbody.appendChild(tr);
     });
 }
@@ -82,14 +131,139 @@ async function cargarBultos() {
     tbody.innerHTML = "";
     datos.forEach((b) => {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${b.folio}</td><td>${b.estatus}</td><td>${b.pedido_id || "-"}</td><td>${b.cliente || "-"}</td><td>${b.peso_produccion ? b.peso_produccion.toFixed(1) : "-"}</td><td>${b.peso_procesos_finales ? b.peso_procesos_finales.toFixed(1) : "-"}</td>`;
+        tr.innerHTML = `<td>${esc(b.folio)}</td><td>${esc(b.estatus)}</td><td>${esc(b.pedido_id || "-")}</td><td>${esc(b.cliente || "-")}</td><td>${kgTexto(b.peso_produccion)}</td><td>${kgTexto(b.peso_procesos_finales)}</td>`;
         tbody.appendChild(tr);
     });
+}
+
+async function cargarRecapturas() {
+    const datos = await llamarApi("/api/admin/recapturas");
+    const tbody = document.querySelector("#tabla-recapturas tbody");
+    tbody.innerHTML = "";
+    document.getElementById("sin-recapturas").style.display = datos.length ? "none" : "block";
+    datos.forEach((r) => {
+        const tr = document.createElement("tr");
+        const fecha = r.timestamp ? new Date(r.timestamp).toLocaleString() : "-";
+        tr.innerHTML = `<td>${fecha}</td><td>${esc(r.folio)}</td><td>${esc(r.estacion)}</td><td>${esc(r.descripcion)}</td><td>${esc(r.operador || "-")}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+async function importarArchivo(inputId, url, boton, sobrescribir = false, marcaConfirmada = null) {
+    const input = document.getElementById(inputId);
+    if (!input.files.length) {
+        mostrarMensaje("mensaje-importar", "Selecciona primero el archivo .xlsx", "error");
+        return;
+    }
+    boton.disabled = true;
+    mostrarMensaje("mensaje-importar", "Importando... esto puede tardar varios segundos.", "info");
+    try {
+        const formulario = new FormData();
+        formulario.append("archivo", input.files[0]);
+        if (sobrescribir) {
+            formulario.append("sobrescribir", "true");
+            if (marcaConfirmada) formulario.append("marca_confirmada", marcaConfirmada);
+        }
+        const respuesta = await fetch(url, { method: "POST", body: formulario });
+        const datos = await respuesta.json().catch(() => null);
+        if (!respuesta.ok) {
+            throw new Error(datos && datos.detail ? datos.detail : "Error al importar");
+        }
+        if (datos.requiere_sobrescribir) {
+            if (confirm(datos.mensaje)) {
+                return importarArchivo(inputId, url, boton, true, datos.marca);
+            }
+            mostrarMensaje("mensaje-importar", "Importación cancelada: el catálogo actual se conserva.", "info");
+            return;
+        }
+        let texto;
+        if (datos.codigos_importados !== undefined) {
+            texto = `Catálogo importado: ${datos.codigos_importados} códigos (${datos.filas_procesadas} filas procesadas).`;
+            if (datos.codigos_sin_peso && datos.codigos_sin_peso.length) {
+                texto += ` ${datos.codigos_sin_peso.length} código(s) con peso total 0 excluidos: ${datos.codigos_sin_peso.slice(0, 10).join(", ")}.`;
+            }
+        } else {
+            texto = `Folios importados: ${datos.insertados} nuevos, ${datos.actualizados} actualizados`;
+            if (datos.omitidos_por_viejos) texto += `, ${datos.omitidos_por_viejos} omitidos por ser más viejos`;
+            if (datos.omitidos_por_falta_fecha) texto += `, ${datos.omitidos_por_falta_fecha} omitidos por no traer 'Fecha Actualizacion'`;
+            texto += ".";
+            if (datos.conflictos && datos.conflictos.length) {
+                texto += ` CONFLICTOS (${datos.conflictos.length}): ${datos.conflictos.join(" — ")}`;
+            }
+        }
+        const hayAlerta = (datos.conflictos && datos.conflictos.length) || (datos.codigos_sin_peso && datos.codigos_sin_peso.length);
+        mostrarMensaje("mensaje-importar", texto, hayAlerta ? "alerta" : "exito");
+        input.value = "";
+        cargarEstatus();
+    } catch (e) {
+        mostrarMensaje("mensaje-importar", e.message, "error");
+    } finally {
+        boton.disabled = false;
+    }
+}
+
+document.getElementById("btn-importar-folios").addEventListener("click", (ev) =>
+    importarArchivo("archivo-folios", "/api/admin/importar-folios", ev.target));
+document.getElementById("btn-importar-catalogo").addEventListener("click", (ev) =>
+    importarArchivo("archivo-catalogo", "/api/admin/importar-catalogo", ev.target));
+
+async function cargarRetenidos() {
+    const datos = await llamarApi("/api/admin/retenidos");
+    const tbody = document.querySelector("#tabla-retenidos tbody");
+    tbody.innerHTML = "";
+    document.getElementById("sin-retenidos").style.display = datos.length ? "none" : "block";
+    datos.forEach((b) => {
+        const tr = document.createElement("tr");
+        const dif = b.diferencia_porcentaje !== null ? `${b.diferencia_porcentaje >= 0 ? "+" : ""}${b.diferencia_porcentaje.toFixed(1)}%` : "-";
+        tr.innerHTML = `<td>${esc(b.folio)}</td><td>${esc(b.codigo_producto || "-")}</td><td>${b.docenas ?? "-"}</td><td>${kgTexto(b.peso_validacion)}</td><td>${kgTexto(b.peso_teorico)}</td><td>${dif}</td><td>${esc(b.operador || "-")}</td><td></td>`;
+        const btn = document.createElement("button");
+        btn.className = "boton boton-verde";
+        btn.textContent = "Liberar";
+        btn.addEventListener("click", () => liberarRetenido(b.folio, btn));
+        tr.lastElementChild.appendChild(btn);
+        tbody.appendChild(tr);
+    });
+}
+
+async function liberarRetenido(folio, boton) {
+    const motivo = prompt(`Motivo de la liberación del folio ${folio}:`);
+    if (motivo === null) return;
+    boton.disabled = true;
+    try {
+        await llamarApi("/api/admin/liberar-retenido", {
+            method: "POST",
+            body: JSON.stringify({ folio: folio, motivo: motivo }),
+        });
+        mostrarMensaje("mensaje-retenidos", `Folio ${folio} liberado: ya puede continuar a procesos finales.`, "exito");
+        cargarRetenidos();
+        cargarEstatus();
+    } catch (e) {
+        mostrarMensaje("mensaje-retenidos", e.message, "error");
+        boton.disabled = false;
+    }
+}
+
+async function cargarSugerenciaMultiplicador() {
+    const datos = await llamarApi("/api/admin/sugerencia-multiplicador");
+    const contenedor = document.getElementById("sugerencia-multiplicador");
+    if (!datos.muestras) {
+        contenedor.innerHTML = '<div class="mensaje info">Aún no hay bultos pesados en Validación. Con las primeras muestras aparecerá aquí la sugerencia del multiplicador real.</div>';
+        return;
+    }
+    contenedor.innerHTML = `
+        <div class="fila-datos"><span class="etiqueta">Multiplicador configurado (.env)</span><span class="valor">${datos.multiplicador_configurado}</span></div>
+        <div class="fila-datos"><span class="etiqueta">Sugerencia (mediana de ${datos.muestras} muestras)</span><span class="valor"><strong>${datos.sugerencia_mediana}</strong></span></div>
+        <div class="fila-datos"><span class="etiqueta">Rango observado</span><span class="valor">${datos.minimo} – ${datos.maximo}</span></div>
+        <p style="color:#666; font-size:14px;">Para aplicar la sugerencia: cambia MULTIPLICADOR_VALIDACION en .env y reinicia el servidor. Cuando el multiplicador sea confiable, cambia VALIDACION_MODO=enforcement para empezar a retener bultos fuera de tolerancia.</p>
+    `;
 }
 
 cargarEstatus();
 cargarRangoPeso();
 cargarDiferencias();
 cargarBultos();
+cargarRecapturas();
+cargarRetenidos();
+cargarSugerenciaMultiplicador();
 </script>
 {% endblock %}
