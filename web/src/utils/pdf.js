@@ -7,6 +7,7 @@
 // cuando se conecten Validacion/Ruteo/Atalanta mas adelante.
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { LOGO_QUINI_PNG_BASE64 } from '../assets/logoQuini'
 
 const NA = 'N/A'
 
@@ -16,10 +17,16 @@ export function generarPdfSalida({ capturas, operador, fecha }) {
   const anchoUtil = pdf.internal.pageSize.getWidth() - margen * 2
   let y = margen
 
-  // ---- Encabezado ----
-  pdf.setFontSize(18)
+  // ---- Encabezado: logo + titulo (izquierda), caja de folio/fechas (derecha) ----
+  const logoLado = 40
+  try {
+    pdf.addImage(LOGO_QUINI_PNG_BASE64, 'PNG', margen, y, logoLado, logoLado)
+  } catch (e) {
+    console.error('[pdf] No se pudo dibujar el logo:', e)
+  }
+  pdf.setFontSize(16)
   pdf.setFont(undefined, 'bold')
-  pdf.text('DEPORTIVOS QUINI', margen, y + 14)
+  pdf.text('DEPORTIVOS QUINI', margen + logoLado + 12, y + logoLado / 2 + 5)
   pdf.setFont(undefined, 'normal')
 
   const cajaX = margen + anchoUtil - 220
@@ -31,11 +38,17 @@ export function generarPdfSalida({ capturas, operador, fecha }) {
     ['Fecha Entrega:', NA]
   ]
   datosCaja.forEach((fila, i) => {
-    pdf.text(fila[0], cajaX, y + i * 13)
-    pdf.text(fila[1], cajaX + 100, y + i * 13)
+    pdf.text(fila[0], cajaX, y + 10 + i * 13)
+    pdf.text(fila[1], cajaX + 100, y + 10 + i * 13)
   })
 
-  y += 40
+  // Avanza lo suficiente para dejar atras AMBOS bloques del encabezado
+  // (logo/titulo a la izquierda, caja de 4 filas a la derecha) antes de
+  // seguir. Antes este avance era un numero fijo que no tomaba en cuenta
+  // la altura real de la caja, y "Direccion Envio" quedaba encimado con
+  // "Fecha Entrega".
+  const altoCaja = 10 + (datosCaja.length - 1) * 13 + 14
+  y += Math.max(logoLado, altoCaja) + 14
   pdf.setFontSize(10)
   const filaEtiquetas = [
     ['Area que Entrega:', 'DEPORTIVOS QUINI', 'Direccion Envio:', NA],
