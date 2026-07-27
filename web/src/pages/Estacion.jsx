@@ -20,6 +20,8 @@ import { normalizarFolio, canonizarFolio, validarPesoGramos } from '../utils/val
 import { imprimirEtiqueta } from '../utils/zebraBridge'
 import { leerPesoBascula, motivoLecturaInvalida } from '../utils/basculaBridge'
 import { generarPdfSalida } from '../utils/pdf'
+import { resolverProductoEnTx, CRUCE_COMPLETO, CRUCE_SIN_RUTEO } from '../utils/cruceProducto'
+import CargaRuteo from '../components/CargaRuteo'
 
 function inicioDeHoy() {
   const d = new Date()
@@ -148,7 +150,13 @@ export default function Estacion() {
       // sobrescritura -- no escribe nada todavia.
       const infoInicial = await runTransaction(db, async (tx) => {
         const snap = await tx.get(ref)
-        return snap.exists() ? { existe: true, pesoGramos: snap.data().pesoGramos } : { existe: false }
+        return snap.exists()
+          ? {
+              existe: true,
+              pesoGramos: snap.data().pesoGramos,
+              actualizadoEnMillis: snap.data().actualizadoEn?.toMillis() ?? null
+            }
+          : { existe: false }
       })
 
       // 2) El dialogo de confirmacion queda FUERA de cualquier transaccion
@@ -169,9 +177,22 @@ export default function Estacion() {
       // situacion sigue siendo la misma que se le mostro al operador en el
       // paso 2 (mismo peso si ya existia, o que siga sin existir si era
       // nuevo). Si algo cambio mientras se mostraba el confirm(), aborta en
-      // vez de pisar a ciegas.
-      await runTransaction(db, async (tx) => {
+      // vez de pisar a ciegas. En la misma transaccion se resuelve el cruce
+      // folio -> Excel del dia -> catalogo y se congela como snapshot en el
+      // documento (el PDF usa ese snapshot, no los datos "vivos").
+      const cruceResuelto = await runTransaction(db, async (tx) => {
         const snap = await tx.get(ref)
+        const { producto, cruce, catalogoVersion } = await resolverProductoEnTx(tx, folioNormalizado)
+        const datosBulto = {
+          folio: folioNormalizado,
+          pesoGramos,
+          operadorUid: authUser.uid,
+          operadorNombre: perfil?.nombreCompleto || 'Estacion',
+          producto,
+          cruce,
+          catalogoVersion,
+          actualizadoEn: serverTimestamp()
+        }
         if (infoInicial.existe) {
           if (!snap.exists()) {
             throw new Error(
@@ -183,29 +204,23 @@ export default function Estacion() {
               `El peso de ${folioNormalizado} cambio a ${(snap.data().pesoGramos / 1000).toFixed(2)} kg mientras confirmabas la sobrescritura. Revisa el valor actual y vuelve a intentarlo.`
             )
           }
-          tx.set(ref, {
-            folio: folioNormalizado,
-            pesoGramos,
-            operadorUid: authUser.uid,
-            operadorNombre: perfil?.nombreCompleto || 'Estacion',
-            // creadoEn se preserva: representa cuando se capturo por
-            // primera vez, no la ultima edicion.
-            creadoEn: snap.data().creadoEn
-          })
+          if ((snap.data().actualizadoEn?.toMillis() ?? null) !== infoInicial.actualizadoEnMillis) {
+            throw new Error(
+              `El folio ${folioNormalizado} fue modificado por otra estacion mientras confirmabas. Revisa y vuelve a intentarlo.`
+            )
+          }
+          // creadoEn se preserva: representa cuando se capturo por primera
+          // vez, no la ultima edicion.
+          tx.set(ref, { ...datosBulto, creadoEn: snap.data().creadoEn })
         } else {
           if (snap.exists()) {
             throw new Error(
               `El folio ${folioNormalizado} ya fue capturado por otra estacion mientras confirmabas (${(snap.data().pesoGramos / 1000).toFixed(2)} kg). Verifica antes de continuar.`
             )
           }
-          tx.set(ref, {
-            folio: folioNormalizado,
-            pesoGramos,
-            operadorUid: authUser.uid,
-            operadorNombre: perfil?.nombreCompleto || 'Estacion',
-            creadoEn: serverTimestamp()
-          })
+          tx.set(ref, { ...datosBulto, creadoEn: serverTimestamp() })
         }
+        return { producto, cruce }
       })
 
       setFolio('')
@@ -218,14 +233,33 @@ export default function Estacion() {
       // impresion no se deshace el guardado: se avisa distinto y el
       // operador puede reintentar con el boton "Imprimir etiqueta" de la
       // tabla.
-      const fecha = new Date().toLocaleDateString('es-MX')
-      const resultadoImpresion = await imprimirEtiqueta({ folio: folioNormalizado, pesoGramos, fecha })
-      if (resultadoImpresion.enviado) {
-        setAviso(`Folio ${folioNormalizado} guardado (${(pesoGramos / 1000).toFixed(2)} kg) y etiqueta enviada a la impresora.`)
+      let notaCruce = ''
+      if (cruceResuelto.cruce === CRUCE_SIN_RUTEO) {
+        notaCruce = ' AVISO: este folio NO viene en el Excel del dia; salio sin datos de producto.'
+      } else if (cruceResuelto.cruce !== CRUCE_COMPLETO) {
+        notaCruce = ` AVISO: el codigo ${cruceResuelto.producto?.codigo || '?'} no esta en el catalogo de productos.`
       } else {
+        notaCruce = ` Producto: ${cruceResuelto.producto.codigo} ${cruceResuelto.producto.descripcion || ''}.`
+      }
+
+      const fecha = new Date().toLocaleDateString('es-MX')
+      const resultadoImpresion = await imprimirEtiqueta({
+        folio: folioNormalizado,
+        pesoGramos,
+        fecha,
+        codigoProducto: cruceResuelto.producto?.codigo || '',
+        docenas: cruceResuelto.producto?.docenas ?? '',
+        pedidoId: cruceResuelto.producto?.pedido || ''
+      })
+      if (resultadoImpresion.enviado) {
+        setAviso(`Folio ${folioNormalizado} guardado (${(pesoGramos / 1000).toFixed(2)} kg) y etiqueta enviada a la impresora.${notaCruce}`)
+      } else {
+        // La nota del cruce se muestra tambien aqui: aunque falle la
+        // impresora, el operador necesita saber si el folio cruzo bien con
+        // el Excel/catalogo o quedo sin datos de producto.
         setError(
           `Folio ${folioNormalizado} guardado, pero no se pudo imprimir la etiqueta: ${resultadoImpresion.mensaje}. ` +
-            'Usa "Imprimir etiqueta" en la tabla para reintentar.'
+            `Usa "Imprimir etiqueta" en la tabla para reintentar.${notaCruce}`
         )
       }
     } catch (err) {
@@ -244,7 +278,10 @@ export default function Estacion() {
       const resultado = await imprimirEtiqueta({
         folio: captura.folio,
         pesoGramos: captura.pesoGramos,
-        fecha
+        fecha,
+        codigoProducto: captura.producto?.codigo || '',
+        docenas: captura.producto?.docenas ?? '',
+        pedidoId: captura.producto?.pedido || ''
       })
       if (resultado.enviado) {
         setAviso(`Etiqueta de ${captura.folio} enviada a la impresora.`)
@@ -266,6 +303,8 @@ export default function Estacion() {
         capturas: capturas.map((c) => ({
           folio: c.folio,
           pesoGramos: c.pesoGramos,
+          producto: c.producto || null,
+          cruce: c.cruce || null,
           horaTexto: c.creadoEn?.toDate
             ? c.creadoEn.toDate().toLocaleTimeString('es-MX')
             : '-'
@@ -290,6 +329,8 @@ export default function Estacion() {
       </div>
 
       <div className="contenido">
+        <CargaRuteo />
+
         <form className="tarjeta" onSubmit={onGuardar} style={{ marginBottom: 18 }}>
           <h2>Capturar folio</h2>
           <label className="campo">
@@ -354,6 +395,8 @@ export default function Estacion() {
             <thead>
               <tr>
                 <th style={{ textAlign: 'left' }}>Folio</th>
+                <th style={{ textAlign: 'left' }}>Codigo</th>
+                <th style={{ textAlign: 'left' }}>Producto</th>
                 <th style={{ textAlign: 'left' }}>Peso (kg)</th>
                 <th style={{ textAlign: 'left' }}>Hora</th>
                 <th></th>
@@ -363,6 +406,8 @@ export default function Estacion() {
               {capturas.map((c) => (
                 <tr key={c.id}>
                   <td>{c.folio}</td>
+                  <td>{c.producto?.codigo || (c.cruce === 'sin_ruteo' ? 'SIN RUTEO' : '-')}</td>
+                  <td>{c.producto?.descripcion || '-'}</td>
                   <td>{(c.pesoGramos / 1000).toFixed(2)}</td>
                   <td>{c.creadoEn?.toDate ? c.creadoEn.toDate().toLocaleTimeString('es-MX') : '-'}</td>
                   <td>

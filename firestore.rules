@@ -23,33 +23,142 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Snapshot de producto congelado en el bulto (Excel del dia + catalogo).
+    // Se valida tipo/tamano de cada campo cuando no es null: nunca se confia
+    // en que el cliente mande solo lo que cruceProducto.js arma hoy.
+    function productoValido(p) {
+      return p.keys().hasAll(['codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'descripcion', 'modelo', 'talla', 'color', 'referencia', 'linea'])
+        && p.keys().hasOnly(['codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'descripcion', 'modelo', 'talla', 'color', 'referencia', 'linea'])
+        && (p.codigo == null || (p.codigo is string && p.codigo.size() <= 60))
+        && (p.docenas == null || (p.docenas is number && p.docenas >= 0))
+        && (p.pares == null || (p.pares is number && p.pares >= 0))
+        && (p.total == null || (p.total is number && p.total >= 0))
+        && (p.pedido == null || (p.pedido is string && p.pedido.size() <= 100))
+        && (p.nombreGuia == null || (p.nombreGuia is string && p.nombreGuia.size() <= 120))
+        && (p.descripcion == null || (p.descripcion is string && p.descripcion.size() <= 200))
+        && (p.modelo == null || (p.modelo is string && p.modelo.size() <= 200))
+        && (p.talla == null || (p.talla is string && p.talla.size() <= 200))
+        && (p.color == null || (p.color is string && p.color.size() <= 200))
+        && (p.referencia == null || (p.referencia is string && p.referencia.size() <= 200))
+        && (p.linea == null || (p.linea is string && p.linea.size() <= 200));
+    }
+
+    // Coherencia entre 'cruce' y 'producto'/'catalogoVersion': un bulto
+    // 'sin_ruteo' nunca debe traer snapshot de producto, y uno 'completo'
+    // siempre debe traer version de catalogo y codigo (igual que arma
+    // cruceProducto.js).
+    function cruceCoherente(d) {
+      return (d.cruce == 'sin_ruteo' && d.producto == null)
+        || (d.cruce == 'sin_catalogo' && d.producto is map)
+        || (d.cruce == 'completo' && d.producto is map && d.catalogoVersion is string && d.producto.codigo is string);
+    }
+
+    // Campos comunes del bulto (captura de folio + peso + snapshot del
+    // producto resuelto al pesar). hasAll + hasOnly: ni campos de mas ni de
+    // menos. El snapshot producto puede ser null (folio fuera del Excel del
+    // dia); si viene, solo admite las llaves conocidas y coherentes con
+    // 'cruce'.
+    function bultoValido() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['folio', 'pesoGramos', 'operadorUid', 'operadorNombre', 'creadoEn', 'actualizadoEn', 'producto', 'cruce', 'catalogoVersion'])
+        && d.keys().hasOnly(['folio', 'pesoGramos', 'operadorUid', 'operadorNombre', 'creadoEn', 'actualizadoEn', 'producto', 'cruce', 'catalogoVersion'])
+        && d.folio is string
+        && d.folio.size() > 0
+        && d.folio.size() <= 50
+        && d.folio.matches('^[A-Za-z0-9._-]+$')
+        && d.pesoGramos is number
+        && d.pesoGramos > 0
+        && d.pesoGramos <= 100000
+        && d.operadorUid == request.auth.uid
+        && d.operadorNombre is string
+        && d.operadorNombre.size() <= 120
+        && d.actualizadoEn == request.time
+        && d.cruce in ['completo', 'sin_ruteo', 'sin_catalogo']
+        && (d.catalogoVersion == null || (d.catalogoVersion is string && d.catalogoVersion.size() <= 40))
+        && (d.producto == null || (d.producto is map && productoValido(d.producto)))
+        && cruceCoherente(d);
+    }
+
     // Capturas de folio + peso de la estacion unica de prueba. Se valida
     // el contenido para que nadie pueda suplantar operadorUid, falsificar
     // creadoEn, cambiar el folio del documento o vaciar campos.
     match /bultos/{folio} {
       allow read: if perfilActivo();
       allow create: if perfilActivo()
+        && bultoValido()
         && request.resource.data.folio == folio
-        && request.resource.data.folio is string
-        && request.resource.data.folio.size() > 0
-        && request.resource.data.folio.size() <= 50
-        && request.resource.data.pesoGramos is number
-        && request.resource.data.pesoGramos > 0
-        && request.resource.data.pesoGramos <= 100000
-        && request.resource.data.operadorUid == request.auth.uid
-        && request.resource.data.creadoEn == request.time
-        && request.resource.data.keys().hasOnly(['folio', 'pesoGramos', 'operadorUid', 'operadorNombre', 'creadoEn']);
+        && request.resource.data.creadoEn == request.time;
       allow update: if perfilActivo()
+        && bultoValido()
         && request.resource.data.folio == resource.data.folio
-        && request.resource.data.pesoGramos is number
-        && request.resource.data.pesoGramos > 0
-        && request.resource.data.pesoGramos <= 100000
-        && request.resource.data.operadorUid == request.auth.uid
         // creadoEn representa cuando se capturo por primera vez, no la
         // ultima edicion: se preserva el valor original del documento.
-        && request.resource.data.creadoEn == resource.data.creadoEn
-        && request.resource.data.keys().hasOnly(['folio', 'pesoGramos', 'operadorUid', 'operadorNombre', 'creadoEn']);
+        && request.resource.data.creadoEn == resource.data.creadoEn;
       allow delete: if false;
+    }
+
+    // Folios esperados del dia, cargados por America desde el Excel
+    // ('Folios ruteo' o plantilla DATOS PRODUCCION). Upsert acumulativo
+    // desde el cliente; con el login compartido cualquier sesion activa
+    // puede cargar, pero el contenido queda estrictamente validado.
+    match /foliosRuteo/{folio} {
+      allow read: if perfilActivo();
+      allow create: if perfilActivo() && ruteoValido(folio);
+      // En update, ademas de validar el contenido, se exige que
+      // fechaActualizacion nunca retroceda: es la misma defensa que ya
+      // implementa cargarRuteo.js del lado del cliente (comparar antes de
+      // escribir), pero aqui queda garantizada tambien por el servidor.
+      allow update: if perfilActivo() && ruteoValido(folio) && fechaActualizacionMonotona();
+      allow delete: if false;
+    }
+
+    function ruteoValido(folio) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['folio', 'codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'fecha', 'fechaActualizacion', 'archivoOrigen', 'cargadoEn', 'cargadoPorUid'])
+        && d.keys().hasOnly(['folio', 'codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'fecha', 'fechaActualizacion', 'archivoOrigen', 'cargadoEn', 'cargadoPorUid'])
+        && d.folio == folio
+        && d.folio is string
+        && d.folio.size() > 0
+        && d.folio.size() <= 50
+        && d.folio.matches('^[A-Za-z0-9._-]+$')
+        && d.codigo is string
+        && d.codigo.size() > 0
+        && d.codigo.size() <= 60
+        && (d.docenas == null || (d.docenas is number && d.docenas >= 0))
+        && (d.pares == null || (d.pares is number && d.pares >= 0))
+        && (d.total == null || (d.total is number && d.total >= 0))
+        && (d.pedido == null || (d.pedido is string && d.pedido.size() <= 100 && d.pedido.matches('^[A-Za-z0-9._-]+$')))
+        && (d.nombreGuia == null || (d.nombreGuia is string && d.nombreGuia.size() <= 120))
+        && (d.fecha == null || d.fecha is timestamp)
+        && (d.fechaActualizacion == null || d.fechaActualizacion is timestamp)
+        && d.archivoOrigen is string
+        && d.archivoOrigen.size() <= 120
+        && d.cargadoEn == request.time
+        && d.cargadoPorUid == request.auth.uid;
+    }
+
+    function fechaActualizacionMonotona() {
+      return (request.resource.data.fechaActualizacion == null && resource.data.fechaActualizacion == null)
+        || (request.resource.data.fechaActualizacion is timestamp
+            && (resource.data.fechaActualizacion == null
+                || request.resource.data.fechaActualizacion >= resource.data.fechaActualizacion));
+    }
+
+    // Catalogo de productos: solo lo escribe el script admin
+    // (scripts/cargar_catalogo.mjs); los clientes unicamente leen la
+    // version vigente via config/catalogoActual.
+    match /catalogoVersiones/{version} {
+      allow read: if perfilActivo();
+      allow write: if false;
+      match /shards/{shard} {
+        allow read: if perfilActivo();
+        allow write: if false;
+      }
+    }
+
+    match /config/{documento} {
+      allow read: if perfilActivo();
+      allow write: if false;
     }
   }
 }

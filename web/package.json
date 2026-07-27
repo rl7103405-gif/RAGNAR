@@ -11,6 +11,7 @@
     "provisionar": "node scripts/provisionar_usuario.mjs"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "firebase": "^10.12.2",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",

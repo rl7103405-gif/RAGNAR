@@ -10,6 +10,7 @@ venv/
 *.log
 embarques_pdf/
 *.xlsx
+*.xlsm
 node_modules/
 web/dist/
 .firebase/

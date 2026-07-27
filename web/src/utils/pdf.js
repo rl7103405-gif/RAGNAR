@@ -1,15 +1,19 @@
 // Genera el PDF de salida con el MISMO formato que la hoja fisica de
 // Deportivos Quini (folio/peso/codigo/descripcion/modelo/talla/color/
 // referencia/linea/docenas/unidad/UPC + encabezado + resumen + firmas).
-// RAGNAR-web hoy solo captura folio y peso: todo lo demas que el formato
-// pide y todavia no se rastrea se deja como "N/A" a proposito, para que el
-// documento ya tenga la forma correcta y solo falte llenar esos datos
-// cuando se conecten Validacion/Ruteo/Atalanta mas adelante.
+// Los datos de producto salen del snapshot congelado en cada captura
+// (bultos/{folio}.producto: Excel del dia + catalogo, resueltos al pesar);
+// lo que no exista en esas fuentes (UPC, folio interno, fechas de la orden)
+// se queda como "N/A" a proposito.
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { LOGO_QUINI_PNG_BASE64 } from '../assets/logoQuini'
 
 const NA = 'N/A'
+
+function celda(valor) {
+  return valor === null || valor === undefined || valor === '' ? NA : String(valor)
+}
 
 export function generarPdfSalida({ capturas, operador, fecha }) {
   const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' })
@@ -72,11 +76,28 @@ export function generarPdfSalida({ capturas, operador, fecha }) {
     'FOLIO', 'PESO', 'Codigo', 'Descripcion', 'Modelo', 'Talla', 'Color',
     'Referencia', 'Linea', 'Cant. Docenas', 'Unidad', 'UPC'
   ]
-  const filas = capturas.map((c) => [
-    String(c.folio),
-    (c.pesoGramos / 1000).toFixed(2),
-    NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
-  ])
+  const filas = capturas.map((c) => {
+    const p = c.producto || {}
+    const docenas = p.docenas ?? p.total ?? null
+    return [
+      String(c.folio),
+      (c.pesoGramos / 1000).toFixed(2),
+      celda(p.codigo),
+      celda(p.descripcion),
+      celda(p.modelo),
+      celda(p.talla),
+      celda(p.color),
+      celda(p.referencia),
+      celda(p.linea),
+      celda(docenas),
+      docenas === null ? NA : 'DOCENAS',
+      NA // UPC: no existe en el Excel del dia ni en el catalogo
+    ]
+  })
+  const totalDocenas = capturas.reduce((acc, c) => {
+    const d = c.producto?.docenas ?? c.producto?.total
+    return acc + (typeof d === 'number' ? d : 0)
+  }, 0)
 
   autoTable(pdf, {
     startY: y,
@@ -87,8 +108,9 @@ export function generarPdfSalida({ capturas, operador, fecha }) {
       { content: `${capturas.length}`, styles: { fontStyle: 'bold' } },
       { content: 'BULTOS', colSpan: 7, styles: { fontStyle: 'bold' } },
       { content: 'TOTAL GENERAL', styles: { fontStyle: 'bold' } },
-      { content: NA, colSpan: 3 }
+      { content: totalDocenas > 0 ? String(totalDocenas) : NA, colSpan: 3 }
     ]],
+    showFoot: 'lastPage',
     styles: { fontSize: 8, cellPadding: 3 },
     headStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' },
     footStyles: { fillColor: [245, 245, 245], textColor: 20 },
@@ -110,25 +132,46 @@ export function generarPdfSalida({ capturas, operador, fecha }) {
 
   y = pdf.lastAutoTable.finalY + 20
 
-  // El resto (resumen + observaciones + firmas) necesita unos 220pt. Si no
-  // alcanza el espacio en la pagina donde termino la tabla principal (que
-  // con muchas capturas puede paginarse sola), se agrega una pagina nueva
-  // en vez de encimar o dejar contenido fuera de la hoja.
+  // ---- Resumen por codigo: suma de docenas de las capturas de cada codigo.
+  // "Piezas" = docenas x 12 (confirmado por Roberto el 2026-07-27).
+  const porCodigo = new Map()
+  capturas.forEach((c) => {
+    const codigo = c.producto?.codigo || 'SIN CODIGO'
+    const d = c.producto?.docenas ?? c.producto?.total
+    const acumulado = porCodigo.get(codigo) || { docenas: 0, conDocenas: false }
+    if (typeof d === 'number') {
+      acumulado.docenas += d
+      acumulado.conDocenas = true
+    }
+    porCodigo.set(codigo, acumulado)
+  })
+  const filasResumen = Array.from(porCodigo.entries()).map(([codigo, acc]) => [
+    codigo,
+    acc.conDocenas ? String(acc.docenas) : NA,
+    acc.conDocenas ? String(acc.docenas * 12) : NA
+  ])
+
+  // El resto (resumen + observaciones + firmas) necesita unos 220pt mas lo
+  // que crezca el resumen por codigo. Si no alcanza el espacio en la pagina
+  // donde termino la tabla principal (que con muchas capturas puede
+  // paginarse sola), se agrega una pagina nueva en vez de encimar o dejar
+  // contenido fuera de la hoja. Si el propio resumen es mas alto que una
+  // pagina, autoTable lo pagina solo.
   const paginaAlto = pdf.internal.pageSize.getHeight()
-  const ESPACIO_RESTANTE_NECESARIO = 220
-  if (y + ESPACIO_RESTANTE_NECESARIO > paginaAlto - margen) {
+  const espacioNecesario = Math.min(220 + filasResumen.length * 14, paginaAlto - margen * 2)
+  if (y + espacioNecesario > paginaAlto - margen) {
     pdf.addPage()
     y = margen
   }
 
-  // ---- Resumen por codigo (todo N/A: el codigo de producto todavia no se captura) ----
   autoTable(pdf, {
     startY: y,
     margin: { left: margen },
     tableWidth: 260,
     head: [['Codigo', 'Total por Codigo', 'Piezas']],
-    body: [[NA, NA, NA]],
-    foot: [['TOTAL GRAL.', String(capturas.length), NA]],
+    body: filasResumen,
+    foot: [['TOTAL GRAL.', totalDocenas > 0 ? String(totalDocenas) : NA, totalDocenas > 0 ? String(totalDocenas * 12) : NA]],
+    showFoot: 'lastPage',
     styles: { fontSize: 8, cellPadding: 3 },
     headStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' },
     footStyles: { fillColor: [245, 245, 245], textColor: 20, fontStyle: 'bold' }
