@@ -19,12 +19,20 @@ app/config.py para no arrastrar validaciones de arranque de toda la app
 principal, que no aplican a este bridge).
 
 Uso:
-    pip install fastapi uvicorn python-dotenv
+    pip install fastapi uvicorn python-dotenv pywin32
     python bridge/zebra_bridge.py
 
-Configuracion via variables de entorno (o .env en la raiz del proyecto):
-    ZEBRA_IP=192.168.1.50
-    ZEBRA_PORT=9100
+Configuracion via variables de entorno (o .env en la raiz del proyecto).
+Dos modos, en este orden de prioridad:
+  1) Red (la Zebra tiene cable de red propio):
+       ZEBRA_IP=192.168.1.50
+       ZEBRA_PORT=9100
+  2) USB (la Zebra esta conectada por USB a esta PC, instalada como
+     impresora de Windows con el driver ZDesigner). Se usa cuando
+     ZEBRA_IP esta vacio:
+       ZEBRA_PRINTER_NAME=AUTO   (AUTO busca una impresora instalada cuyo
+                                  nombre contenga ZDesigner/Zebra; tambien
+                                  puede ponerse el nombre exacto)
     ZEBRA_BRIDGE_PORT=8002
 """
 import logging
@@ -46,11 +54,17 @@ try:
 except ImportError:
     pass
 
+try:
+    import win32print
+except ImportError:
+    win32print = None
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [zebra_bridge] %(message)s")
 logger = logging.getLogger("zebra_bridge")
 
 ZEBRA_IP = os.getenv("ZEBRA_IP", "").strip()
 ZEBRA_PORT = int(os.getenv("ZEBRA_PORT", "9100"))
+ZEBRA_PRINTER_NAME = os.getenv("ZEBRA_PRINTER_NAME", "AUTO").strip()
 BRIDGE_PORT = int(os.getenv("ZEBRA_BRIDGE_PORT", "8002"))
 
 # Dimensiones de la etiqueta en dots (203 dpi, 8 dots/mm). Etiqueta fisica de
@@ -111,23 +125,47 @@ def _peso_gramos_a_kg_texto(peso_gramos) -> str:
     return f"{gramos / 1000:.2f}"
 
 
-def _modulo_barcode(folio: str) -> int:
+# Zona de silencio de Code128: 10 modulos de "quiet zone" a cada lado del
+# barcode (20 en total). Se usa TANTO al elegir el modulo como al calcular
+# el ancho real del barcode para centrarlo (x_barcode).
+_ZONA_SILENCIO_MODULOS = 20
+
+
+def _modulos_code128(folio: str) -> int:
+    """Modulos estimados de datos+overhead (start+check+stop) de un barcode
+    Code128 para este folio, SIN zonas de silencio. Subset C (2 digitos por
+    modulo, 11 modulos por par) para folios puramente numericos; subset B
+    (11 modulos por caracter, +1 shift si el numero de digitos es impar)
+    para folios alfanumericos. Unificada aqui para que _modulo_barcode
+    (elegir modulo 3/2/1) y el centrado del barcode (x_barcode) usen
+    EXACTAMENTE la misma aritmetica -- antes cada uno la calculaba por su
+    cuenta con formulas ligeramente distintas.
+    """
     n = len(folio)
     if folio.isdigit():
-        modulos_estimados = 11 * (n / 2) + 35
-    else:
-        modulos_estimados = 11 * n + 35
+        if n % 2 == 0:
+            return 11 * (n // 2) + 35
+        return 11 * ((n + 1) // 2) + 11 + 35  # un shift extra por el digito suelto
+    return 11 * n + 35
 
+
+def _modulo_barcode(folio: str) -> tuple[int, bool]:
+    """Elige el modulo (grosor de barra) 3/2/1 mas grande que quepa en el
+    ancho util de la etiqueta, incluyendo zonas de silencio. Devuelve
+    (modulo, cabe): cabe=False si ni siquiera modulo 1 alcanza (se usa
+    modulo 1 de todos modos, con posible recorte)."""
+    modulos = _modulos_code128(folio)
     ancho_util = ETIQUETA_ANCHO_DOTS - 2 * MARGEN_DOTS
-    for modulo in (3, 2):
-        if modulo * modulos_estimados <= ancho_util:
-            return modulo
+    for modulo in (3, 2, 1):
+        if modulo * (modulos + _ZONA_SILENCIO_MODULOS) <= ancho_util:
+            return modulo, True
 
     logger.warning(
-        "Folio de %d caracteres: ni con modulo 2 cabe el barcode en %d dots; se usara modulo 1.",
-        n, ancho_util,
+        "Folio de %d caracteres: ni con modulo 1 cabe el barcode en %d dots; "
+        "se usara modulo 1 de todos modos (posible recorte).",
+        len(folio), ancho_util,
     )
-    return 1
+    return 1, False
 
 
 def generar_zpl_etiqueta(
@@ -150,63 +188,98 @@ def generar_zpl_etiqueta(
     fecha = _texto_zpl(fecha, 12)
     leyenda = _texto_zpl(leyenda, 20) if leyenda else ""
 
-    x = MARGEN_DOTS
-    ancho_util = ETIQUETA_ANCHO_DOTS - 2 * MARGEN_DOTS
+    # Layout CENTRADO: todo el texto usa ^FB a lo ancho completo con
+    # alineacion C, y el codigo de barras se centra calculando su ancho
+    # estimado. Antes todo iba pegado a la izquierda (x=30) y el barcode
+    # quedaba dificil de leer/escanear en la orilla de la etiqueta.
+    ancho_total = ETIQUETA_ANCHO_DOTS
 
+    # El logo va arriba a la IZQUIERDA (ocupa x=30..174). El titulo y la
+    # linea de folio, con textos largos, podian invadirlo si se centraban a
+    # todo lo ancho (^FB desde x=0): se usa una banda central simetrica que
+    # libra esos 174 dots del logo por ambos lados.
     logo = ""
-    ancho_titulo = ancho_util
     if _LOGO_ZPL is not None:
-        x_logo = ETIQUETA_ANCHO_DOTS - MARGEN_DOTS - LOGO_LADO_DOTS
-        logo = f"^FO{x_logo},{MARGEN_DOTS}{_LOGO_ZPL}^FS\n"
-        ancho_titulo = ancho_util - LOGO_LADO_DOTS - 20
+        logo = f"^FO{MARGEN_DOTS},{MARGEN_DOTS}{_LOGO_ZPL}^FS\n"
 
-    modulo = _modulo_barcode(folio)
+    BANDA_CENTRAL_X = 184
+    banda_central_ancho = ETIQUETA_ANCHO_DOTS - 2 * BANDA_CENTRAL_X
+
+    modulo, cabe = _modulo_barcode(folio)
+    if cabe:
+        ancho_barcode = modulo * (_modulos_code128(folio) + _ZONA_SILENCIO_MODULOS)
+        x_barcode = max(MARGEN_DOTS, (ancho_total - ancho_barcode) // 2 + 10 * modulo)
+    else:
+        # Ni con modulo 1 cabe: se pega al margen izquierdo (ya se aviso con
+        # el warning de _modulo_barcode) en vez de calcular un centrado que
+        # no tiene sentido si el barcode ya se sale de la etiqueta.
+        x_barcode = MARGEN_DOTS
 
     encabezado = f"""^XA
 ^LH0,0
 ^PW{ETIQUETA_ANCHO_DOTS}
 ^LL{ETIQUETA_ALTO_DOTS}
 {logo}^CF0,52
-^FO{x},{MARGEN_DOTS}^FB{ancho_titulo},1,0,L^FDDEPORTIVOS QUINI^FS
+^FO{BANDA_CENTRAL_X},{MARGEN_DOTS}^FB{banda_central_ancho},1,0,C^FDDEPORTIVOS QUINI^FS
 ^CF0,40
-^FO{x},100^FB{ancho_titulo},1,0,L^FDFolio: {folio_display}^FS
+^FO{BANDA_CENTRAL_X},100^FB{banda_central_ancho},1,0,C^FDFolio: {folio_display}^FS
 ^BY{modulo},3,170
-^FO{x},185^BCN,170,N,N,N
+^FO{x_barcode},185^BCN,170,N,N,N
 ^FD{folio}^FS
 """
     if leyenda:
         cuerpo = f"""^CF0,28
-^FO{x},372^FB{ancho_util},1,0,L^FDCodigo producto: {codigo_producto}^FS
-^FO{x},408^FB{ancho_util},1,0,L^FDDocenas: {docenas}    Pedido: {pedido_id}^FS
-^FO{x},444^FB{ancho_util},2,0,L^FDCliente: {cliente}^FS
+^FO0,372^FB{ancho_total},1,0,C^FDCodigo producto: {codigo_producto}^FS
+^FO0,408^FB{ancho_total},1,0,C^FDDocenas: {docenas}    Pedido: {pedido_id}^FS
+^FO0,444^FB{ancho_total},2,0,C^FDCliente: {cliente}^FS
 ^CF0,34
-^FO{x},514^FB{ancho_util},1,0,C^FD*** {leyenda} ***^FS
+^FO0,514^FB{ancho_total},1,0,C^FD*** {leyenda} ***^FS
 ^CF0,38
-^FO{x},554^FB{ancho_util},1,0,L^FDPeso: {peso_kg} kg^FS
+^FO0,554^FB{ancho_total},1,0,C^FDPeso: {peso_kg} kg^FS
 ^CF0,26
-^FO{x},598^FB{ancho_util},1,0,L^FDFecha: {fecha}^FS
+^FO0,598^FB{ancho_total},1,0,C^FDFecha: {fecha}^FS
 ^XZ"""
     else:
         cuerpo = f"""^CF0,28
-^FO{x},380^FB{ancho_util},1,0,L^FDCodigo producto: {codigo_producto}^FS
-^FO{x},418^FB{ancho_util},1,0,L^FDDocenas: {docenas}    Pedido: {pedido_id}^FS
-^FO{x},456^FB{ancho_util},2,0,L^FDCliente: {cliente}^FS
+^FO0,380^FB{ancho_total},1,0,C^FDCodigo producto: {codigo_producto}^FS
+^FO0,418^FB{ancho_total},1,0,C^FDDocenas: {docenas}    Pedido: {pedido_id}^FS
+^FO0,456^FB{ancho_total},2,0,C^FDCliente: {cliente}^FS
 ^CF0,40
-^FO{x},535^FB{ancho_util},1,0,L^FDPeso: {peso_kg} kg^FS
+^FO0,535^FB{ancho_total},1,0,C^FDPeso: {peso_kg} kg^FS
 ^CF0,28
-^FO{x},587^FB{ancho_util},1,0,L^FDFecha: {fecha}^FS
+^FO0,587^FB{ancho_total},1,0,C^FDFecha: {fecha}^FS
 ^XZ"""
     return encabezado + cuerpo
 
 
+def _buscar_impresora_windows() -> str | None:
+    """Nombre de la impresora Zebra instalada en Windows, o None.
+
+    Con ZEBRA_PRINTER_NAME=AUTO se busca una cuyo nombre contenga
+    ZDesigner/Zebra (asi la instala el driver oficial); si se configuro un
+    nombre exacto, se verifica que exista tal cual.
+    """
+    if win32print is None:
+        return None
+    try:
+        flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+        nombres = [imp[2] for imp in win32print.EnumPrinters(flags)]
+    except Exception as exc:
+        logger.warning("No se pudieron enumerar las impresoras de Windows: %s", exc)
+        return None
+    if ZEBRA_PRINTER_NAME.upper() != "AUTO":
+        return ZEBRA_PRINTER_NAME if ZEBRA_PRINTER_NAME in nombres else None
+    for nombre in nombres:
+        if "ZDESIGNER" in nombre.upper() or "ZEBRA" in nombre.upper():
+            return nombre
+    return None
+
+
 def zebra_configurada() -> bool:
-    return bool(ZEBRA_IP)
+    return bool(ZEBRA_IP) or _buscar_impresora_windows() is not None
 
 
-def imprimir_etiqueta(zpl: str) -> dict:
-    if not zebra_configurada():
-        logger.info("Impresora Zebra no configurada (ZEBRA_IP vacio). ZPL generado pero no enviado.")
-        return {"enviado": False, "mensaje": "Impresora no configurada (ZEBRA_IP vacio en .env)"}
+def _imprimir_via_red(zpl: str) -> dict:
     try:
         with socket.create_connection((ZEBRA_IP, ZEBRA_PORT), timeout=5) as sock:
             sock.sendall(zpl.encode("utf-8"))
@@ -214,6 +287,94 @@ def imprimir_etiqueta(zpl: str) -> dict:
     except Exception as exc:
         logger.warning("Error enviando etiqueta a Zebra %s:%s -> %s", ZEBRA_IP, ZEBRA_PORT, exc)
         return {"enviado": False, "mensaje": f"No se pudo conectar a la impresora: {exc}"}
+
+
+# Banderas de PRINTER_INFO_2.Status (WinSpool.h) que indican que la
+# etiqueta quedo en cola pero probablemente NO salio fisicamente. Se leen
+# con getattr por si una version vieja de pywin32 no las expone; el valor
+# de respaldo es el documentado por Microsoft para esa constante.
+_BANDERAS_PROBLEMA_IMPRESORA = [
+    (getattr(win32print, "PRINTER_STATUS_OFFLINE", 0x00000080), "esta fuera de linea"),
+    (getattr(win32print, "PRINTER_STATUS_PAUSED", 0x00000001), "esta en pausa"),
+    (getattr(win32print, "PRINTER_STATUS_ERROR", 0x00000002), "reporta un error"),
+    (getattr(win32print, "PRINTER_STATUS_PAPER_OUT", 0x00000010), "sin papel"),
+    (getattr(win32print, "PRINTER_STATUS_PAPER_JAM", 0x00000008), "papel atascado"),
+    (getattr(win32print, "PRINTER_STATUS_NOT_AVAILABLE", 0x00001000), "no esta disponible"),
+]
+
+
+def _problemas_impresora(h, nombre_impresora: str) -> list[str]:
+    """Lista en espanol de problemas que reporta la impresora, o [] si
+    ninguna bandera conocida esta prendida (o no se pudo consultar)."""
+    try:
+        status = win32print.GetPrinter(h, 2)["Status"]
+    except Exception as exc:
+        logger.warning("No se pudo consultar el estado de '%s': %s", nombre_impresora, exc)
+        return []
+    return [texto for bandera, texto in _BANDERAS_PROBLEMA_IMPRESORA if status & bandera]
+
+
+def _imprimir_via_windows(zpl: str, nombre_impresora: str) -> dict:
+    """Manda el ZPL crudo (datatype RAW) a la cola de impresion de Windows.
+
+    Es la via correcta para una Zebra conectada por USB: el driver ZDesigner
+    pasa los bytes RAW directo a la impresora sin reinterpretarlos.
+    """
+    try:
+        h = win32print.OpenPrinter(nombre_impresora)
+    except Exception as exc:
+        logger.warning("No se pudo abrir la impresora '%s': %s", nombre_impresora, exc)
+        return {"enviado": False, "mensaje": f"No se pudo abrir la impresora '{nombre_impresora}': {exc}"}
+    try:
+        datos_bytes = zpl.encode("utf-8")
+        escritos = None
+        win32print.StartDocPrinter(h, 1, ("Etiqueta RAGNAR", None, "RAW"))
+        try:
+            win32print.StartPagePrinter(h)
+            escritos = win32print.WritePrinter(h, datos_bytes)
+            win32print.EndPagePrinter(h)
+        finally:
+            win32print.EndDocPrinter(h)
+        if escritos != len(datos_bytes):
+            logger.warning(
+                "Escritura parcial al spooler en '%s': %s/%s bytes",
+                nombre_impresora, escritos, len(datos_bytes),
+            )
+            return {
+                "enviado": False,
+                "mensaje": "Escritura parcial al spooler; NO salio la etiqueta, reintenta.",
+            }
+        problemas = _problemas_impresora(h, nombre_impresora)
+        if problemas:
+            return {
+                "enviado": True,
+                "mensaje": (
+                    f"Etiqueta EN COLA, pero la impresora reporta: {', '.join(problemas)}. "
+                    "Revisa la impresora."
+                ),
+            }
+        return {"enviado": True, "mensaje": f"Etiqueta enviada a la impresora ({nombre_impresora})"}
+    except Exception as exc:
+        logger.warning("Error imprimiendo en '%s': %s", nombre_impresora, exc)
+        return {"enviado": False, "mensaje": f"Error imprimiendo en '{nombre_impresora}': {exc}"}
+    finally:
+        win32print.ClosePrinter(h)
+
+
+def imprimir_etiqueta(zpl: str) -> dict:
+    if ZEBRA_IP:
+        return _imprimir_via_red(zpl)
+    nombre = _buscar_impresora_windows()
+    if nombre is not None:
+        return _imprimir_via_windows(zpl, nombre)
+    logger.info("Impresora Zebra no configurada (sin ZEBRA_IP y sin impresora USB detectada).")
+    return {
+        "enviado": False,
+        "mensaje": (
+            "No se encontro la impresora: configura ZEBRA_IP en .env (Zebra de red) "
+            "o conecta/instala la Zebra por USB (driver ZDesigner)"
+        )
+    }
 
 
 # ---- API HTTP local ----
@@ -239,7 +400,9 @@ app.add_middleware(
 class SolicitudImpresion(BaseModel):
     folio: str
     codigo_producto: str = ""
-    docenas: str = ""
+    # docenas llega como numero (JS number) desde el cruce con el Excel del
+    # dia; igual que peso_gramos, Pydantic v2 no coerciona int/float a str.
+    docenas: float | int | str = ""
     pedido_id: str = ""
     cliente: str = ""
     # El cliente web manda peso_gramos como numero (JS number). Con Pydantic
@@ -257,10 +420,16 @@ def imprimir(datos: SolicitudImpresion):
     if not folio:
         raise HTTPException(status_code=400, detail="Folio vacio")
     peso_gramos_texto = str(datos.peso_gramos) if datos.peso_gramos != "" else ""
+    # Docenas numericas se imprimen sin decimales inutiles (22.0 -> "22").
+    docenas_texto = datos.docenas
+    if isinstance(docenas_texto, (int, float)) and not isinstance(docenas_texto, bool):
+        docenas_texto = (
+            str(int(docenas_texto)) if float(docenas_texto).is_integer() else str(docenas_texto)
+        )
     zpl = generar_zpl_etiqueta(
         folio=folio,
         codigo_producto=datos.codigo_producto,
-        docenas=datos.docenas,
+        docenas=docenas_texto,
         pedido_id=datos.pedido_id,
         cliente=datos.cliente,
         peso_gramos=peso_gramos_texto,
@@ -273,13 +442,22 @@ def imprimir(datos: SolicitudImpresion):
 
 @app.get("/status")
 def status():
-    return {"configurada": zebra_configurada(), "ip": ZEBRA_IP or None, "puerto": ZEBRA_PORT}
+    impresora_usb = None if ZEBRA_IP else _buscar_impresora_windows()
+    return {
+        "configurada": zebra_configurada(),
+        "modo": "red" if ZEBRA_IP else ("usb" if impresora_usb else None),
+        "ip": ZEBRA_IP or None,
+        "puerto": ZEBRA_PORT,
+        "impresora_windows": impresora_usb,
+    }
 
 
 if __name__ == "__main__":
-    logger.info(
-        "Iniciando zebra_bridge en puerto %s (impresora en %s:%s)",
-        BRIDGE_PORT, ZEBRA_IP or "NO CONFIGURADA", ZEBRA_PORT,
-    )
+    if ZEBRA_IP:
+        destino = f"red {ZEBRA_IP}:{ZEBRA_PORT}"
+    else:
+        impresora = _buscar_impresora_windows()
+        destino = f"USB '{impresora}'" if impresora else "NO CONFIGURADA"
+    logger.info("Iniciando zebra_bridge en puerto %s (impresora: %s)", BRIDGE_PORT, destino)
     # 127.0.0.1: solo el navegador de esta misma PC necesita llamar al bridge.
     uvicorn.run(app, host="127.0.0.1", port=BRIDGE_PORT)

@@ -30,9 +30,9 @@ service cloud.firestore {
       return p.keys().hasAll(['codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'descripcion', 'modelo', 'talla', 'color', 'referencia', 'linea'])
         && p.keys().hasOnly(['codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'descripcion', 'modelo', 'talla', 'color', 'referencia', 'linea'])
         && (p.codigo == null || (p.codigo is string && p.codigo.size() <= 60))
-        && (p.docenas == null || (p.docenas is number && p.docenas >= 0))
-        && (p.pares == null || (p.pares is number && p.pares >= 0))
-        && (p.total == null || (p.total is number && p.total >= 0))
+        && (p.docenas == null || (p.docenas is number && p.docenas >= 0 && p.docenas < 100000000))
+        && (p.pares == null || (p.pares is number && p.pares >= 0 && p.pares < 100000000))
+        && (p.total == null || (p.total is number && p.total >= 0 && p.total < 100000000))
         && (p.pedido == null || (p.pedido is string && p.pedido.size() <= 100))
         && (p.nombreGuia == null || (p.nombreGuia is string && p.nombreGuia.size() <= 120))
         && (p.descripcion == null || (p.descripcion is string && p.descripcion.size() <= 200))
@@ -94,13 +94,16 @@ service cloud.firestore {
         // creadoEn representa cuando se capturo por primera vez, no la
         // ultima edicion: se preserva el valor original del documento.
         && request.resource.data.creadoEn == resource.data.creadoEn;
-      allow delete: if false;
+      // Eliminar capturas equivocadas es parte del flujo (menu de la tabla);
+      // con el login compartido, cualquier sesion activa puede hacerlo.
+      allow delete: if perfilActivo();
     }
 
     // Folios esperados del dia, cargados por America desde el Excel
-    // ('Folios ruteo' o plantilla DATOS PRODUCCION). Upsert acumulativo
-    // desde el cliente; con el login compartido cualquier sesion activa
-    // puede cargar, pero el contenido queda estrictamente validado.
+    // ('Folios ruteo', plantilla DATOS PRODUCCION o reporte Seguimiento de
+    // Folios). Upsert acumulativo desde el cliente; con el login compartido
+    // cualquier sesion activa puede cargar, pero el contenido queda
+    // estrictamente validado.
     match /foliosRuteo/{folio} {
       allow read: if perfilActivo();
       allow create: if perfilActivo() && ruteoValido(folio);
@@ -109,13 +112,19 @@ service cloud.firestore {
       // implementa cargarRuteo.js del lado del cliente (comparar antes de
       // escribir), pero aqui queda garantizada tambien por el servidor.
       allow update: if perfilActivo() && ruteoValido(folio) && fechaActualizacionMonotona();
-      allow delete: if false;
+      // La limpieza de retencion (15 dias sin aparecer en ningun Excel) corre
+      // desde el cliente, pero la retencion queda garantizada por el
+      // SERVIDOR, no solo por el JS de limpiarRuteoViejo(): solo se permite
+      // borrar un folio realmente vencido (cargadoEn + 15 dias en el pasado).
+      allow delete: if perfilActivo()
+        && resource.data.cargadoEn is timestamp
+        && request.time > resource.data.cargadoEn + duration.value(15, 'd');
     }
 
     function ruteoValido(folio) {
       let d = request.resource.data;
-      return d.keys().hasAll(['folio', 'codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'fecha', 'fechaActualizacion', 'archivoOrigen', 'cargadoEn', 'cargadoPorUid'])
-        && d.keys().hasOnly(['folio', 'codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'fecha', 'fechaActualizacion', 'archivoOrigen', 'cargadoEn', 'cargadoPorUid'])
+      return d.keys().hasAll(['folio', 'codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'descripcion', 'modelo', 'color', 'fecha', 'fechaActualizacion', 'archivoOrigen', 'cargadoEn', 'cargadoPorUid'])
+        && d.keys().hasOnly(['folio', 'codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'descripcion', 'modelo', 'color', 'fecha', 'fechaActualizacion', 'archivoOrigen', 'cargadoEn', 'cargadoPorUid'])
         && d.folio == folio
         && d.folio is string
         && d.folio.size() > 0
@@ -124,11 +133,16 @@ service cloud.firestore {
         && d.codigo is string
         && d.codigo.size() > 0
         && d.codigo.size() <= 60
-        && (d.docenas == null || (d.docenas is number && d.docenas >= 0))
-        && (d.pares == null || (d.pares is number && d.pares >= 0))
-        && (d.total == null || (d.total is number && d.total >= 0))
-        && (d.pedido == null || (d.pedido is string && d.pedido.size() <= 100 && d.pedido.matches('^[A-Za-z0-9._-]+$')))
+        && (d.docenas == null || (d.docenas is number && d.docenas >= 0 && d.docenas < 100000000))
+        && (d.pares == null || (d.pares is number && d.pares >= 0 && d.pares < 100000000))
+        && (d.total == null || (d.total is number && d.total >= 0 && d.total < 100000000))
+        // El pedido del reporte Seguimiento de Folios es texto libre (trae
+        // ':', 'Ñ', espacios, '/'): solo se acota la longitud, sin patron.
+        && (d.pedido == null || (d.pedido is string && d.pedido.size() <= 100))
         && (d.nombreGuia == null || (d.nombreGuia is string && d.nombreGuia.size() <= 120))
+        && (d.descripcion == null || (d.descripcion is string && d.descripcion.size() <= 200))
+        && (d.modelo == null || (d.modelo is string && d.modelo.size() <= 200))
+        && (d.color == null || (d.color is string && d.color.size() <= 200))
         && (d.fecha == null || d.fecha is timestamp)
         && (d.fechaActualizacion == null || d.fechaActualizacion is timestamp)
         && d.archivoOrigen is string
@@ -156,9 +170,103 @@ service cloud.firestore {
       }
     }
 
+    // Estado del ruteo (maximo folio visto + marca de la ultima limpieza):
+    // lo escribe el cliente al terminar cada carga de Excel. Validado campo
+    // por campo; actualizadoEn siempre es la hora del servidor (tambien se
+    // usa como referencia de "ahora" para la retencion de 15 dias, sin
+    // confiar en el reloj de la PC).
+    // Contenido valido para config/ruteoEstado, comun a create y update.
+    function ruteoEstadoValido() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['maxFolioNumero', 'actualizadoEn', 'ultimaLimpieza'])
+        && d.keys().hasOnly(['maxFolioNumero', 'actualizadoEn', 'ultimaLimpieza'])
+        && (d.maxFolioNumero == null
+            || (d.maxFolioNumero is int
+                && d.maxFolioNumero >= 0
+                && d.maxFolioNumero < 1000000000000000))
+        && d.actualizadoEn == request.time
+        && (d.ultimaLimpieza == null || d.ultimaLimpieza is timestamp);
+    }
+
+    match /config/ruteoEstado {
+      allow read: if perfilActivo();
+      allow create: if perfilActivo() && ruteoEstadoValido();
+      // En update, ademas del contenido valido, se exige que el maximo
+      // nunca retroceda (monotonia, igual que fechaActualizacionMonotona en
+      // foliosRuteo) y que ultimaLimpieza o se conserve tal cual o sea
+      // exactamente "ahora": nunca un timestamp arbitrario/futuro inventado
+      // por el cliente.
+      allow update: if perfilActivo() && ruteoEstadoValido()
+        && (resource.data.maxFolioNumero == null
+            || (request.resource.data.maxFolioNumero is number
+                && request.resource.data.maxFolioNumero >= resource.data.maxFolioNumero))
+        && (request.resource.data.ultimaLimpieza == null
+            || request.resource.data.ultimaLimpieza == resource.data.ultimaLimpieza
+            || request.resource.data.ultimaLimpieza == request.time);
+      allow delete: if false;
+    }
+
     match /config/{documento} {
       allow read: if perfilActivo();
       allow write: if false;
+    }
+
+    // Bitacora INMUTABLE de PDFs de salida generados: quien lo genero (texto
+    // declarativo, el login es compartido), maquila, folios y el contenido
+    // congelado para reimpresion fiel. Nunca se edita ni borra desde cliente.
+    // Nota: las reglas no pueden validar cada elemento de un array; el
+    // contenido de 'capturas' se valida solo en forma (lista del mismo
+    // tamano que folios).
+    match /pdfsGenerados/{registroId} {
+      allow read: if perfilActivo();
+      allow create: if perfilActivo()
+        && request.resource.data.keys().hasAll(['generadoPor', 'maquila', 'folios', 'totalFolios', 'pesoTotalGramos', 'capturas', 'encabezado', 'fechaTexto', 'creadoEn', 'operadorUid'])
+        && request.resource.data.keys().hasOnly(['generadoPor', 'maquila', 'folios', 'totalFolios', 'pesoTotalGramos', 'capturas', 'encabezado', 'fechaTexto', 'creadoEn', 'operadorUid'])
+        && request.resource.data.generadoPor is string
+        && request.resource.data.generadoPor.size() > 0
+        && request.resource.data.generadoPor.size() <= 80
+        && request.resource.data.maquila is map
+        && request.resource.data.maquila.keys().hasOnly(['id', 'nombre'])
+        && request.resource.data.maquila.id is string
+        && request.resource.data.maquila.id.size() > 0
+        && request.resource.data.maquila.nombre is string
+        && request.resource.data.maquila.nombre.size() > 0
+        && request.resource.data.folios is list
+        && request.resource.data.folios.size() > 0
+        && request.resource.data.folios.size() <= 200
+        && request.resource.data.totalFolios == request.resource.data.folios.size()
+        && request.resource.data.pesoTotalGramos is number
+        && request.resource.data.pesoTotalGramos >= 0
+        && request.resource.data.pesoTotalGramos <= 100000 * request.resource.data.folios.size()
+        && request.resource.data.capturas is list
+        && request.resource.data.capturas.size() == request.resource.data.folios.size()
+        && request.resource.data.encabezado is map
+        && request.resource.data.fechaTexto is string
+        && request.resource.data.fechaTexto.size() > 0
+        && request.resource.data.fechaTexto.size() <= 20
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.operadorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Maquilas (destinos del PDF de salida). El ID del doc es el nombre
+    // normalizado: los duplicados son imposibles por construccion. Solo se
+    // puede cambiar 'activo' despues del alta.
+    match /maquilas/{maquilaId} {
+      allow read: if perfilActivo();
+      allow create: if perfilActivo()
+        && request.resource.data.keys().hasAll(['nombre', 'activo', 'creadoEn', 'creadoPorUid'])
+        && request.resource.data.keys().hasOnly(['nombre', 'activo', 'creadoEn', 'creadoPorUid'])
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.nombre.size() <= 120
+        && request.resource.data.activo == true
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.creadoPorUid == request.auth.uid;
+      allow update: if perfilActivo()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo'])
+        && request.resource.data.activo is bool;
+      allow delete: if false;
     }
   }
 }

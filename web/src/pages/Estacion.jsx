@@ -3,6 +3,7 @@
 // salida del dia -- reemplaza el paso manual de pasarselo a otra persona para
 // que arme el Excel.
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   collection,
   doc,
@@ -19,9 +20,11 @@ import { useAuth } from '../context/AuthContext'
 import { normalizarFolio, canonizarFolio, validarPesoGramos } from '../utils/validacion'
 import { imprimirEtiqueta } from '../utils/zebraBridge'
 import { leerPesoBascula, motivoLecturaInvalida } from '../utils/basculaBridge'
-import { generarPdfSalida } from '../utils/pdf'
 import { resolverProductoEnTx, CRUCE_COMPLETO, CRUCE_SIN_RUTEO } from '../utils/cruceProducto'
 import CargaRuteo from '../components/CargaRuteo'
+import Maquilas from '../components/Maquilas'
+import GenerarPdfModal from '../components/GenerarPdfModal'
+import { getDoc } from 'firebase/firestore'
 
 function inicioDeHoy() {
   const d = new Date()
@@ -49,6 +52,15 @@ export default function Estacion() {
   const [datosConfirmados, setDatosConfirmados] = useState(true)
   const [imprimiendoFolio, setImprimiendoFolio] = useState(null)
   const [leyendoBascula, setLeyendoBascula] = useState(false)
+  // Seleccion de folios para el PDF (Set de folios) + capturas de otros dias
+  // agregadas tecleando su folio, menu ⋮ abierto y modal de edicion de peso.
+  const [seleccion, setSeleccion] = useState(new Set())
+  const [agregadas, setAgregadas] = useState([]) // capturas de otros dias
+  const [folioAgregar, setFolioAgregar] = useState('')
+  const [menuAbierto, setMenuAbierto] = useState(null)
+  const [editando, setEditando] = useState(null) // captura en edicion de peso
+  const [nuevoPesoKg, setNuevoPesoKg] = useState('')
+  const [modalPdf, setModalPdf] = useState(false)
   const campoFolioRef = useRef(null)
 
   useEffect(() => {
@@ -108,6 +120,41 @@ export default function Estacion() {
     return () => window.removeEventListener('focus', reenfocar)
   }, [])
 
+  // Higiene de seleccion/menu: si un folio deja de estar en capturas o
+  // agregadas (se elimino, o cambio el dia y salio de "hoy"), se saca de la
+  // seleccion y se cierra el menu si era el suyo -- si no, quedarian folios
+  // "fantasma" seleccionados sin fila visible en la tabla.
+  useEffect(() => {
+    const foliosVisibles = new Set([
+      ...capturas.map((c) => c.folio),
+      ...agregadas.map((c) => c.folio)
+    ])
+    setSeleccion((prev) => {
+      let cambio = false
+      const nueva = new Set()
+      prev.forEach((f) => {
+        if (foliosVisibles.has(f)) nueva.add(f)
+        else cambio = true
+      })
+      return cambio ? nueva : prev
+    })
+    setMenuAbierto((prev) => (prev !== null && !foliosVisibles.has(prev) ? null : prev))
+  }, [capturas, agregadas])
+
+  // Cierra el menu ⋮ al hacer clic fuera de el (o de su boton). Se marca la
+  // celda de acciones con la clase 'menu-acciones' para distinguir un clic
+  // "de adentro" (que ya lo maneja su propio onClick) de uno realmente
+  // externo.
+  useEffect(() => {
+    if (menuAbierto === null) return
+    const cerrar = (e) => {
+      if (e.target.closest && e.target.closest('.menu-acciones')) return
+      setMenuAbierto(null)
+    }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [menuAbierto])
+
   const totalKg = useMemo(
     () => capturas.reduce((acc, c) => acc + (c.pesoGramos || 0), 0) / 1000,
     [capturas]
@@ -142,7 +189,7 @@ export default function Estacion() {
     setGuardando(true)
     try {
       const folioNormalizado = canonizarFolio(normalizarFolio(folio))
-      const pesoGramos = validarPesoGramos(Number(pesoKg) * 1000)
+      const pesoGramos = validarPesoGramos(Math.round(Number(pesoKg) * 1000))
       const ref = doc(db, 'bultos', folioNormalizado)
 
       // 1) Lectura (en transaccion, para leer un snapshot consistente) que
@@ -293,28 +340,128 @@ export default function Estacion() {
     }
   }
 
-  const onGenerarPdf = () => {
-    if (capturas.length === 0) {
-      setError('No hay folios capturados hoy todavia.')
-      return
+  // ---- Seleccion de folios para el PDF ----
+  const toggleSeleccion = (folio) => {
+    const nueva = new Set(seleccion)
+    if (nueva.has(folio)) nueva.delete(folio)
+    else nueva.add(folio)
+    setSeleccion(nueva)
+  }
+
+  const todasHoySeleccionadas =
+    capturas.length > 0 && capturas.every((c) => seleccion.has(c.folio))
+
+  const toggleTodasHoy = () => {
+    const nueva = new Set(seleccion)
+    if (todasHoySeleccionadas) {
+      capturas.forEach((c) => nueva.delete(c.folio))
+    } else {
+      capturas.forEach((c) => nueva.add(c.folio))
     }
+    setSeleccion(nueva)
+  }
+
+  // Agregar un folio tecleado (puede ser de otro dia): se busca su captura
+  // real en Firestore y se suma a la tabla/seleccion.
+  const onAgregarFolio = async (e) => {
+    e.preventDefault()
+    setError('')
+    setAviso('')
     try {
-      generarPdfSalida({
-        capturas: capturas.map((c) => ({
-          folio: c.folio,
-          pesoGramos: c.pesoGramos,
-          producto: c.producto || null,
-          cruce: c.cruce || null,
-          horaTexto: c.creadoEn?.toDate
-            ? c.creadoEn.toDate().toLocaleTimeString('es-MX')
-            : '-'
-        })),
-        operador: perfil?.nombreCompleto || 'Estacion',
-        fecha: new Date().toLocaleDateString('es-MX')
-      })
+      const folioBuscado = canonizarFolio(normalizarFolio(folioAgregar))
+      if (capturas.some((c) => c.folio === folioBuscado) || agregadas.some((c) => c.folio === folioBuscado)) {
+        toggleSeleccion(folioBuscado)
+        setFolioAgregar('')
+        return
+      }
+      const snap = await getDoc(doc(db, 'bultos', folioBuscado))
+      if (!snap.exists()) {
+        setError(`El folio ${folioBuscado} no esta capturado (ni hoy ni antes).`)
+        return
+      }
+      setAgregadas([...agregadas, { id: snap.id, ...snap.data() }])
+      setSeleccion(new Set([...seleccion, folioBuscado]))
+      setFolioAgregar('')
     } catch (err) {
-      console.error('[Estacion] Error generando PDF:', err)
-      setError('No se pudo generar el PDF: ' + (err.message || err))
+      setError(err.message || 'Folio invalido.')
+    }
+  }
+
+  // ---- Editar peso / eliminar (menu ⋮) ----
+  const onEliminar = async (captura) => {
+    setMenuAbierto(null)
+    // Se captura ANTES del confirm (que queda abierto un rato, tiempo en el
+    // que otra sesion podria editar esta misma captura): si al confirmar
+    // resulta que ya no es la misma version, se aborta en vez de borrar a
+    // ciegas la version nueva que el operador nunca vio.
+    const actualizadoEnMillis = captura.actualizadoEn?.toMillis ? captura.actualizadoEn.toMillis() : null
+    const confirmar = window.confirm(
+      `¿Eliminar la captura del folio ${captura.folio} (${(captura.pesoGramos / 1000).toFixed(2)} kg)?\n\n` +
+        'OJO: si su etiqueta ya se imprimio o salio en un PDF, esos papeles quedaran sin respaldo en el sistema.'
+    )
+    if (!confirmar) return
+    setError('')
+    setAviso('')
+    try {
+      const ref = doc(db, 'bultos', captura.folio)
+      const resultado = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref)
+        if (!snap.exists()) return 'no_existe'
+        const actualDeSnap = snap.data().actualizadoEn?.toMillis ? snap.data().actualizadoEn.toMillis() : null
+        if (actualDeSnap !== actualizadoEnMillis) return 'cambio'
+        tx.delete(ref)
+        return 'eliminado'
+      })
+      const nueva = new Set(seleccion)
+      nueva.delete(captura.folio)
+      setSeleccion(nueva)
+      setAgregadas(agregadas.filter((c) => c.folio !== captura.folio))
+      if (resultado === 'eliminado') {
+        setAviso(`Captura del folio ${captura.folio} eliminada.`)
+      } else if (resultado === 'no_existe') {
+        setAviso(`La captura del folio ${captura.folio} ya no existia (alguien mas la elimino).`)
+      } else {
+        setError(`La captura de ${captura.folio} cambio mientras confirmabas; revisa y vuelve a intentar.`)
+      }
+    } catch (err) {
+      setError(`No se pudo eliminar ${captura.folio}: ` + (err.message || err))
+    }
+  }
+
+  const abrirEdicion = (captura) => {
+    setMenuAbierto(null)
+    setEditando(captura)
+    setNuevoPesoKg((captura.pesoGramos / 1000).toFixed(2))
+  }
+
+  const onGuardarPeso = async () => {
+    setError('')
+    setAviso('')
+    try {
+      const pesoGramos = validarPesoGramos(Math.round(Number(nuevoPesoKg) * 1000))
+      const ref = doc(db, 'bultos', editando.folio)
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref)
+        if (!snap.exists()) {
+          throw new Error(`La captura de ${editando.folio} ya no existe (alguien la elimino).`)
+        }
+        // Solo cambia el peso: el snapshot de producto y creadoEn se
+        // conservan tal cual estaban al capturar.
+        tx.set(ref, { ...snap.data(), pesoGramos, actualizadoEn: serverTimestamp() })
+      })
+      // Las capturas de OTROS dias (agregadas) no tienen onSnapshot que las
+      // refresque solas: sin esto, la tabla se quedaria mostrando el peso
+      // viejo y reabrir "Editar peso" precargaria ese mismo valor viejo.
+      setAgregadas((prev) =>
+        prev.map((a) => (a.folio === editando.folio ? { ...a, pesoGramos } : a))
+      )
+      setAviso(
+        `Peso de ${editando.folio} actualizado a ${(pesoGramos / 1000).toFixed(2)} kg. ` +
+          'OJO: si su etiqueta ya se imprimio, ya no coincide — usa "Imprimir etiqueta" para reimprimirla.'
+      )
+      setEditando(null)
+    } catch (err) {
+      setError(err.message || 'No se pudo actualizar el peso.')
     }
   }
 
@@ -323,6 +470,9 @@ export default function Estacion() {
       <div className="barra-superior">
         <div className="barra-titulo">RAGNAR - Estacion de captura</div>
         <div className="barra-usuario">
+          <Link to="/historial" className="btn-secundario" style={{ textDecoration: 'none' }}>
+            Historial
+          </Link>
           <span className="usuario-nombre">{perfil?.nombreCompleto || 'Estacion'}</span>
           <button className="btn-salir" onClick={cerrarSesion}>Salir</button>
         </div>
@@ -376,6 +526,8 @@ export default function Estacion() {
           </button>
         </form>
 
+        <Maquilas />
+
         <div className="tarjeta">
           <h2>Capturas de hoy ({capturas.length}) - {totalKg.toFixed(2)} kg</h2>
           {!datosConfirmados && (
@@ -383,17 +535,42 @@ export default function Estacion() {
               Datos no confirmados, verifica tu conexion.
             </div>
           )}
-          <button
-            className="btn-secundario"
-            onClick={onGenerarPdf}
-            disabled={!datosConfirmados}
-            style={{ marginBottom: 12 }}
-          >
-            Generar PDF de salida
-          </button>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+            <form onSubmit={onAgregarFolio} style={{ display: 'flex', gap: 6 }}>
+              <input
+                type="text"
+                placeholder="Agregar folio al PDF (de cualquier dia)"
+                value={folioAgregar}
+                onChange={(e) => setFolioAgregar(e.target.value)}
+                style={{ width: 240 }}
+              />
+              <button className="btn-secundario" type="submit" disabled={!folioAgregar.trim()}>
+                Agregar
+              </button>
+            </form>
+            <button
+              className="btn-secundario"
+              onClick={() => setModalPdf(true)}
+              disabled={!datosConfirmados || seleccion.size === 0}
+              title={seleccion.size === 0 ? 'Selecciona folios con las casillas de la tabla' : ''}
+            >
+              Generar PDF de salida ({seleccion.size} seleccionados)
+            </button>
+          </div>
+
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={todasHoySeleccionadas}
+                    onChange={toggleTodasHoy}
+                    disabled={capturas.length === 0}
+                    title="Seleccionar todas las de hoy"
+                  />
+                </th>
                 <th style={{ textAlign: 'left' }}>Folio</th>
                 <th style={{ textAlign: 'left' }}>Codigo</th>
                 <th style={{ textAlign: 'left' }}>Producto</th>
@@ -403,21 +580,64 @@ export default function Estacion() {
               </tr>
             </thead>
             <tbody>
-              {capturas.map((c) => (
-                <tr key={c.id}>
+              {[...capturas, ...agregadas.filter((a) => !capturas.some((c) => c.folio === a.folio))].map((c) => (
+                <tr key={c.id} style={agregadas.some((a) => a.folio === c.folio) ? { background: '#f6f9ff' } : undefined}>
+                  <td style={{ textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={seleccion.has(c.folio)}
+                      onChange={() => toggleSeleccion(c.folio)}
+                    />
+                  </td>
                   <td>{c.folio}</td>
                   <td>{c.producto?.codigo || (c.cruce === 'sin_ruteo' ? 'SIN RUTEO' : '-')}</td>
                   <td>{c.producto?.descripcion || '-'}</td>
                   <td>{(c.pesoGramos / 1000).toFixed(2)}</td>
-                  <td>{c.creadoEn?.toDate ? c.creadoEn.toDate().toLocaleTimeString('es-MX') : '-'}</td>
-                  <td>
+                  <td>{c.creadoEn?.toDate ? c.creadoEn.toDate().toLocaleDateString('es-MX') === new Date().toLocaleDateString('es-MX')
+                    ? c.creadoEn.toDate().toLocaleTimeString('es-MX')
+                    : c.creadoEn.toDate().toLocaleDateString('es-MX')
+                    : '-'}</td>
+                  <td className="menu-acciones" style={{ position: 'relative', textAlign: 'right' }}>
                     <button
                       className="btn-secundario"
-                      onClick={() => onImprimir(c)}
-                      disabled={imprimiendoFolio === c.folio}
+                      onClick={() => setMenuAbierto(menuAbierto === c.folio ? null : c.folio)}
+                      aria-label={`Opciones de ${c.folio}`}
                     >
-                      {imprimiendoFolio === c.folio ? 'Imprimiendo...' : 'Imprimir etiqueta'}
+                      ⋮
                     </button>
+                    {menuAbierto === c.folio && (
+                      <div
+                        style={{
+                          position: 'absolute', right: 0, top: '100%', zIndex: 20,
+                          background: '#fff', border: '1px solid #ccc', borderRadius: 6,
+                          boxShadow: '0 4px 10px rgba(0,0,0,0.15)', minWidth: 170,
+                          display: 'flex', flexDirection: 'column'
+                        }}
+                      >
+                        <button
+                          className="btn-menu"
+                          style={{ padding: '8px 12px', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer' }}
+                          disabled={imprimiendoFolio === c.folio}
+                          onClick={() => { setMenuAbierto(null); onImprimir(c) }}
+                        >
+                          {imprimiendoFolio === c.folio ? 'Imprimiendo...' : 'Imprimir etiqueta'}
+                        </button>
+                        <button
+                          className="btn-menu"
+                          style={{ padding: '8px 12px', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer' }}
+                          onClick={() => abrirEdicion(c)}
+                        >
+                          Editar peso
+                        </button>
+                        <button
+                          className="btn-menu"
+                          style={{ padding: '8px 12px', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', color: '#a00' }}
+                          onClick={() => onEliminar(c)}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -425,6 +645,55 @@ export default function Estacion() {
           </table>
         </div>
       </div>
+
+      {editando && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50
+          }}
+        >
+          <div className="tarjeta" style={{ width: 'min(380px, 92vw)' }}>
+            <h2>Editar peso — folio {editando.folio}</h2>
+            <label className="campo">
+              <span>Peso (kg)</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={nuevoPesoKg}
+                onChange={(e) => setNuevoPesoKg(e.target.value)}
+                autoFocus
+              />
+            </label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="btn-primario" onClick={onGuardarPeso}>Guardar</button>
+              <button className="btn-secundario" onClick={() => setEditando(null)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalPdf && (
+        <GenerarPdfModal
+          folios={[...seleccion]}
+          operador={perfil?.nombreCompleto || 'Estacion'}
+          onCerrar={() => setModalPdf(false)}
+          onListo={(mensaje) => {
+            setModalPdf(false)
+            setAviso(mensaje)
+          }}
+          onDepurar={(foliosInexistentes) => {
+            const idsInexistentes = new Set(foliosInexistentes)
+            setSeleccion((prev) => {
+              const nueva = new Set(prev)
+              idsInexistentes.forEach((f) => nueva.delete(f))
+              return nueva
+            })
+            setAgregadas((prev) => prev.filter((c) => !idsInexistentes.has(c.folio)))
+          }}
+        />
+      )}
     </div>
   )
 }

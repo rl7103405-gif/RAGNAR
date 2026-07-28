@@ -15,7 +15,24 @@ function celda(valor) {
   return valor === null || valor === undefined || valor === '' ? NA : String(valor)
 }
 
-export function generarPdfSalida({ capturas, operador, fecha }) {
+// Campos del encabezado que captura quien genera el PDF (America). Si un
+// campo viene vacio se deja EN BLANCO (espacio para escribirlo a mano),
+// ya no "N/A".
+function textoEncabezado(valor) {
+  return valor === null || valor === undefined ? '' : String(valor)
+}
+
+export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} }) {
+  const enc = {
+    folioInterno: textoEncabezado(encabezado.folioInterno),
+    ordenTrabajo: textoEncabezado(encabezado.ordenTrabajo),
+    fechaSolicitud: textoEncabezado(encabezado.fechaSolicitud),
+    fechaEntrega: textoEncabezado(encabezado.fechaEntrega),
+    areaRecibe: textoEncabezado(encabezado.areaRecibe),
+    direccionEnvio: textoEncabezado(encabezado.direccionEnvio),
+    conceptoSalida: textoEncabezado(encabezado.conceptoSalida),
+    observaciones: textoEncabezado(encabezado.observaciones)
+  }
   const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' })
   const margen = 30
   const anchoUtil = pdf.internal.pageSize.getWidth() - margen * 2
@@ -36,14 +53,20 @@ export function generarPdfSalida({ capturas, operador, fecha }) {
   const cajaX = margen + anchoUtil - 220
   pdf.setFontSize(9)
   const datosCaja = [
-    ['Folio Interno:', NA],
-    ['Orden de Trabajo:', NA],
-    ['Fecha Solicitud:', NA],
-    ['Fecha Entrega:', NA]
+    ['Folio Interno:', enc.folioInterno],
+    ['Orden de Trabajo:', enc.ordenTrabajo],
+    ['Fecha Solicitud:', enc.fechaSolicitud],
+    ['Fecha Entrega:', enc.fechaEntrega]
   ]
   datosCaja.forEach((fila, i) => {
-    pdf.text(fila[0], cajaX, y + 10 + i * 13)
-    pdf.text(fila[1], cajaX + 100, y + 10 + i * 13)
+    const yFila = y + 10 + i * 13
+    pdf.text(fila[0], cajaX, yFila)
+    if (fila[1]) {
+      pdf.text(fila[1], cajaX + 100, yFila, { maxWidth: 100 })
+    } else {
+      // Vacio: linea para llenar a mano, altura estable.
+      pdf.line(cajaX + 100, yFila + 1, cajaX + 205, yFila + 1)
+    }
   })
 
   // Avanza lo suficiente para dejar atras AMBOS bloques del encabezado
@@ -55,18 +78,26 @@ export function generarPdfSalida({ capturas, operador, fecha }) {
   y += Math.max(logoLado, altoCaja) + 14
   pdf.setFontSize(10)
   const filaEtiquetas = [
-    ['Area que Entrega:', 'DEPORTIVOS QUINI', 'Direccion Envio:', NA],
-    ['Area que Recibe:', NA, 'Concepto Salida:', NA]
+    ['Area que Entrega:', 'DEPORTIVOS QUINI', 'Direccion Envio:', enc.direccionEnvio],
+    ['Area que Recibe:', enc.areaRecibe, 'Concepto Salida:', enc.conceptoSalida]
   ]
   filaEtiquetas.forEach((fila) => {
     pdf.setFont(undefined, 'bold')
     pdf.text(fila[0], margen, y)
     pdf.setFont(undefined, 'normal')
-    pdf.text(fila[1], margen + 95, y)
+    if (fila[1]) {
+      pdf.text(fila[1], margen + 95, y, { maxWidth: 300 })
+    } else {
+      pdf.line(margen + 95, y + 1, margen + 300, y + 1)
+    }
     pdf.setFont(undefined, 'bold')
     pdf.text(fila[2], margen + anchoUtil - 220, y)
     pdf.setFont(undefined, 'normal')
-    pdf.text(fila[3], margen + anchoUtil - 110, y)
+    if (fila[3]) {
+      pdf.text(fila[3], margen + anchoUtil - 110, y, { maxWidth: 110 })
+    } else {
+      pdf.line(margen + anchoUtil - 110, y + 1, margen + anchoUtil, y + 1)
+    }
     y += 16
   })
   y += 6
@@ -185,7 +216,11 @@ export function generarPdfSalida({ capturas, operador, fecha }) {
   pdf.setFont(undefined, 'bold')
   pdf.text('OBSERVACIONES:', xFirma, y)
   pdf.setFont(undefined, 'normal')
-  pdf.line(xFirma + 85, y, xFirma + 400, y)
+  if (enc.observaciones) {
+    pdf.text(enc.observaciones, xFirma + 90, y, { maxWidth: 310 })
+  } else {
+    pdf.line(xFirma + 85, y, xFirma + 400, y)
+  }
 
   pdf.setFont(undefined, 'bold')
   pdf.text('NOMBRE:', xFirma, y + 28)
@@ -223,5 +258,25 @@ export function generarPdfSalida({ capturas, operador, fecha }) {
     pdf.setFont(undefined, 'normal')
   })
 
-  pdf.save(`salida_${fecha.replace(/[^0-9]/g, '')}.pdf`)
+  // Se devuelve el PDF como Blob en vez de descargarlo aqui: quien llama
+  // primero REGISTRA la generacion en la bitacora (pdfsGenerados) y solo
+  // despues dispara la descarga -- asi no puede existir un PDF descargado
+  // sin rastro en el historial (salvo que Firebase este caido, caso en el
+  // que el que llama descarga igual pero avisa).
+  return {
+    blob: pdf.output('blob'),
+    nombreArchivo: `salida_${fecha.replace(/[^0-9]/g, '')}.pdf`
+  }
+}
+
+/** Dispara la descarga de un Blob de PDF en el navegador. */
+export function descargarPdf(blob, nombreArchivo) {
+  const url = URL.createObjectURL(blob)
+  const enlace = document.createElement('a')
+  enlace.href = url
+  enlace.download = nombreArchivo
+  document.body.appendChild(enlace)
+  enlace.click()
+  enlace.remove()
+  URL.revokeObjectURL(url)
 }

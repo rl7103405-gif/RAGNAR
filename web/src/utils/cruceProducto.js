@@ -24,6 +24,9 @@ export async function resolverProductoEnTx(tx, folio) {
     return { producto: null, cruce: CRUCE_SIN_RUTEO, catalogoVersion: null }
   }
   const r = ruteoSnap.data()
+  // descripcion/modelo/color pueden venir del propio Excel (formato
+  // Seguimiento de Folios); sirven de respaldo si el catalogo no tiene el
+  // codigo. El catalogo, cuando si lo tiene, manda sobre estos valores.
   const producto = {
     codigo: r.codigo ?? null,
     docenas: r.docenas ?? null,
@@ -31,10 +34,10 @@ export async function resolverProductoEnTx(tx, folio) {
     total: r.total ?? null,
     pedido: r.pedido ?? null,
     nombreGuia: r.nombreGuia ?? null,
-    descripcion: null,
-    modelo: null,
+    descripcion: r.descripcion ?? null,
+    modelo: r.modelo ?? null,
     talla: null,
-    color: null,
+    color: r.color ?? null,
     referencia: null,
     linea: null
   }
@@ -69,10 +72,12 @@ export async function resolverProductoEnTx(tx, folio) {
   return {
     producto: {
       ...producto,
-      descripcion: entrada.descripcion ?? null,
-      modelo: entrada.modelo ?? null,
+      // El catalogo manda; si algun campo suyo viene vacio se conserva el
+      // respaldo que traiga el Excel (o null).
+      descripcion: entrada.descripcion ?? producto.descripcion,
+      modelo: entrada.modelo ?? producto.modelo,
       talla: entrada.talla ?? null,
-      color: entrada.color ?? null,
+      color: entrada.color ?? producto.color,
       referencia: entrada.referencia ?? null,
       linea: entrada.linea ?? null
     },
