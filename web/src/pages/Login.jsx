@@ -1,8 +1,9 @@
-// Pantalla de login. Cuenta unica de la estacion de prueba.
+// Pantalla de login: usuarios individuales (america, diana, lindbergh...)
+// ademas de la cuenta original de la estacion.
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { ESTACION_EMAIL } from '../constants/estacion'
+import { emailDeUsuario } from '../constants/estacion'
 
 export default function Login() {
   const { authUser, activo, cargando, iniciarSesion } = useAuth()
@@ -22,8 +23,7 @@ export default function Login() {
     try {
       // La cuenta se identifica con un nombre de usuario simple; internamente
       // Firebase Auth usa un correo interno fijo (ver constants/estacion.js).
-      const email = ESTACION_EMAIL[usuario.trim().toLowerCase()] || usuario.trim()
-      await iniciarSesion(email, password)
+      await iniciarSesion(emailDeUsuario(usuario), password)
     } catch (err) {
       setError(traducirError(err.code))
     } finally {

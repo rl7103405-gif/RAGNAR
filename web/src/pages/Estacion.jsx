@@ -22,8 +22,8 @@ import { imprimirEtiqueta } from '../utils/zebraBridge'
 import { leerPesoBascula, motivoLecturaInvalida } from '../utils/basculaBridge'
 import { resolverProductoEnTx, CRUCE_COMPLETO, CRUCE_SIN_RUTEO } from '../utils/cruceProducto'
 import CargaRuteo from '../components/CargaRuteo'
-import Maquilas from '../components/Maquilas'
 import GenerarPdfModal from '../components/GenerarPdfModal'
+import AjustesCuenta from '../components/AjustesCuenta'
 import { getDoc } from 'firebase/firestore'
 
 function inicioDeHoy() {
@@ -445,9 +445,19 @@ export default function Estacion() {
         if (!snap.exists()) {
           throw new Error(`La captura de ${editando.folio} ya no existe (alguien la elimino).`)
         }
-        // Solo cambia el peso: el snapshot de producto y creadoEn se
-        // conservan tal cual estaban al capturar.
-        tx.set(ref, { ...snap.data(), pesoGramos, actualizadoEn: serverTimestamp() })
+        // Cambia el peso conservando el snapshot de producto y creadoEn.
+        // operadorUid/operadorNombre pasan a ser los de QUIEN EDITA: con
+        // usuarios individuales, firestore.rules exige que toda escritura
+        // vaya firmada por el usuario de la sesion (operadorUid ==
+        // request.auth.uid) -- conservar el autor original haria que editar
+        // la captura de otro usuario fallara con permission-denied.
+        tx.set(ref, {
+          ...snap.data(),
+          pesoGramos,
+          operadorUid: authUser.uid,
+          operadorNombre: perfil?.nombreCompleto || 'Estacion',
+          actualizadoEn: serverTimestamp()
+        })
       })
       // Las capturas de OTROS dias (agregadas) no tienen onSnapshot que las
       // refresque solas: sin esto, la tabla se quedaria mostrando el peso
@@ -473,7 +483,11 @@ export default function Estacion() {
           <Link to="/historial" className="btn-secundario" style={{ textDecoration: 'none' }}>
             Historial
           </Link>
+          <Link to="/maquilas" className="btn-secundario" style={{ textDecoration: 'none' }}>
+            Maquilas
+          </Link>
           <span className="usuario-nombre">{perfil?.nombreCompleto || 'Estacion'}</span>
+          <AjustesCuenta />
           <button className="btn-salir" onClick={cerrarSesion}>Salir</button>
         </div>
       </div>
@@ -525,8 +539,6 @@ export default function Estacion() {
             {guardando ? 'Guardando...' : 'Guardar y generar etiqueta'}
           </button>
         </form>
-
-        <Maquilas />
 
         <div className="tarjeta">
           <h2>Capturas de hoy ({capturas.length}) - {totalKg.toFixed(2)} kg</h2>

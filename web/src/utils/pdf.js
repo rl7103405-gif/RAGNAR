@@ -78,8 +78,8 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   y += Math.max(logoLado, altoCaja) + 14
   pdf.setFontSize(10)
   const filaEtiquetas = [
-    ['Area que Entrega:', 'DEPORTIVOS QUINI', 'Direccion Envio:', enc.direccionEnvio],
-    ['Area que Recibe:', enc.areaRecibe, 'Concepto Salida:', enc.conceptoSalida]
+    ['Area que Entrega:', 'DEPORTIVOS QUINI', 'Concepto Salida:', enc.conceptoSalida],
+    ['Area que Recibe:', enc.areaRecibe, null, null]
   ]
   filaEtiquetas.forEach((fila) => {
     pdf.setFont(undefined, 'bold')
@@ -90,16 +90,30 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
     } else {
       pdf.line(margen + 95, y + 1, margen + 300, y + 1)
     }
-    pdf.setFont(undefined, 'bold')
-    pdf.text(fila[2], margen + anchoUtil - 220, y)
-    pdf.setFont(undefined, 'normal')
-    if (fila[3]) {
-      pdf.text(fila[3], margen + anchoUtil - 110, y, { maxWidth: 110 })
-    } else {
-      pdf.line(margen + anchoUtil - 110, y + 1, margen + anchoUtil, y + 1)
+    if (fila[2] !== null) {
+      pdf.setFont(undefined, 'bold')
+      pdf.text(fila[2], margen + anchoUtil - 220, y)
+      pdf.setFont(undefined, 'normal')
+      if (fila[3]) {
+        pdf.text(fila[3], margen + anchoUtil - 110, y, { maxWidth: 110 })
+      } else {
+        pdf.line(margen + anchoUtil - 110, y + 1, margen + anchoUtil, y + 1)
+      }
     }
     y += 16
   })
+  // Direccion Envio en su PROPIA linea a lo ancho del encabezado: las
+  // direcciones reales de las maquilas (que se precargan al elegirla en el
+  // modal) no caben en la media columna que ocupaba antes.
+  pdf.setFont(undefined, 'bold')
+  pdf.text('Direccion Envio:', margen, y)
+  pdf.setFont(undefined, 'normal')
+  if (enc.direccionEnvio) {
+    pdf.text(enc.direccionEnvio, margen + 90, y, { maxWidth: anchoUtil - 90 })
+  } else {
+    pdf.line(margen + 90, y + 1, margen + anchoUtil, y + 1)
+  }
+  y += 16
   y += 6
 
   // ---- Tabla principal: mismas columnas que la hoja fisica ----

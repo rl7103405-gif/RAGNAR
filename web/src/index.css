@@ -215,3 +215,87 @@ table th, table td {
   border-bottom: 1px solid var(--borde);
   font-size: 0.9rem;
 }
+
+/* ---- Indicadores (KPIs) del historial, mismo estilo que mecanicos ---- */
+.detalle-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 480px) {
+  .detalle-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.kpi {
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+}
+
+.kpi-num {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.kpi-lbl {
+  font-size: 0.72rem;
+  color: var(--texto-suave);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.grid-paneles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.barras {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.barra-fila {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+.barra-etq {
+  color: var(--texto-suave);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.barra-pista {
+  background: var(--fondo);
+  border-radius: 999px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.barra-rel {
+  height: 100%;
+  border-radius: 999px;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+
+.barra-val {
+  font-weight: 700;
+  min-width: 32px;
+  text-align: right;
+}

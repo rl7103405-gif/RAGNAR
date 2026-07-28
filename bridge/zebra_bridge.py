@@ -188,66 +188,56 @@ def generar_zpl_etiqueta(
     fecha = _texto_zpl(fecha, 12)
     leyenda = _texto_zpl(leyenda, 20) if leyenda else ""
 
-    # Layout CENTRADO: todo el texto usa ^FB a lo ancho completo con
-    # alineacion C, y el codigo de barras se centra calculando su ancho
-    # estimado. Antes todo iba pegado a la izquierda (x=30) y el barcode
-    # quedaba dificil de leer/escanear en la orilla de la etiqueta.
-    ancho_total = ETIQUETA_ANCHO_DOTS
+    # Layout ORIGINAL alineado a la izquierda (logo arriba a la derecha).
+    # El rediseño centrado quedo EN PAUSA: el rollo real de etiquetas de la
+    # planta es mas chico que los 10 x 8.2 cm asumidos y el contenido salia
+    # cortado; en cuanto Roberto pase la medida real se rehace el layout a
+    # ese tamano (probablemente compacto), centrado y completo.
+    x = MARGEN_DOTS
+    ancho_util = ETIQUETA_ANCHO_DOTS - 2 * MARGEN_DOTS
 
-    # El logo va arriba a la IZQUIERDA (ocupa x=30..174). El titulo y la
-    # linea de folio, con textos largos, podian invadirlo si se centraban a
-    # todo lo ancho (^FB desde x=0): se usa una banda central simetrica que
-    # libra esos 174 dots del logo por ambos lados.
     logo = ""
+    ancho_titulo = ancho_util
     if _LOGO_ZPL is not None:
-        logo = f"^FO{MARGEN_DOTS},{MARGEN_DOTS}{_LOGO_ZPL}^FS\n"
+        x_logo = ETIQUETA_ANCHO_DOTS - MARGEN_DOTS - LOGO_LADO_DOTS
+        logo = f"^FO{x_logo},{MARGEN_DOTS}{_LOGO_ZPL}^FS\n"
+        ancho_titulo = ancho_util - LOGO_LADO_DOTS - 20
 
-    BANDA_CENTRAL_X = 184
-    banda_central_ancho = ETIQUETA_ANCHO_DOTS - 2 * BANDA_CENTRAL_X
-
-    modulo, cabe = _modulo_barcode(folio)
-    if cabe:
-        ancho_barcode = modulo * (_modulos_code128(folio) + _ZONA_SILENCIO_MODULOS)
-        x_barcode = max(MARGEN_DOTS, (ancho_total - ancho_barcode) // 2 + 10 * modulo)
-    else:
-        # Ni con modulo 1 cabe: se pega al margen izquierdo (ya se aviso con
-        # el warning de _modulo_barcode) en vez de calcular un centrado que
-        # no tiene sentido si el barcode ya se sale de la etiqueta.
-        x_barcode = MARGEN_DOTS
+    modulo, _cabe = _modulo_barcode(folio)
 
     encabezado = f"""^XA
 ^LH0,0
 ^PW{ETIQUETA_ANCHO_DOTS}
 ^LL{ETIQUETA_ALTO_DOTS}
 {logo}^CF0,52
-^FO{BANDA_CENTRAL_X},{MARGEN_DOTS}^FB{banda_central_ancho},1,0,C^FDDEPORTIVOS QUINI^FS
+^FO{x},{MARGEN_DOTS}^FB{ancho_titulo},1,0,L^FDDEPORTIVOS QUINI^FS
 ^CF0,40
-^FO{BANDA_CENTRAL_X},100^FB{banda_central_ancho},1,0,C^FDFolio: {folio_display}^FS
+^FO{x},100^FB{ancho_titulo},1,0,L^FDFolio: {folio_display}^FS
 ^BY{modulo},3,170
-^FO{x_barcode},185^BCN,170,N,N,N
+^FO{x},185^BCN,170,N,N,N
 ^FD{folio}^FS
 """
     if leyenda:
         cuerpo = f"""^CF0,28
-^FO0,372^FB{ancho_total},1,0,C^FDCodigo producto: {codigo_producto}^FS
-^FO0,408^FB{ancho_total},1,0,C^FDDocenas: {docenas}    Pedido: {pedido_id}^FS
-^FO0,444^FB{ancho_total},2,0,C^FDCliente: {cliente}^FS
+^FO{x},372^FB{ancho_util},1,0,L^FDCodigo producto: {codigo_producto}^FS
+^FO{x},408^FB{ancho_util},1,0,L^FDDocenas: {docenas}    Pedido: {pedido_id}^FS
+^FO{x},444^FB{ancho_util},2,0,L^FDCliente: {cliente}^FS
 ^CF0,34
-^FO0,514^FB{ancho_total},1,0,C^FD*** {leyenda} ***^FS
+^FO{x},514^FB{ancho_util},1,0,C^FD*** {leyenda} ***^FS
 ^CF0,38
-^FO0,554^FB{ancho_total},1,0,C^FDPeso: {peso_kg} kg^FS
+^FO{x},554^FB{ancho_util},1,0,L^FDPeso: {peso_kg} kg^FS
 ^CF0,26
-^FO0,598^FB{ancho_total},1,0,C^FDFecha: {fecha}^FS
+^FO{x},598^FB{ancho_util},1,0,L^FDFecha: {fecha}^FS
 ^XZ"""
     else:
         cuerpo = f"""^CF0,28
-^FO0,380^FB{ancho_total},1,0,C^FDCodigo producto: {codigo_producto}^FS
-^FO0,418^FB{ancho_total},1,0,C^FDDocenas: {docenas}    Pedido: {pedido_id}^FS
-^FO0,456^FB{ancho_total},2,0,C^FDCliente: {cliente}^FS
+^FO{x},380^FB{ancho_util},1,0,L^FDCodigo producto: {codigo_producto}^FS
+^FO{x},418^FB{ancho_util},1,0,L^FDDocenas: {docenas}    Pedido: {pedido_id}^FS
+^FO{x},456^FB{ancho_util},2,0,L^FDCliente: {cliente}^FS
 ^CF0,40
-^FO0,535^FB{ancho_total},1,0,C^FDPeso: {peso_kg} kg^FS
+^FO{x},535^FB{ancho_util},1,0,L^FDPeso: {peso_kg} kg^FS
 ^CF0,28
-^FO0,587^FB{ancho_total},1,0,C^FDFecha: {fecha}^FS
+^FO{x},587^FB{ancho_util},1,0,L^FDFecha: {fecha}^FS
 ^XZ"""
     return encabezado + cuerpo
 

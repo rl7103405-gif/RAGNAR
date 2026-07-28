@@ -250,22 +250,29 @@ service cloud.firestore {
     }
 
     // Maquilas (destinos del PDF de salida). El ID del doc es el nombre
-    // normalizado: los duplicados son imposibles por construccion. Solo se
-    // puede cambiar 'activo' despues del alta.
+    // normalizado: los duplicados son imposibles por construccion. La
+    // direccion es OBLIGATORIA (se precarga como Direccion Envio del PDF);
+    // despues del alta solo se pueden cambiar 'activo' y 'direccion'.
     match /maquilas/{maquilaId} {
       allow read: if perfilActivo();
       allow create: if perfilActivo()
-        && request.resource.data.keys().hasAll(['nombre', 'activo', 'creadoEn', 'creadoPorUid'])
-        && request.resource.data.keys().hasOnly(['nombre', 'activo', 'creadoEn', 'creadoPorUid'])
+        && request.resource.data.keys().hasAll(['nombre', 'direccion', 'activo', 'creadoEn', 'creadoPorUid'])
+        && request.resource.data.keys().hasOnly(['nombre', 'direccion', 'activo', 'creadoEn', 'creadoPorUid'])
         && request.resource.data.nombre is string
         && request.resource.data.nombre.size() > 0
         && request.resource.data.nombre.size() <= 120
+        && request.resource.data.direccion is string
+        && request.resource.data.direccion.size() > 0
+        && request.resource.data.direccion.size() <= 300
         && request.resource.data.activo == true
         && request.resource.data.creadoEn == request.time
         && request.resource.data.creadoPorUid == request.auth.uid;
       allow update: if perfilActivo()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo'])
-        && request.resource.data.activo is bool;
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo', 'direccion'])
+        && request.resource.data.activo is bool
+        && request.resource.data.direccion is string
+        && request.resource.data.direccion.size() > 0
+        && request.resource.data.direccion.size() <= 300;
       allow delete: if false;
     }
   }

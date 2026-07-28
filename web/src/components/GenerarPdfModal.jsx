@@ -19,12 +19,15 @@ const MAX_FOLIOS_PDF = 200
 // a fuente 9; direccion/concepto miden maxWidth 110 a fuente 10;
 // observaciones mide maxWidth 310 a fuente 9. Medido con jsPDF: mas
 // caracteres que esto envuelve a 2-3 lineas y se encima con el texto de abajo.
+// direccionEnvio ocupa ahora una LINEA COMPLETA del encabezado (~500pt a
+// fuente 10): las direcciones reales de las maquilas no caben en la media
+// columna original.
 const MAX_POR_CAMPO = {
   folioInterno: 18,
   ordenTrabajo: 18,
   fechaSolicitud: 18,
   fechaEntrega: 18,
-  direccionEnvio: 20,
+  direccionEnvio: 95,
   conceptoSalida: 20,
   observaciones: 60
 }
@@ -126,7 +129,9 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
         ordenTrabajo: limpiarCampo(campos.ordenTrabajo, MAX_POR_CAMPO.ordenTrabajo),
         fechaSolicitud: limpiarCampo(campos.fechaSolicitud, MAX_POR_CAMPO.fechaSolicitud),
         fechaEntrega: limpiarCampo(campos.fechaEntrega, MAX_POR_CAMPO.fechaEntrega),
-        areaRecibe: maquila.nombre,
+        // 55 chars caben en una linea del maxWidth 300 del PDF; un nombre de
+        // maquila mas largo envolveria y se encimaria con la linea de abajo.
+        areaRecibe: limpiarCampo(maquila.nombre, 55),
         direccionEnvio: limpiarCampo(campos.direccionEnvio, MAX_POR_CAMPO.direccionEnvio),
         conceptoSalida: limpiarCampo(campos.conceptoSalida, MAX_POR_CAMPO.conceptoSalida),
         observaciones: limpiarCampo(campos.observaciones, MAX_POR_CAMPO.observaciones)
@@ -215,7 +220,26 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
 
         <label className="campo">
           <span>Maquila (obligatoria)</span>
-          <select value={maquilaId} onChange={(e) => setMaquilaId(e.target.value)}>
+          <select
+            value={maquilaId}
+            onChange={(e) => {
+              const idNuevo = e.target.value
+              setMaquilaId(idNuevo)
+              // La direccion registrada de la maquila se precarga como
+              // 'Direccion Envio' (editable antes de generar).
+              // Se sincroniza SIEMPRE (aunque quede vacia): si la maquila
+              // elegida no tiene direccion registrada, heredar la de la
+              // seleccion anterior mandaria el papel a la direccion
+              // equivocada.
+              const elegida = activas.find((m) => m.id === idNuevo)
+              setCampos((prev) => ({
+                ...prev,
+                direccionEnvio: elegida?.direccion
+                  ? limpiarCampo(elegida.direccion, MAX_POR_CAMPO.direccionEnvio)
+                  : ''
+              }))
+            }}
+          >
             <option value="">-- Elige la maquila --</option>
             {activas.map((m) => (
               <option key={m.id} value={m.id}>{m.nombre}</option>
