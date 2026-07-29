@@ -67,11 +67,20 @@ ZEBRA_PORT = int(os.getenv("ZEBRA_PORT", "9100"))
 ZEBRA_PRINTER_NAME = os.getenv("ZEBRA_PRINTER_NAME", "AUTO").strip()
 BRIDGE_PORT = int(os.getenv("ZEBRA_BRIDGE_PORT", "8002"))
 
-# Dimensiones de la etiqueta en dots (203 dpi, 8 dots/mm). Etiqueta fisica de
-# 10 cm x 8.2 cm (800 x 656 dots). Igual que app/zebra_print.py.
+# Dimensiones de la etiqueta en dots (203 dpi, 8 dots/mm). Rollo real medido
+# por Roberto el 2026-07-28: 10 cm x 8.3 cm = 800 x 664 dots.
 ETIQUETA_ANCHO_DOTS = 800
-ETIQUETA_ALTO_DOTS = 656
+ETIQUETA_ALTO_DOTS = 664
 MARGEN_DOTS = 30
+# El borde izquierdo del cabezal recorta un poco el primer caracter de cada
+# linea (la "D" de DEPORTIVOS, la "F" de Folio...): el contenido arranca unos
+# dots mas adentro que el margen derecho. 60 dots = 7.5 mm.
+MARGEN_IZQ_DOTS = 60
+# Ancho real disponible para el contenido. UNA sola fuente de verdad: la usan
+# tanto el layout (^FB de los textos) como _modulo_barcode al elegir el grosor
+# de barra. Si cada uno calculara el suyo, el barcode podria elegirse mas
+# ancho de lo que cabe y salir pegado al borde derecho.
+ANCHO_UTIL_DOTS = ETIQUETA_ANCHO_DOTS - MARGEN_IZQ_DOTS - MARGEN_DOTS
 
 _RUTA_LOGO = Path(__file__).parent.parent / "app" / "static" / "logo_quini.zpl"
 _PATRON_GFA = re.compile(r"^\^GFA,(\d+),(\d+),(\d+),([0-9A-Fa-f]+)$")
@@ -155,7 +164,7 @@ def _modulo_barcode(folio: str) -> tuple[int, bool]:
     (modulo, cabe): cabe=False si ni siquiera modulo 1 alcanza (se usa
     modulo 1 de todos modos, con posible recorte)."""
     modulos = _modulos_code128(folio)
-    ancho_util = ETIQUETA_ANCHO_DOTS - 2 * MARGEN_DOTS
+    ancho_util = ANCHO_UTIL_DOTS
     for modulo in (3, 2, 1):
         if modulo * (modulos + _ZONA_SILENCIO_MODULOS) <= ancho_util:
             return modulo, True
@@ -193,8 +202,8 @@ def generar_zpl_etiqueta(
     # planta es mas chico que los 10 x 8.2 cm asumidos y el contenido salia
     # cortado; en cuanto Roberto pase la medida real se rehace el layout a
     # ese tamano (probablemente compacto), centrado y completo.
-    x = MARGEN_DOTS
-    ancho_util = ETIQUETA_ANCHO_DOTS - 2 * MARGEN_DOTS
+    x = MARGEN_IZQ_DOTS
+    ancho_util = ANCHO_UTIL_DOTS
 
     logo = ""
     ancho_titulo = ancho_util

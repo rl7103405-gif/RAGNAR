@@ -27,7 +27,6 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
     folioInterno: textoEncabezado(encabezado.folioInterno),
     ordenTrabajo: textoEncabezado(encabezado.ordenTrabajo),
     fechaSolicitud: textoEncabezado(encabezado.fechaSolicitud),
-    fechaEntrega: textoEncabezado(encabezado.fechaEntrega),
     areaRecibe: textoEncabezado(encabezado.areaRecibe),
     direccionEnvio: textoEncabezado(encabezado.direccionEnvio),
     conceptoSalida: textoEncabezado(encabezado.conceptoSalida),
@@ -52,11 +51,12 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
 
   const cajaX = margen + anchoUtil - 220
   pdf.setFontSize(9)
+  // 'Fecha Entrega' se quito del formato a peticion de Roberto (2026-07-29):
+  // no se conoce al generar la salida y se llenaba siempre en blanco.
   const datosCaja = [
     ['Folio Interno:', enc.folioInterno],
     ['Orden de Trabajo:', enc.ordenTrabajo],
-    ['Fecha Solicitud:', enc.fechaSolicitud],
-    ['Fecha Entrega:', enc.fechaEntrega]
+    ['Fecha Solicitud:', enc.fechaSolicitud]
   ]
   datosCaja.forEach((fila, i) => {
     const yFila = y + 10 + i * 13

@@ -134,34 +134,58 @@ async function leerMatriz(archivo) {
   const buffer = await archivo.arrayBuffer()
 
   if (EXTENSIONES_DIRECTAS.some((ext) => nombre.endsWith(ext))) {
-    const { Workbook } = await import('exceljs')
-    const libro = new Workbook()
-    try {
-      await libro.xlsx.load(buffer)
-    } catch (err) {
-      throw new ErrorImportacion('No se pudo abrir el Excel: ' + (err.message || err))
-    }
-    if (libro.worksheets.length === 0) throw new ErrorImportacion('El Excel no tiene hojas')
-    const hoja =
-      libro.worksheets.find((h) => h.name.trim().toUpperCase() === NOMBRE_HOJA_PLANTILLA) ||
-      libro.worksheets[0]
-    // hoja.actualRowCount solo cuenta filas CON datos: una fila vacia
-    // intermedia truncaria el recorrido y omitiria folios en silencio.
-    // hoja.rowCount es el numero real de la ultima fila. Se valida ANTES de
-    // recorrer para no iterar un archivo con metadata de filas inflada.
-    if (hoja.rowCount > MAX_FILAS + 2) {
-      throw new ErrorImportacion(`El archivo excede el maximo de ${MAX_FILAS} filas`)
-    }
-    const filas = []
-    for (let n = 1; n <= hoja.rowCount; n++) {
-      // row.values de exceljs es 1-based (indice 0 vacio): se descarta. Se
-      // recorta a la columna M (13 elementos: indices 1..13, columnas A..M)
-      // por la misma razon que MAX_COLUMNA_INDICE en la ruta SheetJS.
-      filas.push(hoja.getRow(n).values.slice(1, 14))
-    }
-    return filas
+    // exceljs es mas estricto con la estructura interna del .xlsx: los
+    // archivos que exporta el sistema de la planta le salen con CERO hojas
+    // (comprobado con 'FOLIOS 29.07.26.xlsx', que SheetJS lee sin problema).
+    // Por eso, si exceljs no encuentra hojas o truena, NO se rechaza el
+    // archivo: se reintenta con SheetJS, que es mucho mas tolerante.
+    const filas = await leerConExcelJs(buffer)
+    if (filas !== null) return filas
   }
 
+  return leerConSheetJs(buffer)
+}
+
+/** Lectura con exceljs. Devuelve null (sin lanzar) si el archivo no se pudo
+ *  abrir o no expone hojas, para que quien llame reintente con SheetJS. */
+async function leerConExcelJs(buffer) {
+  let libro
+  try {
+    // Tanto la carga del modulo como la apertura del archivo pueden fallar:
+    // cualquier tropiezo de este motor cae al respaldo (SheetJS) en vez de
+    // rechazar un archivo que si es valido.
+    const { Workbook } = await import('exceljs')
+    libro = new Workbook()
+    await libro.xlsx.load(buffer)
+  } catch (err) {
+    console.warn('[importarFoliosRuteo] exceljs no pudo abrir el archivo, se usara SheetJS:', err)
+    return null
+  }
+  if (libro.worksheets.length === 0) {
+    console.warn('[importarFoliosRuteo] exceljs no encontro hojas, se usara SheetJS.')
+    return null
+  }
+  const hoja =
+    libro.worksheets.find((h) => h.name.trim().toUpperCase() === NOMBRE_HOJA_PLANTILLA) ||
+    libro.worksheets[0]
+  // hoja.actualRowCount solo cuenta filas CON datos: una fila vacia
+  // intermedia truncaria el recorrido y omitiria folios en silencio.
+  // hoja.rowCount es el numero real de la ultima fila. Se valida ANTES de
+  // recorrer para no iterar un archivo con metadata de filas inflada.
+  if (hoja.rowCount > MAX_FILAS + 2) {
+    throw new ErrorImportacion(`El archivo excede el maximo de ${MAX_FILAS} filas`)
+  }
+  const filas = []
+  for (let n = 1; n <= hoja.rowCount; n++) {
+    // row.values de exceljs es 1-based (indice 0 vacio): se descarta. Se
+    // recorta a la columna M (13 elementos: indices 1..13, columnas A..M)
+    // por la misma razon que MAX_COLUMNA_INDICE en la ruta SheetJS.
+    filas.push(hoja.getRow(n).values.slice(1, 14))
+  }
+  return filas
+}
+
+async function leerConSheetJs(buffer) {
   const modXlsx = await import('xlsx')
   // SheetJS es CommonJS: segun el empaquetador, sus funciones quedan como
   // exports con nombre o colgadas de default.
@@ -170,8 +194,12 @@ async function leerMatriz(archivo) {
   try {
     libro = XLSX.read(buffer, { type: 'array', cellDates: true })
   } catch (err) {
+    // Mensaje sin asumir formato: para un .xlsx aqui ya fallaron LOS DOS
+    // motores (exceljs dejo su motivo en la consola), y decir ".xls/.ods"
+    // mandaria a quien lo lee a buscar un problema de formato que no es.
     throw new ErrorImportacion(
-      'No se pudo abrir el archivo como Excel (.xls/.ods): ' + (err.message || err)
+      'No se pudo abrir el archivo con ningun lector de Excel disponible: ' +
+        (err.message || err)
     )
   }
   if (!libro.SheetNames.length) throw new ErrorImportacion('El Excel no tiene hojas')
@@ -419,8 +447,8 @@ function fechaTextoONull(valor) {
 // A diferencia de los otros formatos, las filas SIN folio se saltan en vez de
 // marcar error: el reporte trae filas estructurales (etiquetas de estatus,
 // pie 'Página -N de N') que no son datos.
-// PENDIENTE (Roberto): se usa la columna I (docenas surtidas) como docenas
-// del PDF; la H (docenas pedidas) se descarta. Confirmar cual va.
+// Docenas: se usa la columna I (docenas surtidas), NO la H (pedidas)
+// -- confirmado por Roberto el 2026-07-28.
 function parsearSeguimientoFolios(matriz, archivo) {
   const registros = new Map()
   const errores = []

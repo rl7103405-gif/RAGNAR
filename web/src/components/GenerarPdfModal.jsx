@@ -25,8 +25,6 @@ const MAX_FOLIOS_PDF = 200
 const MAX_POR_CAMPO = {
   folioInterno: 18,
   ordenTrabajo: 18,
-  fechaSolicitud: 18,
-  fechaEntrega: 18,
   direccionEnvio: 95,
   conceptoSalida: 20,
   observaciones: 60
@@ -43,17 +41,54 @@ function limpiarCampo(texto, maximo) {
 
 const LOTE_RELECTURA = 10
 
+// Cuenta compartida original: no identifica a una persona, asi que con ella
+// SI hay que preguntar quien genera el PDF. Los usuarios individuales
+// (america, diana, lindbergh...) se toman de su propio perfil.
+const USUARIO_COMPARTIDO = 'estacion'
+
+/** Orden de trabajo = los primeros 4 digitos del pedido (ej. del pedido
+ *  '7887_REPOSICION_2408' sale '7887'). Si la seleccion mezcla pedidos, se
+ *  listan hasta 3 ordenes; con mas se resume, para no imprimir un texto
+ *  cortado a la mitad en la caja del encabezado. */
+export function ordenDeTrabajoDeCapturas(capturas) {
+  const ordenes = new Set()
+  for (const c of capturas) {
+    const pedido = c.producto?.pedido
+    if (!pedido) continue
+    const m = /^\d{4}/.exec(String(pedido).trim())
+    if (m) ordenes.add(m[0])
+  }
+  const lista = [...ordenes]
+  if (lista.length === 0) {
+    // Habia pedidos pero ninguno arranca con 4 digitos: el campo saldria en
+    // blanco sin que nadie se entere de por que. Queda el rastro en consola.
+    const conPedido = capturas.filter((c) => c.producto?.pedido).length
+    if (conPedido > 0) {
+      console.warn(
+        `[GenerarPdfModal] ${conPedido} folios traen pedido pero ninguno empieza con 4 digitos: ` +
+          'la Orden de Trabajo saldra en blanco.'
+      )
+    }
+    return ''
+  }
+  if (lista.length <= 3) return lista.join(', ')
+  return `VARIAS (${lista.length})`
+}
+
 export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, onDepurar }) {
-  const { authUser } = useAuth()
+  const { authUser, perfil } = useAuth()
   const maquilas = useMaquilas()
   const activas = maquilas.filter((m) => m.activo)
+  // Con un usuario individual el nombre sale de su perfil (no se pregunta);
+  // solo la cuenta compartida 'estacion' tiene que teclearlo.
+  const nombreDelPerfil =
+    perfil?.empleadoId && perfil.empleadoId !== USUARIO_COMPARTIDO
+      ? perfil.nombreCompleto || perfil.empleadoId
+      : ''
   const [maquilaId, setMaquilaId] = useState('')
   const [generadoPor, setGeneradoPor] = useState('')
   const [campos, setCampos] = useState({
     folioInterno: '',
-    ordenTrabajo: '',
-    fechaSolicitud: '',
-    fechaEntrega: '',
     direccionEnvio: '',
     conceptoSalida: '',
     observaciones: ''
@@ -71,7 +106,7 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
       setError('Elige la maquila a la que va dirigida la salida.')
       return
     }
-    const nombreGenerador = limpiarCampo(generadoPor, 80)
+    const nombreGenerador = limpiarCampo(nombreDelPerfil || generadoPor, 80)
     if (!nombreGenerador) {
       setError('Escribe el nombre de quien genera el PDF.')
       return
@@ -124,18 +159,6 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
         )
         return
       }
-      const encabezado = {
-        folioInterno: limpiarCampo(campos.folioInterno, MAX_POR_CAMPO.folioInterno),
-        ordenTrabajo: limpiarCampo(campos.ordenTrabajo, MAX_POR_CAMPO.ordenTrabajo),
-        fechaSolicitud: limpiarCampo(campos.fechaSolicitud, MAX_POR_CAMPO.fechaSolicitud),
-        fechaEntrega: limpiarCampo(campos.fechaEntrega, MAX_POR_CAMPO.fechaEntrega),
-        // 55 chars caben en una linea del maxWidth 300 del PDF; un nombre de
-        // maquila mas largo envolveria y se encimaria con la linea de abajo.
-        areaRecibe: limpiarCampo(maquila.nombre, 55),
-        direccionEnvio: limpiarCampo(campos.direccionEnvio, MAX_POR_CAMPO.direccionEnvio),
-        conceptoSalida: limpiarCampo(campos.conceptoSalida, MAX_POR_CAMPO.conceptoSalida),
-        observaciones: limpiarCampo(campos.observaciones, MAX_POR_CAMPO.observaciones)
-      }
       // NOMBRE del PDF impreso = quien lo genera (el perfil del login
       // compartido no identifica a la persona real).
       // fechaTexto se calcula UNA sola vez y se usa tanto en el PDF como en
@@ -144,6 +167,20 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
       // de creadoEn (que es la hora del registro en Firestore, no
       // necesariamente igual al texto que ya salio impreso).
       const fechaTexto = new Date().toLocaleDateString('es-MX')
+      const encabezado = {
+        folioInterno: limpiarCampo(campos.folioInterno, MAX_POR_CAMPO.folioInterno),
+        // Orden de trabajo y fecha de solicitud ya no se preguntan: la orden
+        // sale del pedido del propio Excel (primeros 4 digitos) y la fecha de
+        // solicitud es siempre el dia en que se genera el PDF.
+        ordenTrabajo: limpiarCampo(ordenDeTrabajoDeCapturas(frescos), MAX_POR_CAMPO.ordenTrabajo),
+        fechaSolicitud: fechaTexto,
+        // 55 chars caben en una linea del maxWidth 300 del PDF; un nombre de
+        // maquila mas largo envolveria y se encimaria con la linea de abajo.
+        areaRecibe: limpiarCampo(maquila.nombre, 55),
+        direccionEnvio: limpiarCampo(campos.direccionEnvio, MAX_POR_CAMPO.direccionEnvio),
+        conceptoSalida: limpiarCampo(campos.conceptoSalida, MAX_POR_CAMPO.conceptoSalida),
+        observaciones: limpiarCampo(campos.observaciones, MAX_POR_CAMPO.observaciones)
+      }
       const { blob, nombreArchivo } = generarPdfSalida({
         capturas: frescos,
         operador: nombreGenerador,
@@ -207,16 +244,22 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
       <div className="tarjeta" style={{ width: 'min(540px, 92vw)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2>Generar PDF de salida ({folios.length} folios)</h2>
 
-        <label className="campo">
-          <span>Nombre de quien genera (obligatorio)</span>
-          <input
-            type="text"
-            value={generadoPor}
-            maxLength={80}
-            placeholder="Ej. America"
-            onChange={(e) => setGeneradoPor(e.target.value)}
-          />
-        </label>
+        {nombreDelPerfil ? (
+          <p style={{ marginTop: 0 }}>
+            Genera: <strong>{nombreDelPerfil}</strong>
+          </p>
+        ) : (
+          <label className="campo">
+            <span>Nombre de quien genera (obligatorio)</span>
+            <input
+              type="text"
+              value={generadoPor}
+              maxLength={80}
+              placeholder="Ej. America"
+              onChange={(e) => setGeneradoPor(e.target.value)}
+            />
+          </label>
+        )}
 
         <label className="campo">
           <span>Maquila (obligatoria)</span>
@@ -253,12 +296,13 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
         )}
 
         {campoTexto('Folio Interno', 'folioInterno')}
-        {campoTexto('Orden de Trabajo', 'ordenTrabajo')}
-        {campoTexto('Fecha Solicitud', 'fechaSolicitud')}
-        {campoTexto('Fecha Entrega', 'fechaEntrega')}
         {campoTexto('Direccion Envio', 'direccionEnvio')}
         {campoTexto('Concepto Salida', 'conceptoSalida')}
         {campoTexto('Observaciones', 'observaciones')}
+        <p style={{ fontSize: 13, color: '#777' }}>
+          La <strong>Orden de Trabajo</strong> sale sola del pedido de los folios y la{' '}
+          <strong>Fecha Solicitud</strong> es la de hoy: ya no hay que capturarlas.
+        </p>
 
         {error && <div className="alerta-error">{error}</div>}
         {progresoRelectura && (

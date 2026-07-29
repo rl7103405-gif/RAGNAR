@@ -29,7 +29,7 @@ const MAX_ERRORES_REPORTADOS = 20
 const MAX_FILAS_CATALOGO = 1_000_000
 // Columnas del archivo real que alimentan el PDF de salida. 'Articulo' es el
 // nombre del producto (ej. TIN INFANTIL) y 'Descripcion' del catalogo trae el
-// modelo (ej. GRDS-099) -- mapeo tentativo pendiente de confirmar con Roberto.
+// modelo (ej. GRDS-099) -- mapeo confirmado por Roberto el 2026-07-28.
 const COLUMNAS_REQUERIDAS = [
   'codigoproducto', 'articulo', 'descripcion', 'talla', 'color', 'referencia', 'linea_producto'
 ]
