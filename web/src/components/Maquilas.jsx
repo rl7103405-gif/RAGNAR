@@ -1,11 +1,9 @@
-// Maquilas (destinos del PDF de salida): ahora es una PAGINA propia (ruta
-// /maquilas, como el Historial), ya no una tarjeta dentro de la Estacion.
+// Maquilas (destinos del PDF de salida): panel de la pestana 'Maquilas'.
 // El alta exige nombre Y direccion; la direccion se precarga despues como
 // 'Direccion Envio' al generar el PDF. El ID del documento es el nombre
 // normalizado y transliterado: dos altas del mismo nombre caen en el MISMO
 // doc y los duplicados son imposibles por construccion, sin transacciones.
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   collection,
   doc,
@@ -19,7 +17,6 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
-import AjustesCuenta from './AjustesCuenta'
 
 export const MAX_NOMBRE_MAQUILA = 80
 // Mismo tope que el campo 'Direccion Envio' del PDF (una linea a lo ancho):
@@ -72,7 +69,7 @@ export function useMaquilas() {
 }
 
 export default function Maquilas() {
-  const { authUser, perfil, cerrarSesion } = useAuth()
+  const { authUser } = useAuth()
   const maquilas = useMaquilas()
   const [nombre, setNombre] = useState('')
   const [direccion, setDireccion] = useState('')
@@ -156,21 +153,8 @@ export default function Maquilas() {
   }
 
   return (
-    <div className="layout">
-      <div className="barra-superior">
-        <div className="barra-titulo">RAGNAR - Maquilas</div>
-        <div className="barra-usuario">
-          <Link to="/" className="btn-secundario" style={{ textDecoration: 'none' }}>
-            Volver a la estacion
-          </Link>
-          <span className="usuario-nombre">{perfil?.nombreCompleto || 'Estacion'}</span>
-          <AjustesCuenta />
-          <button className="btn-salir" onClick={cerrarSesion}>Salir</button>
-        </div>
-      </div>
-
-      <div className="contenido">
-        <div className="tarjeta" style={{ marginBottom: 18 }}>
+    <>
+      <div className="tarjeta" style={{ marginBottom: 18 }}>
           <h2>Dar de alta una maquila</h2>
           <form onSubmit={onAlta}>
             <label className="campo">
@@ -208,35 +192,34 @@ export default function Maquilas() {
           )}
         </div>
 
-        <div className="tarjeta">
-          <h2>Maquilas registradas ({maquilas.filter((m) => m.activo).length} activas)</h2>
-          {maquilas.length === 0 && <p style={{ color: '#777' }}>Sin maquilas todavia.</p>}
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left' }}>Nombre</th>
-                <th style={{ textAlign: 'left' }}>Direccion</th>
-                <th></th>
+      <div className="tarjeta">
+        <h2>Maquilas registradas ({maquilas.filter((m) => m.activo).length} activas)</h2>
+        {maquilas.length === 0 && <p className="texto-suave">Sin maquilas todavia.</p>}
+        <table className="tabla-datos">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Direccion</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {maquilas.map((m) => (
+              <tr key={m.id} style={{ opacity: m.activo ? 1 : 0.5 }}>
+                <td>{m.nombre}{!m.activo && ' (inactiva)'}</td>
+                <td>{m.direccion || '-'}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button className="btn-secundario" onClick={() => abrirEdicion(m)} style={{ marginRight: 6 }}>
+                    Editar direccion
+                  </button>
+                  <button className="btn-secundario" onClick={() => onToggle(m)}>
+                    {m.activo ? 'Desactivar' : 'Reactivar'}
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {maquilas.map((m) => (
-                <tr key={m.id} style={{ opacity: m.activo ? 1 : 0.5 }}>
-                  <td>{m.nombre}{!m.activo && ' (inactiva)'}</td>
-                  <td>{m.direccion || '-'}</td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button className="btn-secundario" onClick={() => abrirEdicion(m)} style={{ marginRight: 6 }}>
-                      Editar direccion
-                    </button>
-                    <button className="btn-secundario" onClick={() => onToggle(m)}>
-                      {m.activo ? 'Desactivar' : 'Reactivar'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {editando && (
@@ -265,6 +248,6 @@ export default function Maquilas() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

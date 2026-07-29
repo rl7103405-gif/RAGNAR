@@ -63,6 +63,10 @@ body {
 }
 
 .usuario-nombre {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
   font-weight: 600;
 }
 
@@ -298,4 +302,91 @@ table th, table td {
   font-weight: 700;
   min-width: 32px;
   text-align: right;
+}
+
+/* ---- Pestanas y filtros (mismo patron que captura-mecanicos) ---- */
+.usuario-rol {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--texto-suave);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--borde);
+  overflow-x: auto;
+}
+
+.tab {
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--texto-suave);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab.activo {
+  color: var(--azul);
+  border-bottom-color: var(--azul);
+}
+
+.filtros {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.chip-filtro {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--borde);
+  background: #fff;
+  color: var(--texto);
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.chip-filtro.activo {
+  background: var(--azul);
+  color: #fff;
+  border-color: var(--azul);
+}
+
+.texto-suave {
+  color: var(--texto-suave);
+}
+
+/* Tablas con el mismo aire que las tarjetas de mecanicos */
+.tabla-datos {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tabla-datos th {
+  text-align: left;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--texto-suave);
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.tabla-datos td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.tabla-datos tr:last-child td {
+  border-bottom: none;
 }

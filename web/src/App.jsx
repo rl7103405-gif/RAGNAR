@@ -3,8 +3,6 @@ import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import Estacion from './pages/Estacion'
-import Historial from './pages/Historial'
-import Maquilas from './components/Maquilas'
 
 export default function App() {
   return (
@@ -12,27 +10,15 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* Todo vive en una sola pantalla con pestanas (Captura, Folios del
+              dia, Historial, Indicadores, Maquilas), igual que
+              captura-mecanicos: las rutas viejas /historial y /maquilas
+              caen aqui por el comodin de abajo. */}
           <Route
             path="/"
             element={
               <ProtectedRoute>
                 <Estacion />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/historial"
-            element={
-              <ProtectedRoute>
-                <Historial />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/maquilas"
-            element={
-              <ProtectedRoute>
-                <Maquilas />
               </ProtectedRoute>
             }
           />
