@@ -33,20 +33,22 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
     observaciones: textoEncabezado(encabezado.observaciones)
   }
   const pdf = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' })
-  const margen = 30
+  // Margenes compactos: con muchos folios cada hoja cuenta, y el formato
+  // impreso tenia ~2 cm desperdiciados arriba.
+  const margen = 20
   const anchoUtil = pdf.internal.pageSize.getWidth() - margen * 2
   let y = margen
 
   // ---- Encabezado: logo + titulo (izquierda), caja de folio/fechas (derecha) ----
-  const logoLado = 40
+  const logoLado = 32
   try {
     pdf.addImage(LOGO_QUINI_PNG_BASE64, 'PNG', margen, y, logoLado, logoLado)
   } catch (e) {
     console.error('[pdf] No se pudo dibujar el logo:', e)
   }
-  pdf.setFontSize(16)
+  pdf.setFontSize(14)
   pdf.setFont(undefined, 'bold')
-  pdf.text('DEPORTIVOS QUINI', margen + logoLado + 12, y + logoLado / 2 + 5)
+  pdf.text('DEPORTIVOS QUINI', margen + logoLado + 10, y + logoLado / 2 + 4)
   pdf.setFont(undefined, 'normal')
 
   const cajaX = margen + anchoUtil - 220
@@ -59,7 +61,7 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
     ['Fecha Solicitud:', enc.fechaSolicitud]
   ]
   datosCaja.forEach((fila, i) => {
-    const yFila = y + 10 + i * 13
+    const yFila = y + 9 + i * 11
     pdf.text(fila[0], cajaX, yFila)
     if (fila[1]) {
       pdf.text(fila[1], cajaX + 100, yFila, { maxWidth: 100 })
@@ -74,9 +76,9 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   // seguir. Antes este avance era un numero fijo que no tomaba en cuenta
   // la altura real de la caja, y "Direccion Envio" quedaba encimado con
   // "Fecha Entrega".
-  const altoCaja = 10 + (datosCaja.length - 1) * 13 + 14
-  y += Math.max(logoLado, altoCaja) + 14
-  pdf.setFontSize(10)
+  const altoCaja = 9 + (datosCaja.length - 1) * 11 + 10
+  y += Math.max(logoLado, altoCaja) + 10
+  pdf.setFontSize(9.5)
   const filaEtiquetas = [
     ['Area que Entrega:', 'DEPORTIVOS QUINI', 'Concepto Salida:', enc.conceptoSalida],
     ['Area que Recibe:', enc.areaRecibe, null, null]
@@ -100,7 +102,7 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
         pdf.line(margen + anchoUtil - 110, y + 1, margen + anchoUtil, y + 1)
       }
     }
-    y += 16
+    y += 13
   })
   // Direccion Envio en su PROPIA linea a lo ancho del encabezado: las
   // direcciones reales de las maquilas (que se precargan al elegirla en el
@@ -113,8 +115,7 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   } else {
     pdf.line(margen + 90, y + 1, margen + anchoUtil, y + 1)
   }
-  y += 16
-  y += 6
+  y += 12
 
   // ---- Tabla principal: mismas columnas que la hoja fisica ----
   const columnas = [
@@ -156,7 +157,7 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
       { content: totalDocenas > 0 ? String(totalDocenas) : NA, colSpan: 3 }
     ]],
     showFoot: 'lastPage',
-    styles: { fontSize: 8, cellPadding: 3 },
+    styles: { fontSize: 8, cellPadding: 2 },
     headStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' },
     footStyles: { fillColor: [245, 245, 245], textColor: 20 },
     columnStyles: {
@@ -168,14 +169,17 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
       5: { cellWidth: 45 },
       6: { cellWidth: 50 },
       7: { cellWidth: 60 },
-      8: { cellWidth: 55 },
+      // 'Linea' necesita ~70pt: con menos, valores como "SIMPLY BASIC" se
+      // parten en dos renglones y CADA fila de la tabla crece al doble, que
+      // con 20+ folios es media hoja desperdiciada.
+      8: { cellWidth: 75 },
       9: { cellWidth: 60 },
       10: { cellWidth: 50 },
       11: { cellWidth: 55 }
     }
   })
 
-  y = pdf.lastAutoTable.finalY + 20
+  y = pdf.lastAutoTable.finalY + 14
 
   // ---- Resumen por codigo: suma de docenas de las capturas de cada codigo.
   // "Piezas" = docenas x 12 (confirmado por Roberto el 2026-07-27).
@@ -203,74 +207,100 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   // contenido fuera de la hoja. Si el propio resumen es mas alto que una
   // pagina, autoTable lo pagina solo.
   const paginaAlto = pdf.internal.pageSize.getHeight()
-  const espacioNecesario = Math.min(220 + filasResumen.length * 14, paginaAlto - margen * 2)
+  // Altura REAL de lo que falta, no un numero fijo generoso: la tabla del
+  // resumen mide ~13pt por fila (encabezado + N codigos + total) y el bloque
+  // de firmas 58pt. Sobreestimarlo mandaba el cierre a una hoja nueva aunque
+  // cupiera de sobra en la que ya estaba abierta.
+  const altoResumen = 13 * (filasResumen.length + 2)
+  const altoFirmas = 58
+  const espacioNecesario = Math.min(altoResumen + altoFirmas + 12, paginaAlto - margen * 2)
   if (y + espacioNecesario > paginaAlto - margen) {
     pdf.addPage()
     y = margen
   }
 
+  const paginasAntesDelResumen = pdf.internal.getNumberOfPages()
   autoTable(pdf, {
     startY: y,
     margin: { left: margen },
-    tableWidth: 260,
+    tableWidth: 280,
+    columnStyles: { 0: { cellWidth: 95 } },
     head: [['Codigo', 'Total por Codigo', 'Piezas']],
     body: filasResumen,
     foot: [['TOTAL GRAL.', totalDocenas > 0 ? String(totalDocenas) : NA, totalDocenas > 0 ? String(totalDocenas * 12) : NA]],
     showFoot: 'lastPage',
-    styles: { fontSize: 8, cellPadding: 3 },
+    styles: { fontSize: 8, cellPadding: 2 },
     headStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' },
     footStyles: { fillColor: [245, 245, 245], textColor: 20, fontStyle: 'bold' }
   })
 
   const yResumen = pdf.lastAutoTable.finalY
 
-  // ---- Observaciones + firma de quien entrega, a la par del resumen ----
-  const xFirma = margen + 300
+  // ---- Observaciones, a la par del resumen por codigo ----
+  const xObs = margen + 300
   pdf.setFontSize(9)
   pdf.setFont(undefined, 'bold')
-  pdf.text('OBSERVACIONES:', xFirma, y)
+  pdf.text('OBSERVACIONES:', xObs, y)
   pdf.setFont(undefined, 'normal')
   if (enc.observaciones) {
-    pdf.text(enc.observaciones, xFirma + 90, y, { maxWidth: 310 })
+    pdf.text(enc.observaciones, xObs + 90, y, { maxWidth: 310 })
   } else {
-    pdf.line(xFirma + 85, y, xFirma + 400, y)
+    pdf.line(xObs + 85, y, xObs + 400, y)
   }
 
-  pdf.setFont(undefined, 'bold')
-  pdf.text('NOMBRE:', xFirma, y + 28)
-  pdf.setFont(undefined, 'normal')
-  pdf.text(operador || '-', xFirma + 55, y + 28)
-
-  pdf.setFont(undefined, 'bold')
-  pdf.text('FECHA:', xFirma, y + 46)
-  pdf.setFont(undefined, 'normal')
-  pdf.text(fecha, xFirma + 55, y + 46)
-
-  pdf.setFont(undefined, 'bold')
-  pdf.text('FIRMA:', xFirma, y + 64)
-  pdf.line(xFirma + 55, y + 64, xFirma + 300, y + 64)
-
-  // ---- Firmas de entrega / transporte / recibe ----
-  let yFirmas = Math.max(yResumen, y + 90) + 30
-  if (yFirmas > paginaAlto - 60) {
+  // ---- Firmas: GENERO / ENTREGA / TRANSPORTE / RECIBE en UNA sola fila.
+  // Antes el bloque de quien genera iba aparte (arriba, junto al resumen) y
+  // las otras tres abajo: juntarlas ahorra ~60pt de alto por documento, que
+  // con muchos folios es media hoja menos.
+  // Si el resumen se paginó solo (muchos codigos distintos), 'y' quedo
+  // apuntando a la pagina ANTERIOR y compararla con yResumen daria una
+  // coordenada de otra hoja: en ese caso manda yResumen a secas.
+  const resumenSePagino = pdf.internal.getNumberOfPages() > paginasAntesDelResumen
+  let yFirmas = (resumenSePagino ? yResumen : Math.max(yResumen, y + 20)) + 34
+  const altoBloqueFirmas = 24
+  if (yFirmas + altoBloqueFirmas > paginaAlto - margen) {
     pdf.addPage()
-    yFirmas = margen + 40
+    yFirmas = margen + 30
   }
 
-  const anchoFirma = anchoUtil / 3
+  const anchoFirma = anchoUtil / 4
   const bloques = [
-    ['ENTREGA', margen],
-    ['TRANSPORTE', margen + anchoFirma],
-    ['RECIBE', margen + anchoFirma * 2]
+    // Nombre acotado: uno muy largo envolveria a 2 lineas e invadiria la
+    // propia linea de firma.
+    ['GENERO', `${String(operador || '-').slice(0, 26)}  ${fecha}`],
+    ['ENTREGA', ''],
+    ['TRANSPORTE', ''],
+    ['RECIBE', '']
   ]
-  bloques.forEach(([titulo, x]) => {
-    pdf.line(x, yFirmas, x + anchoFirma - 20, yFirmas)
-    pdf.setFontSize(8)
-    pdf.text('Nombre, Firma, Fecha y Hora', x, yFirmas + 12)
+  bloques.forEach(([titulo, valor], i) => {
+    const x = margen + anchoFirma * i
+    const anchoLinea = anchoFirma - 20
+    pdf.setFontSize(9)
     pdf.setFont(undefined, 'bold')
-    pdf.text(titulo, x, yFirmas - 4)
+    pdf.text(titulo, x, yFirmas - 16)
     pdf.setFont(undefined, 'normal')
+    if (valor) {
+      // Quien genera ya viene identificado por el sistema: se imprime encima
+      // de la linea y esta solo queda para su firma.
+      pdf.setFontSize(8)
+      pdf.text(valor, x, yFirmas - 4, { maxWidth: anchoLinea })
+    }
+    pdf.line(x, yFirmas, x + anchoLinea, yFirmas)
+    pdf.setFontSize(7.5)
+    pdf.text('Nombre, Firma, Fecha y Hora', x, yFirmas + 10)
   })
+
+  // ---- Pie de pagina "N de M" (esquina inferior derecha) ----
+  // Se escribe AL FINAL, cuando ya se sabe cuantas paginas quedaron: con
+  // muchos folios el PDF se pagina solo y hay que poder ordenar las hojas.
+  const totalPaginas = pdf.internal.getNumberOfPages()
+  const anchoPagina = pdf.internal.pageSize.getWidth()
+  for (let p = 1; p <= totalPaginas; p++) {
+    pdf.setPage(p)
+    pdf.setFontSize(8)
+    pdf.setFont(undefined, 'normal')
+    pdf.text(`${p} de ${totalPaginas}`, anchoPagina - margen, paginaAlto - 8, { align: 'right' })
+  }
 
   // Se devuelve el PDF como Blob en vez de descargarlo aqui: quien llama
   // primero REGISTRA la generacion en la bitacora (pdfsGenerados) y solo

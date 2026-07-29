@@ -4,12 +4,13 @@
 // el papel para llenarse a mano. Los folios ya vienen seleccionados desde la
 // tabla; aqui se RELEEN de Firestore justo antes de generar para que el
 // documento salga con los datos vigentes (no con una foto vieja de pantalla).
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
 import { generarPdfSalida, descargarPdf } from '../utils/pdf'
+import { leerUltimoFolioInterno, reservarFolioInterno } from '../utils/folioInterno'
 
 const MAX_FOLIOS_PDF = 200
 // Maximos por campo (antes un unico MAX_CAMPO=120 para todos): con textos
@@ -23,7 +24,6 @@ const MAX_FOLIOS_PDF = 200
 // fuente 10): las direcciones reales de las maquilas no caben en la media
 // columna original.
 const MAX_POR_CAMPO = {
-  folioInterno: 18,
   ordenTrabajo: 18,
   direccionEnvio: 95,
   conceptoSalida: 20,
@@ -88,13 +88,34 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
   const [maquilaId, setMaquilaId] = useState('')
   const [generadoPor, setGeneradoPor] = useState('')
   const [campos, setCampos] = useState({
-    folioInterno: '',
     conceptoSalida: '',
     observaciones: ''
   })
+  // Folio interno: consecutivo. La app propone el siguiente; solo la primera
+  // vez (cuando nunca se ha generado uno) hay que teclearlo para arrancar la
+  // numeracion donde va el papel.
+  const [ultimoFolioInterno, setUltimoFolioInterno] = useState(null)
+  const [folioInternoManual, setFolioInternoManual] = useState('')
+  const [cargandoFolio, setCargandoFolio] = useState(true)
+
   const [error, setError] = useState('')
   const [generando, setGenerando] = useState(false)
   const [progresoRelectura, setProgresoRelectura] = useState(null) // { hechos, total } | null
+
+  useEffect(() => {
+    let cancelado = false
+    leerUltimoFolioInterno()
+      .then((ultimo) => {
+        if (!cancelado) setUltimoFolioInterno(ultimo)
+      })
+      .catch((err) => console.error('[GenerarPdfModal] No se pudo leer el folio interno:', err))
+      .finally(() => {
+        if (!cancelado) setCargandoFolio(false)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [])
 
   const setCampo = (k) => (e) => setCampos({ ...campos, [k]: e.target.value })
 
@@ -118,6 +139,34 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
     const nombreGenerador = limpiarCampo(nombreDelPerfil || generadoPor, 80)
     if (!nombreGenerador) {
       setError('Escribe el nombre de quien genera el PDF.')
+      return
+    }
+    // Folio interno: si nunca se ha generado uno, hay que teclear el de
+    // arranque; si ya hay historia, la app propone el siguiente y solo se
+    // acepta un valor manual valido.
+    let folioInternoForzado = null
+    const manualLimpio = folioInternoManual.trim()
+    if (manualLimpio) {
+      if (!/^\d{1,9}$/.test(manualLimpio)) {
+        setError('El folio interno debe ser un numero (sin letras ni simbolos).')
+        return
+      }
+      folioInternoForzado = Number(manualLimpio)
+      // Sin esto, teclear un numero ya usado imprimiria DOS papeles con el
+      // mismo folio interno (el contador no retrocede, pero el PDF si sale
+      // con el numero repetido): justo lo que el consecutivo debe evitar.
+      if (ultimoFolioInterno !== null && folioInternoForzado <= ultimoFolioInterno) {
+        setError(
+          `El folio interno debe ser mayor que el ultimo usado (${ultimoFolioInterno}). ` +
+            `Dejalo vacio para usar el ${ultimoFolioInterno + 1} automaticamente.`
+        )
+        return
+      }
+    } else if (ultimoFolioInterno === null) {
+      setError(
+        'Es el primer PDF: escribe el folio interno con el que arranca la numeracion. ' +
+          'De ahi en adelante la app lo va poniendo sola.'
+      )
       return
     }
     if (folios.length === 0) {
@@ -176,8 +225,11 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
       // de creadoEn (que es la hora del registro en Firestore, no
       // necesariamente igual al texto que ya salio impreso).
       const fechaTexto = new Date().toLocaleDateString('es-MX')
+      // Se reserva DENTRO de una transaccion: dos personas generando a la vez
+      // no pueden quedarse con el mismo consecutivo.
+      const folioInternoAsignado = await reservarFolioInterno(folioInternoForzado)
       const encabezado = {
-        folioInterno: limpiarCampo(campos.folioInterno, MAX_POR_CAMPO.folioInterno),
+        folioInterno: String(folioInternoAsignado),
         // Orden de trabajo y fecha de solicitud ya no se preguntan: la orden
         // sale del pedido del propio Excel (primeros 4 digitos) y la fecha de
         // solicitud es siempre el dia en que se genera el PDF.
@@ -192,12 +244,25 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
         conceptoSalida: limpiarCampo(campos.conceptoSalida, MAX_POR_CAMPO.conceptoSalida),
         observaciones: limpiarCampo(campos.observaciones, MAX_POR_CAMPO.observaciones)
       }
-      const { blob, nombreArchivo } = generarPdfSalida({
-        capturas: frescos,
-        operador: nombreGenerador,
-        fecha: fechaTexto,
-        encabezado
-      })
+      let blob
+      let nombreArchivo
+      try {
+        ;({ blob, nombreArchivo } = generarPdfSalida({
+          capturas: frescos,
+          operador: nombreGenerador,
+          fecha: fechaTexto,
+          encabezado
+        }))
+      } catch (err) {
+        // El consecutivo ya se consumio: hay que decirlo para que quede
+        // anotado como salto en la numeracion del papel.
+        console.error('[GenerarPdfModal] Error armando el PDF:', err)
+        setError(
+          `El folio interno ${folioInternoAsignado} quedo reservado y NO se usara: anotalo como ` +
+            `salto en la numeracion. No se pudo armar el PDF: ${err.message || err}`
+        )
+        return
+      }
 
       // Primero la bitacora, despues la descarga: un PDF descargado siempre
       // deja rastro en el historial. El contenido se CONGELA completo
@@ -287,7 +352,28 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
           </p>
         )}
 
-        {campoTexto('Folio Interno', 'folioInterno')}
+        <label className="campo">
+          <span>
+            Folio Interno{' '}
+            {cargandoFolio
+              ? '(consultando...)'
+              : ultimoFolioInterno === null
+                ? '(primer PDF: escribe con cual arranca)'
+                : `(siguiente: ${ultimoFolioInterno + 1})`}
+          </span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={folioInternoManual}
+            maxLength={9}
+            placeholder={
+              ultimoFolioInterno === null
+                ? 'Ej. 1001'
+                : `Vacio = usa el ${ultimoFolioInterno + 1} automaticamente`
+            }
+            onChange={(e) => setFolioInternoManual(e.target.value)}
+          />
+        </label>
         {campoTexto('Concepto Salida', 'conceptoSalida')}
         {campoTexto('Observaciones', 'observaciones')}
 

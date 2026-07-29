@@ -206,6 +206,28 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Consecutivo del folio interno de las salidas. Solo avanza: el numero
+    // nuevo nunca puede ser menor que el ya registrado (asi dos personas
+    // generando a la vez no reciclan un folio ya impreso).
+    function folioInternoValido() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['ultimo', 'actualizadoEn'])
+        && d.keys().hasOnly(['ultimo', 'actualizadoEn'])
+        && d.ultimo is int
+        && d.ultimo > 0
+        && d.ultimo < 1000000000
+        && d.actualizadoEn == request.time;
+    }
+
+    match /config/folioInternoEstado {
+      allow read: if perfilActivo();
+      allow create: if perfilActivo() && folioInternoValido();
+      allow update: if perfilActivo()
+        && folioInternoValido()
+        && request.resource.data.ultimo >= resource.data.ultimo;
+      allow delete: if false;
+    }
+
     match /config/{documento} {
       allow read: if perfilActivo();
       allow write: if false;
