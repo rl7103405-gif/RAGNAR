@@ -418,7 +418,8 @@ export default function Historial() {
                 <th style={{ textAlign: 'left' }}>Codigo</th>
                 <th style={{ textAlign: 'left' }}>Producto</th>
                 <th style={{ textAlign: 'left' }}>Peso (kg)</th>
-                <th style={{ textAlign: 'left' }}>Capturado</th>
+                <th style={{ textAlign: 'left' }}>Capturo</th>
+                <th style={{ textAlign: 'left' }}>Fecha y hora</th>
               </tr>
             </thead>
             <tbody>
@@ -428,6 +429,7 @@ export default function Historial() {
                   <td>{c.producto?.codigo || (c.cruce === 'sin_ruteo' ? 'SIN RUTEO' : '-')}</td>
                   <td>{c.producto?.descripcion || '-'}</td>
                   <td>{(c.pesoGramos / 1000).toFixed(2)}</td>
+                  <td>{c.operadorNombre || '-'}</td>
                   <td>{formatearFechaHora(c.creadoEn)}</td>
                 </tr>
               ))}

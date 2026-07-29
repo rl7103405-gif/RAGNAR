@@ -201,6 +201,8 @@ export default function Estacion() {
           ? {
               existe: true,
               pesoGramos: snap.data().pesoGramos,
+              operadorNombre: snap.data().operadorNombre || null,
+              creadoEn: snap.data().creadoEn?.toDate?.() || null,
               actualizadoEnMillis: snap.data().actualizadoEn?.toMillis() ?? null
             }
           : { existe: false }
@@ -210,9 +212,16 @@ export default function Estacion() {
       // (no se puede abrir un dialogo bloqueante dentro de una transaccion
       // de Firestore, que ademas puede reintentarse sola).
       if (infoInicial.existe) {
+        // Quien y cuando lo capturo: con varios usuarios en turnos distintos,
+        // saber que "lo capturo America a las 12:40" evita rehacer un bulto
+        // que ya estaba pesado.
+        const quien = infoInicial.operadorNombre ? ` por ${infoInicial.operadorNombre}` : ''
+        const cuando = infoInicial.creadoEn
+          ? ` el ${infoInicial.creadoEn.toLocaleDateString('es-MX')} a las ${infoInicial.creadoEn.toLocaleTimeString('es-MX')}`
+          : ''
         const confirmar = window.confirm(
-          `El folio ${folioNormalizado} ya fue capturado con ${(infoInicial.pesoGramos / 1000).toFixed(2)} kg. ` +
-            '¿Sobrescribirlo con el nuevo peso?'
+          `El folio ${folioNormalizado} YA fue capturado${quien}${cuando} con ` +
+            `${(infoInicial.pesoGramos / 1000).toFixed(2)} kg.\n\n¿Sobrescribirlo con el nuevo peso?`
         )
         if (!confirmar) {
           setGuardando(false)
@@ -587,6 +596,7 @@ export default function Estacion() {
                 <th style={{ textAlign: 'left' }}>Codigo</th>
                 <th style={{ textAlign: 'left' }}>Producto</th>
                 <th style={{ textAlign: 'left' }}>Peso (kg)</th>
+                <th style={{ textAlign: 'left' }}>Capturo</th>
                 <th style={{ textAlign: 'left' }}>Hora</th>
                 <th></th>
               </tr>
@@ -605,6 +615,7 @@ export default function Estacion() {
                   <td>{c.producto?.codigo || (c.cruce === 'sin_ruteo' ? 'SIN RUTEO' : '-')}</td>
                   <td>{c.producto?.descripcion || '-'}</td>
                   <td>{(c.pesoGramos / 1000).toFixed(2)}</td>
+                  <td>{c.operadorNombre || '-'}</td>
                   <td>{c.creadoEn?.toDate ? c.creadoEn.toDate().toLocaleDateString('es-MX') === new Date().toLocaleDateString('es-MX')
                     ? c.creadoEn.toDate().toLocaleTimeString('es-MX')
                     : c.creadoEn.toDate().toLocaleDateString('es-MX')

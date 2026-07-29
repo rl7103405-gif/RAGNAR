@@ -89,7 +89,6 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
   const [generadoPor, setGeneradoPor] = useState('')
   const [campos, setCampos] = useState({
     folioInterno: '',
-    direccionEnvio: '',
     conceptoSalida: '',
     observaciones: ''
   })
@@ -104,6 +103,16 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
     const maquila = activas.find((m) => m.id === maquilaId)
     if (!maquila) {
       setError('Elige la maquila a la que va dirigida la salida.')
+      return
+    }
+    // La direccion ya no se captura aqui: sale de la maquila. Si esa maquila
+    // no la tiene registrada, el papel saldria con el renglon en blanco y
+    // nadie se enteraria hasta que el bulto se fuera sin destino.
+    if (!maquila.direccion) {
+      setError(
+        `La maquila "${maquila.nombre}" no tiene direccion registrada. ` +
+          'Agregasela en Maquilas (menu de arriba) antes de generar el PDF.'
+      )
       return
     }
     const nombreGenerador = limpiarCampo(nombreDelPerfil || generadoPor, 80)
@@ -177,7 +186,9 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
         // 55 chars caben en una linea del maxWidth 300 del PDF; un nombre de
         // maquila mas largo envolveria y se encimaria con la linea de abajo.
         areaRecibe: limpiarCampo(maquila.nombre, 55),
-        direccionEnvio: limpiarCampo(campos.direccionEnvio, MAX_POR_CAMPO.direccionEnvio),
+        // La direccion sale DIRECTO de la maquila elegida (se registra al
+        // darla de alta): ya no se muestra ni se captura aqui.
+        direccionEnvio: limpiarCampo(maquila.direccion || '', MAX_POR_CAMPO.direccionEnvio),
         conceptoSalida: limpiarCampo(campos.conceptoSalida, MAX_POR_CAMPO.conceptoSalida),
         observaciones: limpiarCampo(campos.observaciones, MAX_POR_CAMPO.observaciones)
       }
@@ -263,26 +274,7 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
 
         <label className="campo">
           <span>Maquila (obligatoria)</span>
-          <select
-            value={maquilaId}
-            onChange={(e) => {
-              const idNuevo = e.target.value
-              setMaquilaId(idNuevo)
-              // La direccion registrada de la maquila se precarga como
-              // 'Direccion Envio' (editable antes de generar).
-              // Se sincroniza SIEMPRE (aunque quede vacia): si la maquila
-              // elegida no tiene direccion registrada, heredar la de la
-              // seleccion anterior mandaria el papel a la direccion
-              // equivocada.
-              const elegida = activas.find((m) => m.id === idNuevo)
-              setCampos((prev) => ({
-                ...prev,
-                direccionEnvio: elegida?.direccion
-                  ? limpiarCampo(elegida.direccion, MAX_POR_CAMPO.direccionEnvio)
-                  : ''
-              }))
-            }}
-          >
+          <select value={maquilaId} onChange={(e) => setMaquilaId(e.target.value)}>
             <option value="">-- Elige la maquila --</option>
             {activas.map((m) => (
               <option key={m.id} value={m.id}>{m.nombre}</option>
@@ -296,13 +288,8 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
         )}
 
         {campoTexto('Folio Interno', 'folioInterno')}
-        {campoTexto('Direccion Envio', 'direccionEnvio')}
         {campoTexto('Concepto Salida', 'conceptoSalida')}
         {campoTexto('Observaciones', 'observaciones')}
-        <p style={{ fontSize: 13, color: '#777' }}>
-          La <strong>Orden de Trabajo</strong> sale sola del pedido de los folios y la{' '}
-          <strong>Fecha Solicitud</strong> es la de hoy: ya no hay que capturarlas.
-        </p>
 
         {error && <div className="alerta-error">{error}</div>}
         {progresoRelectura && (
