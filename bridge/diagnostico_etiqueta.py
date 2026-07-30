@@ -6,8 +6,8 @@ marco alrededor de toda el area imprimible. Sirve para responder dos cosas
 cuando una etiqueta sale cortada:
 
   1) Hasta que altura (en dots) imprime realmente la Zebra: la ultima marca
-     visible dice donde se corta. 203 dpi = 8 dots/mm, asi que
-     8.3 cm de alto = 664 dots, 10 cm de ancho = 800 dots.
+     visible dice donde se corta. 203 dpi = 8 dots/mm, asi que el rollo real
+     de 10 x 8.2 cm son 800 x 656 dots.
   2) Si la impresora esta descalibrada: el marco debe verse COMPLETO y
      centrado en la etiqueta fisica; si aparece recorrido o cortado, hay que
      calibrar el sensor de medio (boton de pausa+cancelar en la ZT410, o
@@ -20,10 +20,13 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
 
-from zebra_bridge import imprimir_etiqueta  # noqa: E402
-
-ANCHO_DOTS = 800   # 10 cm a 203 dpi
-ALTO_DOTS = 664    # 8.3 cm a 203 dpi
+# Las medidas se toman del bridge para que NUNCA queden desfasadas con lo
+# que se imprime de verdad (tenerlas duplicadas aqui ya causo confusion).
+from zebra_bridge import (  # noqa: E402
+    ETIQUETA_ALTO_DOTS as ALTO_DOTS,
+    ETIQUETA_ANCHO_DOTS as ANCHO_DOTS,
+    imprimir_etiqueta,
+)
 
 
 def zpl_regla() -> str:

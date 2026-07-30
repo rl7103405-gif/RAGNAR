@@ -67,10 +67,17 @@ ZEBRA_PORT = int(os.getenv("ZEBRA_PORT", "9100"))
 ZEBRA_PRINTER_NAME = os.getenv("ZEBRA_PRINTER_NAME", "AUTO").strip()
 BRIDGE_PORT = int(os.getenv("ZEBRA_BRIDGE_PORT", "8002"))
 
-# Dimensiones de la etiqueta en dots (203 dpi, 8 dots/mm). Rollo real medido
-# por Roberto el 2026-07-28: 10 cm x 8.3 cm = 800 x 664 dots.
+# Dimensiones de la etiqueta en dots (203 dpi, 8 dots/mm). Rollo real: 10 cm
+# x 8.2 cm = 800 x 656 dots (medida corregida por Roberto el 2026-07-30; se
+# habia configurado 8.3 cm por error).
+#
+# OJO: este valor tiene que ser EXACTO. Si se declara mas largo que la
+# etiqueta real, cada impresion se derrama unos dots sobre la siguiente y el
+# desfase se ACUMULA, hasta que el sensor pierde el gap, da un salto largo
+# para reencontrarlo y las etiquetas salen cortadas por arriba. Ese fue el
+# sintoma con 664 (1 mm de mas por etiqueta).
 ETIQUETA_ANCHO_DOTS = 800
-ETIQUETA_ALTO_DOTS = 664
+ETIQUETA_ALTO_DOTS = 656
 MARGEN_DOTS = 30
 # El borde izquierdo del cabezal recorta un poco el primer caracter de cada
 # linea (la "D" de DEPORTIVOS, la "F" de Folio...): el contenido arranca unos
