@@ -271,6 +271,34 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Bitacora INMUTABLE de subidas del Excel de folios: que archivo entro,
+    // cuando, quien lo subio y que trajo. Nunca se edita ni se borra desde
+    // el cliente (igual que pdfsGenerados).
+    match /cargasRuteo/{registroId} {
+      allow read: if perfilActivo();
+      allow create: if perfilActivo()
+        && request.resource.data.keys().hasAll(['archivo', 'esquema', 'totalFolios', 'nuevos', 'actualizados', 'sinCambios', 'enriquecidos', 'omitidos', 'errores', 'subioNombre', 'subioUid', 'creadoEn'])
+        && request.resource.data.keys().hasOnly(['archivo', 'esquema', 'totalFolios', 'nuevos', 'actualizados', 'sinCambios', 'enriquecidos', 'omitidos', 'errores', 'subioNombre', 'subioUid', 'creadoEn'])
+        && request.resource.data.archivo is string
+        && request.resource.data.archivo.size() <= 120
+        && request.resource.data.esquema is string
+        && request.resource.data.esquema.size() <= 40
+        && request.resource.data.totalFolios is int
+        && request.resource.data.totalFolios >= 0
+        && request.resource.data.totalFolios <= 50000
+        && request.resource.data.nuevos is int
+        && request.resource.data.actualizados is int
+        && request.resource.data.sinCambios is int
+        && request.resource.data.enriquecidos is int
+        && request.resource.data.omitidos is int
+        && request.resource.data.errores is int
+        && request.resource.data.subioNombre is string
+        && request.resource.data.subioNombre.size() <= 120
+        && request.resource.data.subioUid == request.auth.uid
+        && request.resource.data.creadoEn == request.time;
+      allow update, delete: if false;
+    }
+
     // Maquilas (destinos del PDF de salida). El ID del doc es el nombre
     // normalizado: los duplicados son imposibles por construccion. La
     // direccion es OBLIGATORIA (se precarga como Direccion Envio del PDF);

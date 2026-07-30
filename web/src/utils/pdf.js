@@ -3,8 +3,12 @@
 // referencia/linea/docenas/unidad/UPC + encabezado + resumen + firmas).
 // Los datos de producto salen del snapshot congelado en cada captura
 // (bultos/{folio}.producto: Excel del dia + catalogo, resueltos al pesar);
-// lo que no exista en esas fuentes (UPC, folio interno, fechas de la orden)
-// se queda como "N/A" a proposito.
+// lo que no exista en esas fuentes (UPC, folio interno) se queda como "N/A".
+//
+// Cada ORDEN DE TRABAJO arranca en su propia hoja: una salida no mezcla
+// ordenes distintas en el mismo papel. Si una orden no cabe en una hoja,
+// sigue en la siguiente repitiendo su encabezado, y el pie lleva las dos
+// numeraciones (hoja de la orden y hoja del paquete completo).
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { LOGO_QUINI_PNG_BASE64 } from '../assets/logoQuini'
@@ -22,10 +26,32 @@ function textoEncabezado(valor) {
   return valor === null || valor === undefined ? '' : String(valor)
 }
 
+const SIN_ORDEN = 'SIN ORDEN'
+
+/** Orden de trabajo de una captura: los primeros 4 digitos de su pedido
+ *  (del pedido '7887_REPOSICION_2408' sale '7887'). */
+export function ordenDeCaptura(captura) {
+  const pedido = captura.producto?.pedido
+  if (!pedido) return SIN_ORDEN
+  const m = /^\d{4}/.exec(String(pedido).trim())
+  return m ? m[0] : SIN_ORDEN
+}
+
+/** Agrupa las capturas por orden de trabajo, conservando el orden en que
+ *  aparecio cada orden por primera vez. */
+function agruparPorOrden(capturas) {
+  const grupos = new Map()
+  capturas.forEach((c) => {
+    const orden = ordenDeCaptura(c)
+    if (!grupos.has(orden)) grupos.set(orden, [])
+    grupos.get(orden).push(c)
+  })
+  return [...grupos.entries()].map(([orden, lista]) => ({ orden, capturas: lista }))
+}
+
 export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} }) {
-  const enc = {
+  const encBase = {
     folioInterno: textoEncabezado(encabezado.folioInterno),
-    ordenTrabajo: textoEncabezado(encabezado.ordenTrabajo),
     fechaSolicitud: textoEncabezado(encabezado.fechaSolicitud),
     areaRecibe: textoEncabezado(encabezado.areaRecibe),
     direccionEnvio: textoEncabezado(encabezado.direccionEnvio),
@@ -37,6 +63,64 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   // impreso tenia ~2 cm desperdiciados arriba.
   const margen = 20
   const anchoUtil = pdf.internal.pageSize.getWidth() - margen * 2
+  const anchoPagina = pdf.internal.pageSize.getWidth()
+  const paginaAlto = pdf.internal.pageSize.getHeight()
+
+  const grupos = agruparPorOrden(capturas)
+  const rangos = []
+
+  grupos.forEach((grupo, indiceGrupo) => {
+    // Cada orden de trabajo empieza SIEMPRE en hoja nueva.
+    if (indiceGrupo > 0) pdf.addPage()
+    const paginaInicial = pdf.internal.getNumberOfPages()
+    dibujarOrden(pdf, {
+      capturas: grupo.capturas,
+      enc: { ...encBase, ordenTrabajo: grupo.orden === SIN_ORDEN ? '' : grupo.orden },
+      operador,
+      fecha,
+      margen,
+      anchoUtil,
+      paginaAlto
+    })
+    rangos.push({
+      orden: grupo.orden,
+      desde: paginaInicial,
+      hasta: pdf.internal.getNumberOfPages()
+    })
+  })
+
+  // ---- Pie con la doble numeracion ----
+  const totalPaginas = pdf.internal.getNumberOfPages()
+  rangos.forEach(({ orden, desde, hasta }) => {
+    const hojasDeLaOrden = hasta - desde + 1
+    for (let p = desde; p <= hasta; p++) {
+      pdf.setPage(p)
+      pdf.setFontSize(8)
+      pdf.setFont(undefined, 'normal')
+      const etiquetaOrden = orden === SIN_ORDEN ? 'Sin orden' : `Orden ${orden}`
+      const texto =
+        `${etiquetaOrden}: hoja ${p - desde + 1} de ${hojasDeLaOrden}` +
+        `     |     hoja ${p} de ${totalPaginas} del paquete`
+      pdf.text(texto, anchoPagina - margen, paginaAlto - 8, { align: 'right' })
+    }
+  })
+
+  // Se devuelve el PDF como Blob en vez de descargarlo aqui: quien llama
+  // primero REGISTRA la generacion en la bitacora (pdfsGenerados) y solo
+  // despues dispara la descarga -- asi no puede existir un PDF descargado
+  // sin rastro en el historial (salvo que Firebase este caido, caso en el
+  // que el que llama descarga igual pero avisa).
+  return {
+    blob: pdf.output('blob'),
+    nombreArchivo: `salida_${String(fecha).replace(/[^0-9]/g, '')}.pdf`
+  }
+}
+
+/** Dibuja el encabezado (logo, titulo, caja de folio/orden/fecha, areas y
+ *  direccion) en la pagina activa y devuelve la 'y' donde termina. Se llama
+ *  en CADA hoja de la orden: si una orden ocupa varias hojas, todas deben
+ *  traer su orden de trabajo arriba, no solo la primera. */
+function dibujarEncabezado(pdf, { enc, margen, anchoUtil }) {
   let y = margen
 
   // ---- Encabezado: logo + titulo (izquierda), caja de folio/fechas (derecha) ----
@@ -80,7 +164,9 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   y += Math.max(logoLado, altoCaja) + 10
   pdf.setFontSize(9.5)
   const filaEtiquetas = [
-    ['Area que Entrega:', 'DEPORTIVOS QUINI', 'Concepto Salida:', enc.conceptoSalida],
+    // Quien entrega es el area de PROCESOS INICIALES, no la empresa entera
+    // (confirmado por Roberto el 2026-07-29).
+    ['Area que Entrega:', 'PROCESOS INICIALES', 'Concepto Salida:', enc.conceptoSalida],
     ['Area que Recibe:', enc.areaRecibe, null, null]
   ]
   filaEtiquetas.forEach((fila) => {
@@ -115,7 +201,17 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   } else {
     pdf.line(margen + 90, y + 1, margen + anchoUtil, y + 1)
   }
-  y += 12
+  return y + 12
+}
+
+/** Dibuja UNA orden de trabajo completa (encabezado + tabla + resumen +
+ *  firmas) a partir de la pagina activa. */
+function dibujarOrden(pdf, { capturas, enc, operador, fecha, margen, anchoUtil, paginaAlto }) {
+  let y = dibujarEncabezado(pdf, { enc, margen, anchoUtil })
+  // Alto que hay que reservar arriba de las hojas siguientes de esta misma
+  // orden, para que la tabla no se encime con el encabezado repetido.
+  const altoEncabezado = y - margen
+  let esPrimeraHojaDeLaOrden = true
 
   // ---- Tabla principal: mismas columnas que la hoja fisica ----
   const columnas = [
@@ -147,7 +243,20 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
 
   autoTable(pdf, {
     startY: y,
-    margin: { left: margen, right: margen },
+    // top reserva el espacio del encabezado repetido en las hojas 2+ de esta
+    // misma orden (lo dibuja didDrawPage).
+    margin: { left: margen, right: margen, top: margen + altoEncabezado },
+    didDrawPage: () => {
+      // La primera hoja de la orden ya trae el encabezado dibujado arriba;
+      // de la segunda en adelante hay que repetirlo (bandera propia en vez
+      // de datos.pageNumber, que cuenta paginas del documento y no de esta
+      // tabla).
+      if (esPrimeraHojaDeLaOrden) {
+        esPrimeraHojaDeLaOrden = false
+        return
+      }
+      dibujarEncabezado(pdf, { enc, margen, anchoUtil })
+    },
     head: [columnas],
     body: filas,
     foot: [[
@@ -206,7 +315,6 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   // paginarse sola), se agrega una pagina nueva en vez de encimar o dejar
   // contenido fuera de la hoja. Si el propio resumen es mas alto que una
   // pagina, autoTable lo pagina solo.
-  const paginaAlto = pdf.internal.pageSize.getHeight()
   // Altura REAL de lo que falta, no un numero fijo generoso: la tabla del
   // resumen mide ~13pt por fila (encabezado + N codigos + total) y el bloque
   // de firmas 58pt. Sobreestimarlo mandaba el cierre a una hoja nueva aunque
@@ -216,13 +324,26 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   const espacioNecesario = Math.min(altoResumen + altoFirmas + 12, paginaAlto - margen * 2)
   if (y + espacioNecesario > paginaAlto - margen) {
     pdf.addPage()
-    y = margen
+    // La hoja nueva es OTRA hoja de la misma orden: tambien lleva su
+    // encabezado con la orden de trabajo arriba.
+    y = dibujarEncabezado(pdf, { enc, margen, anchoUtil })
   }
 
   const paginasAntesDelResumen = pdf.internal.getNumberOfPages()
+  // Si el resumen tiene tantos codigos distintos que se pagina solo, sus
+  // hojas de continuacion tambien llevan el encabezado de la orden (misma
+  // garantia que la tabla principal).
+  let esPrimeraHojaDelResumen = true
   autoTable(pdf, {
     startY: y,
-    margin: { left: margen },
+    margin: { left: margen, top: margen + altoEncabezado },
+    didDrawPage: () => {
+      if (esPrimeraHojaDelResumen) {
+        esPrimeraHojaDelResumen = false
+        return
+      }
+      dibujarEncabezado(pdf, { enc, margen, anchoUtil })
+    },
     tableWidth: 280,
     columnStyles: { 0: { cellWidth: 95 } },
     head: [['Codigo', 'Total por Codigo', 'Piezas']],
@@ -260,7 +381,7 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
   const altoBloqueFirmas = 24
   if (yFirmas + altoBloqueFirmas > paginaAlto - margen) {
     pdf.addPage()
-    yFirmas = margen + 30
+    yFirmas = dibujarEncabezado(pdf, { enc, margen, anchoUtil }) + 30
   }
 
   const anchoFirma = anchoUtil / 4
@@ -289,28 +410,6 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
     pdf.setFontSize(7.5)
     pdf.text('Nombre, Firma, Fecha y Hora', x, yFirmas + 10)
   })
-
-  // ---- Pie de pagina "N de M" (esquina inferior derecha) ----
-  // Se escribe AL FINAL, cuando ya se sabe cuantas paginas quedaron: con
-  // muchos folios el PDF se pagina solo y hay que poder ordenar las hojas.
-  const totalPaginas = pdf.internal.getNumberOfPages()
-  const anchoPagina = pdf.internal.pageSize.getWidth()
-  for (let p = 1; p <= totalPaginas; p++) {
-    pdf.setPage(p)
-    pdf.setFontSize(8)
-    pdf.setFont(undefined, 'normal')
-    pdf.text(`${p} de ${totalPaginas}`, anchoPagina - margen, paginaAlto - 8, { align: 'right' })
-  }
-
-  // Se devuelve el PDF como Blob en vez de descargarlo aqui: quien llama
-  // primero REGISTRA la generacion en la bitacora (pdfsGenerados) y solo
-  // despues dispara la descarga -- asi no puede existir un PDF descargado
-  // sin rastro en el historial (salvo que Firebase este caido, caso en el
-  // que el que llama descarga igual pero avisa).
-  return {
-    blob: pdf.output('blob'),
-    nombreArchivo: `salida_${fecha.replace(/[^0-9]/g, '')}.pdf`
-  }
 }
 
 /** Dispara la descarga de un Blob de PDF en el navegador. */

@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useDatosPeriodo } from '../hooks/useDatosPeriodo'
 import FiltroPeriodo from './FiltroPeriodo'
 import { generarPdfSalida, descargarPdf } from '../utils/pdf'
+import { generarExcelSalida, descargarArchivo } from '../utils/excelSalida'
 
 export default function PanelHistorial() {
   const [tipo, setTipo] = useState('dia')
@@ -24,7 +25,7 @@ export default function PanelHistorial() {
       ? `${t.toDate().toLocaleDateString('es-MX')} ${t.toDate().toLocaleTimeString('es-MX')}`
       : '-'
 
-  const onReimprimir = (registro) => {
+  const onReimprimir = async (registro) => {
     setErrorLocal('')
     setAviso('')
     if (!registro.capturas || registro.capturas.length === 0) {
@@ -39,19 +40,28 @@ export default function PanelHistorial() {
       // fechaTexto (congelado al generar) reproduce la fecha EXACTA que ya
       // salio impresa en el papel original; solo los registros de antes de
       // ese campo caen al respaldo con creadoEn/hoy.
+      const fechaOriginal =
+        registro.fechaTexto ||
+        (registro.creadoEn?.toDate
+          ? registro.creadoEn.toDate().toLocaleDateString('es-MX')
+          : new Date().toLocaleDateString('es-MX'))
       const { blob, nombreArchivo } = generarPdfSalida({
         capturas: registro.capturas,
         operador: registro.generadoPor,
-        fecha:
-          registro.fechaTexto ||
-          (registro.creadoEn?.toDate
-            ? registro.creadoEn.toDate().toLocaleDateString('es-MX')
-            : new Date().toLocaleDateString('es-MX')),
+        fecha: fechaOriginal,
         encabezado: registro.encabezado || {}
       })
       descargarPdf(blob, nombreArchivo.replace('.pdf', '_copia.pdf'))
+      // El Excel de migracion se rehace con el MISMO contenido congelado: si
+      // la carga al sistema fallo o se perdio el archivo, se recupera igual
+      // al original.
+      const excel = await generarExcelSalida({
+        capturas: registro.capturas,
+        fecha: fechaOriginal
+      })
+      descargarArchivo(excel.blob, excel.nombreArchivo.replace('.xlsx', '_copia.xlsx'))
       setAviso(
-        `Copia del PDF original de ${registro.generadoPor} (${registro.totalFolios} folios) descargada.`
+        `Copia del PDF y del Excel de ${registro.generadoPor} (${registro.totalFolios} folios) descargada.`
       )
     } catch (err) {
       console.error('[PanelHistorial] Error reimprimiendo:', err)

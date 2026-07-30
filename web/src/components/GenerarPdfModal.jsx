@@ -10,6 +10,7 @@ import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
 import { generarPdfSalida, descargarPdf } from '../utils/pdf'
+import { generarExcelSalida, descargarArchivo } from '../utils/excelSalida'
 import { leerUltimoFolioInterno, reservarFolioInterno } from '../utils/folioInterno'
 
 const MAX_FOLIOS_PDF = 200
@@ -24,7 +25,6 @@ const MAX_FOLIOS_PDF = 200
 // fuente 10): las direcciones reales de las maquilas no caben en la media
 // columna original.
 const MAX_POR_CAMPO = {
-  ordenTrabajo: 18,
   direccionEnvio: 95,
   conceptoSalida: 20,
   observaciones: 60
@@ -45,35 +45,6 @@ const LOTE_RELECTURA = 10
 // SI hay que preguntar quien genera el PDF. Los usuarios individuales
 // (america, diana, lindbergh...) se toman de su propio perfil.
 const USUARIO_COMPARTIDO = 'estacion'
-
-/** Orden de trabajo = los primeros 4 digitos del pedido (ej. del pedido
- *  '7887_REPOSICION_2408' sale '7887'). Si la seleccion mezcla pedidos, se
- *  listan hasta 3 ordenes; con mas se resume, para no imprimir un texto
- *  cortado a la mitad en la caja del encabezado. */
-export function ordenDeTrabajoDeCapturas(capturas) {
-  const ordenes = new Set()
-  for (const c of capturas) {
-    const pedido = c.producto?.pedido
-    if (!pedido) continue
-    const m = /^\d{4}/.exec(String(pedido).trim())
-    if (m) ordenes.add(m[0])
-  }
-  const lista = [...ordenes]
-  if (lista.length === 0) {
-    // Habia pedidos pero ninguno arranca con 4 digitos: el campo saldria en
-    // blanco sin que nadie se entere de por que. Queda el rastro en consola.
-    const conPedido = capturas.filter((c) => c.producto?.pedido).length
-    if (conPedido > 0) {
-      console.warn(
-        `[GenerarPdfModal] ${conPedido} folios traen pedido pero ninguno empieza con 4 digitos: ` +
-          'la Orden de Trabajo saldra en blanco.'
-      )
-    }
-    return ''
-  }
-  if (lista.length <= 3) return lista.join(', ')
-  return `VARIAS (${lista.length})`
-}
 
 export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, onDepurar }) {
   const { authUser, perfil } = useAuth()
@@ -230,10 +201,9 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
       const folioInternoAsignado = await reservarFolioInterno(folioInternoForzado)
       const encabezado = {
         folioInterno: String(folioInternoAsignado),
-        // Orden de trabajo y fecha de solicitud ya no se preguntan: la orden
-        // sale del pedido del propio Excel (primeros 4 digitos) y la fecha de
-        // solicitud es siempre el dia en que se genera el PDF.
-        ordenTrabajo: limpiarCampo(ordenDeTrabajoDeCapturas(frescos), MAX_POR_CAMPO.ordenTrabajo),
+        // La orden de trabajo NO va aqui: el PDF separa una hoja por orden y
+        // cada hoja imprime la suya (ver agruparPorOrden en pdf.js). La
+        // fecha de solicitud es siempre el dia en que se genera.
         fechaSolicitud: fechaTexto,
         // 55 chars caben en una linea del maxWidth 300 del PDF; un nombre de
         // maquila mas largo envolveria y se encimaria con la linea de abajo.
@@ -259,7 +229,7 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
         console.error('[GenerarPdfModal] Error armando el PDF:', err)
         setError(
           `El folio interno ${folioInternoAsignado} quedo reservado y NO se usara: anotalo como ` +
-            `salto en la numeracion. No se pudo armar el PDF: ${err.message || err}`
+            `salto en la numeracion. No se pudieron armar los archivos: ${err.message || err}`
         )
         return
       }
@@ -287,7 +257,25 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
         notaBitacora = ' AVISO: no se pudo registrar en el historial (¿sin conexion?); el PDF se descargo igual.'
       }
       descargarPdf(blob, nombreArchivo)
-      onListo(`PDF generado con ${frescos.length} folios para "${maquila.nombre}" (genero: ${nombreGenerador}).${notaBitacora}`)
+
+      // El Excel de migracion va en su PROPIO try: si su modulo no carga
+      // (p.ej. una pestana vieja pidiendo un chunk que ya cambio de nombre
+      // tras un deploy), NO se tira un PDF que ya salio bien ni se quema el
+      // folio interno -- el Excel se puede rehacer luego desde el historial.
+      let notaExcel = ''
+      try {
+        const excel = await generarExcelSalida({ capturas: frescos, fecha: fechaTexto })
+        descargarArchivo(excel.blob, excel.nombreArchivo)
+      } catch (err) {
+        console.error('[GenerarPdfModal] No se pudo generar el Excel de migracion:', err)
+        notaExcel =
+          ' AVISO: el Excel de migracion NO se genero; sacalo con "Reimprimir original" en Historial.'
+      }
+
+      onListo(
+        `PDF y Excel de migracion generados con ${frescos.length} folios para "${maquila.nombre}" ` +
+          `(folio interno ${folioInternoAsignado}, genero: ${nombreGenerador}).${notaBitacora}${notaExcel}`
+      )
     } catch (err) {
       console.error('[GenerarPdfModal] Error generando PDF:', err)
       setError('No se pudo generar el PDF: ' + (err.message || err))

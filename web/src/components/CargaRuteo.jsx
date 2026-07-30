@@ -3,9 +3,12 @@
 // acumulativo a foliosRuteo. Si la carga se corta (cierre de pestana, red),
 // basta con volver a subir el mismo archivo: es idempotente.
 import { useRef, useState } from 'react'
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { parsearFoliosRuteo, ErrorImportacion } from '../utils/importarFoliosRuteo'
 import { cargarFoliosRuteo } from '../utils/cargarRuteo'
+import HistorialCargas from './HistorialCargas'
 import {
   analizarHuecos,
   actualizarMaxFolio,
@@ -15,7 +18,7 @@ import {
 } from '../utils/ruteoEstado'
 
 export default function CargaRuteo() {
-  const { authUser } = useAuth()
+  const { authUser, perfil } = useAuth()
   const [estado, setEstado] = useState('inactivo') // inactivo | analizando | listo | cargando | terminado
   const [analisis, setAnalisis] = useState(null) // { esquema, archivo, registros }
   const [progreso, setProgreso] = useState(0)
@@ -92,6 +95,28 @@ export default function CargaRuteo() {
         )
         setErroresDetalle(r.errores.slice(0, 10).map((x) => `Folio ${x.folio}: ${x.mensaje}`))
       }
+
+      // Bitacora de subidas: que archivo entro, cuando y quien lo subio. Si
+      // falla el registro NO se deshace la carga (los folios ya quedaron
+      // guardados, que es lo importante): solo se avisa en consola.
+      try {
+        await addDoc(collection(db, 'cargasRuteo'), {
+          archivo: analisis.archivo,
+          esquema: analisis.esquema,
+          totalFolios: analisis.registros.size,
+          nuevos: r.nuevos,
+          actualizados: r.actualizados,
+          sinCambios: r.sinCambios,
+          enriquecidos: r.enriquecidos,
+          omitidos: r.omitidosViejos + r.omitidosSinFecha,
+          errores: r.errores.length,
+          subioNombre: perfil?.nombreCompleto || 'Estacion',
+          subioUid: authUser.uid,
+          creadoEn: serverTimestamp()
+        })
+      } catch (err2) {
+        console.error('[CargaRuteo] No se pudo registrar la subida en la bitacora:', err2)
+      }
       // Registrar el maximo folio visto (monotono) y correr la purga de
       // retencion (folios no vistos en ningun Excel por 15 dias) SOLO si la
       // carga quedo completa: con errores, el maximo no debe avanzar (el
@@ -114,7 +139,8 @@ export default function CargaRuteo() {
   const total = analisis ? analisis.registros.size : 0
 
   return (
-    <div className="tarjeta" style={{ marginBottom: 18 }}>
+    <>
+      <div className="tarjeta" style={{ marginBottom: 18 }}>
       <h2>Excel de folios del dia</h2>
       <p style={{ fontSize: 14, color: '#555', marginTop: 4 }}>
         Sube el archivo de folios en el turno 1 (America). Acepta .xlsx, .xls, .xlsm y .ods
@@ -210,6 +236,9 @@ export default function CargaRuteo() {
           ))}
         </ul>
       )}
-    </div>
+      </div>
+
+      <HistorialCargas />
+    </>
   )
 }
