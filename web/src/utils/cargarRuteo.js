@@ -14,7 +14,11 @@
 import { doc, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
-const CONCURRENCIA = 8
+// Cada folio va en su propia transaccion (un viaje al servidor). Con 8 en
+// paralelo, un Excel de ~3,000 folios tardaba varios minutos y la gente
+// terminaba cerrando la pestana a media carga. 24 lo acorta ~3x sin acercarse
+// a los limites de Firestore.
+const CONCURRENCIA = 24
 
 function aTimestamp(fecha) {
   return fecha instanceof Date ? Timestamp.fromDate(fecha) : null

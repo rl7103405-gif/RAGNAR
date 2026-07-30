@@ -55,12 +55,22 @@ export default function HistorialCargas() {
                 <td>{c.subioNombre || '-'}</td>
                 <td>{c.totalFolios ?? '-'}</td>
                 <td>
-                  {c.nuevos ?? 0} nuevos, {c.actualizados ?? 0} actualizados,{' '}
-                  {c.sinCambios ?? 0} sin cambios
-                  {c.enriquecidos > 0 && `, ${c.enriquecidos} enriquecidos`}
-                  {c.omitidos > 0 && `, ${c.omitidos} omitidos`}
-                  {c.errores > 0 && (
-                    <span style={{ color: '#a00' }}>, {c.errores} con error</span>
+                  {c.completa === false ? (
+                    // Se anota al empezar y se cierra al terminar: si quedo
+                    // asi, la carga se corto a medias (pestana cerrada, red).
+                    <span style={{ color: '#8a5300' }}>
+                      SIN TERMINAR — vuelve a subir el archivo
+                    </span>
+                  ) : (
+                    <>
+                      {c.nuevos ?? 0} nuevos, {c.actualizados ?? 0} actualizados,{' '}
+                      {c.sinCambios ?? 0} sin cambios
+                      {c.enriquecidos > 0 && `, ${c.enriquecidos} enriquecidos`}
+                      {c.omitidos > 0 && `, ${c.omitidos} omitidos`}
+                      {c.errores > 0 && (
+                        <span style={{ color: '#a00' }}>, {c.errores} con error</span>
+                      )}
+                    </>
                   )}
                 </td>
               </tr>

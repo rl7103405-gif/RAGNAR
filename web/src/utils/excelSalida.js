@@ -18,13 +18,17 @@ export async function generarExcelSalida({ capturas, fecha }) {
 
   capturas.forEach((c) => {
     const p = c.producto || {}
+    const docenas = typeof p.docenas === 'number' ? p.docenas : p.total
     hoja.addRow([
       // Folio como TEXTO: son consecutivos largos y, como numero, Excel les
       // quitaria ceros a la izquierda o los pasaria a notacion cientifica.
       String(c.folio),
       p.codigo ?? '',
-      typeof p.docenas === 'number' ? p.docenas : (p.total ?? ''),
-      typeof p.pares === 'number' ? p.pares : ''
+      typeof docenas === 'number' ? docenas : '',
+      // Pares = docenas x 12 (confirmado por Roberto el 2026-07-30). NO se
+      // usa el campo 'pares' del Excel de ruteo: ese casi siempre viene en 0
+      // y no es lo que necesita la migracion.
+      typeof docenas === 'number' ? docenas * 12 : ''
     ])
   })
 

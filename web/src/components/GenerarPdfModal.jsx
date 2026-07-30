@@ -77,7 +77,12 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
     let cancelado = false
     leerUltimoFolioInterno()
       .then((ultimo) => {
-        if (!cancelado) setUltimoFolioInterno(ultimo)
+        if (cancelado) return
+        setUltimoFolioInterno(ultimo)
+        // El siguiente consecutivo se PRECARGA en el campo (no solo como
+        // sugerencia): asi se ve de una vez cual va a llevar el papel, y
+        // sigue siendo editable por si hay que corregirlo.
+        if (ultimo !== null) setFolioInternoManual(String(ultimo + 1))
       })
       .catch((err) => console.error('[GenerarPdfModal] No se pudo leer el folio interno:', err))
       .finally(() => {
@@ -128,8 +133,8 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
       // con el numero repetido): justo lo que el consecutivo debe evitar.
       if (ultimoFolioInterno !== null && folioInternoForzado <= ultimoFolioInterno) {
         setError(
-          `El folio interno debe ser mayor que el ultimo usado (${ultimoFolioInterno}). ` +
-            `Dejalo vacio para usar el ${ultimoFolioInterno + 1} automaticamente.`
+          `El folio interno ${folioInternoForzado} ya se uso (el ultimo fue ${ultimoFolioInterno}). ` +
+            `Usa ${ultimoFolioInterno + 1} o uno mayor para no repetir folio en dos papeles.`
         )
         return
       }
@@ -346,19 +351,15 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
             {cargandoFolio
               ? '(consultando...)'
               : ultimoFolioInterno === null
-                ? '(primer PDF: escribe con cual arranca)'
-                : `(siguiente: ${ultimoFolioInterno + 1})`}
+                ? '(primer PDF: escribe con cual arranca la numeracion)'
+                : '(consecutivo, se puede cambiar)'}
           </span>
           <input
             type="text"
             inputMode="numeric"
             value={folioInternoManual}
             maxLength={9}
-            placeholder={
-              ultimoFolioInterno === null
-                ? 'Ej. 1001'
-                : `Vacio = usa el ${ultimoFolioInterno + 1} automaticamente`
-            }
+            placeholder={ultimoFolioInterno === null ? 'Ej. 1001' : ''}
             onChange={(e) => setFolioInternoManual(e.target.value)}
           />
         </label>

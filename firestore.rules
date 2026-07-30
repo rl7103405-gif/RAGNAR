@@ -277,8 +277,9 @@ service cloud.firestore {
     match /cargasRuteo/{registroId} {
       allow read: if perfilActivo();
       allow create: if perfilActivo()
-        && request.resource.data.keys().hasAll(['archivo', 'esquema', 'totalFolios', 'nuevos', 'actualizados', 'sinCambios', 'enriquecidos', 'omitidos', 'errores', 'subioNombre', 'subioUid', 'creadoEn'])
-        && request.resource.data.keys().hasOnly(['archivo', 'esquema', 'totalFolios', 'nuevos', 'actualizados', 'sinCambios', 'enriquecidos', 'omitidos', 'errores', 'subioNombre', 'subioUid', 'creadoEn'])
+        && request.resource.data.keys().hasAll(['archivo', 'esquema', 'totalFolios', 'nuevos', 'actualizados', 'sinCambios', 'enriquecidos', 'omitidos', 'errores', 'completa', 'subioNombre', 'subioUid', 'creadoEn'])
+        && request.resource.data.keys().hasOnly(['archivo', 'esquema', 'totalFolios', 'nuevos', 'actualizados', 'sinCambios', 'enriquecidos', 'omitidos', 'errores', 'completa', 'subioNombre', 'subioUid', 'creadoEn'])
+        && request.resource.data.completa == false
         && request.resource.data.archivo is string
         && request.resource.data.archivo.size() <= 120
         && request.resource.data.esquema is string
@@ -296,7 +297,22 @@ service cloud.firestore {
         && request.resource.data.subioNombre.size() <= 120
         && request.resource.data.subioUid == request.auth.uid
         && request.resource.data.creadoEn == request.time;
-      allow update, delete: if false;
+      // Unico update permitido: CERRAR el registro con el resultado real al
+      // terminar la carga (quien la inicio, una sola vez). Lo demas del
+      // registro -- archivo, quien, cuando -- queda inmutable.
+      allow update: if perfilActivo()
+        && resource.data.subioUid == request.auth.uid
+        && resource.data.completa == false
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['nuevos', 'actualizados', 'sinCambios', 'enriquecidos', 'omitidos', 'errores', 'completa'])
+        && request.resource.data.completa == true
+        && request.resource.data.nuevos is int
+        && request.resource.data.actualizados is int
+        && request.resource.data.sinCambios is int
+        && request.resource.data.enriquecidos is int
+        && request.resource.data.omitidos is int
+        && request.resource.data.errores is int;
+      allow delete: if false;
     }
 
     // Maquilas (destinos del PDF de salida). El ID del doc es el nombre

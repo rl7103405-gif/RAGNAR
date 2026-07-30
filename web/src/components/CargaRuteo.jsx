@@ -3,7 +3,7 @@
 // acumulativo a foliosRuteo. Si la carga se corta (cierre de pestana, red),
 // basta con volver a subir el mismo archivo: es idempotente.
 import { useRef, useState } from 'react'
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { addDoc, collection, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { parsearFoliosRuteo, ErrorImportacion } from '../utils/importarFoliosRuteo'
@@ -72,6 +72,31 @@ export default function CargaRuteo() {
     setEstado('cargando')
     setError('')
     setProgreso(0)
+    // La subida se anota ANTES de empezar: una carga larga que se interrumpe
+    // (se cierra la pestana, se va la red) dejaba CERO rastro, y despues
+    // nadie sabia si el Excel del dia se habia subido o no. Queda como
+    // 'en progreso' y se completa al terminar.
+    let refCarga = null
+    try {
+      refCarga = await addDoc(collection(db, 'cargasRuteo'), {
+        archivo: analisis.archivo,
+        esquema: analisis.esquema,
+        totalFolios: analisis.registros.size,
+        nuevos: 0,
+        actualizados: 0,
+        sinCambios: 0,
+        enriquecidos: 0,
+        omitidos: 0,
+        errores: 0,
+        completa: false,
+        subioNombre: perfil?.nombreCompleto || 'Estacion',
+        subioUid: authUser.uid,
+        creadoEn: serverTimestamp()
+      })
+    } catch (err0) {
+      console.error('[CargaRuteo] No se pudo anotar el inicio de la subida:', err0)
+    }
+
     try {
       // Folios que el archivo TRAE pero no son cargables (p.ej. docenas 0
       // del reporte Seguimiento): no tienen entrada en registros, pero si ya
@@ -96,26 +121,23 @@ export default function CargaRuteo() {
         setErroresDetalle(r.errores.slice(0, 10).map((x) => `Folio ${x.folio}: ${x.mensaje}`))
       }
 
-      // Bitacora de subidas: que archivo entro, cuando y quien lo subio. Si
-      // falla el registro NO se deshace la carga (los folios ya quedaron
-      // guardados, que es lo importante): solo se avisa en consola.
-      try {
-        await addDoc(collection(db, 'cargasRuteo'), {
-          archivo: analisis.archivo,
-          esquema: analisis.esquema,
-          totalFolios: analisis.registros.size,
-          nuevos: r.nuevos,
-          actualizados: r.actualizados,
-          sinCambios: r.sinCambios,
-          enriquecidos: r.enriquecidos,
-          omitidos: r.omitidosViejos + r.omitidosSinFecha,
-          errores: r.errores.length,
-          subioNombre: perfil?.nombreCompleto || 'Estacion',
-          subioUid: authUser.uid,
-          creadoEn: serverTimestamp()
-        })
-      } catch (err2) {
-        console.error('[CargaRuteo] No se pudo registrar la subida en la bitacora:', err2)
+      // Se cierra el registro con el resultado real. Si esto falla, la fila
+      // se queda en 'en progreso': se ve que alguien la intento y no se
+      // completo, que es justo lo que antes no quedaba en ningun lado.
+      if (refCarga) {
+        try {
+          await updateDoc(refCarga, {
+            nuevos: r.nuevos,
+            actualizados: r.actualizados,
+            sinCambios: r.sinCambios,
+            enriquecidos: r.enriquecidos,
+            omitidos: r.omitidosViejos + r.omitidosSinFecha,
+            errores: r.errores.length,
+            completa: true
+          })
+        } catch (err2) {
+          console.error('[CargaRuteo] No se pudo cerrar el registro de la subida:', err2)
+        }
       }
       // Registrar el maximo folio visto (monotono) y correr la purga de
       // retencion (folios no vistos en ningun Excel por 15 dias) SOLO si la
