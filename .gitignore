@@ -16,3 +16,5 @@ web/dist/
 .firebase/
 serviceAccountKey.json
 logs/
+paquete_modulo/
+build_tmp/

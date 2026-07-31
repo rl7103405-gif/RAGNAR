@@ -40,6 +40,7 @@ import math
 import os
 import re
 import socket
+import sys
 import unicodedata
 from pathlib import Path
 
@@ -89,7 +90,20 @@ MARGEN_IZQ_DOTS = 60
 # ancho de lo que cabe y salir pegado al borde derecho.
 ANCHO_UTIL_DOTS = ETIQUETA_ANCHO_DOTS - MARGEN_IZQ_DOTS - MARGEN_DOTS
 
-_RUTA_LOGO = Path(__file__).parent.parent / "app" / "static" / "logo_quini.zpl"
+def _ruta_logo() -> Path:
+    """Ubicacion del logo ZPL, corriendo desde el repo o desde el .exe.
+
+    PyInstaller descomprime los archivos incluidos en una carpeta temporal
+    (sys._MEIPASS); ahi el logo queda junto al ejecutable, no en la ruta del
+    repositorio.
+    """
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return Path(base) / "logo_quini.zpl"
+    return Path(__file__).parent.parent / "app" / "static" / "logo_quini.zpl"
+
+
+_RUTA_LOGO = _ruta_logo()
 _PATRON_GFA = re.compile(r"^\^GFA,(\d+),(\d+),(\d+),([0-9A-Fa-f]+)$")
 LOGO_LADO_DOTS = 144
 
