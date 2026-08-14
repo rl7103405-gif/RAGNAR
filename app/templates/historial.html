@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block titulo %}Historial - Deportivos Quini{% endblock %}
+{% block nombre_estacion %}Historial{% endblock %}
+{% block contenido %}
+<div class="tarjeta">
+    <h3>Historial de capturas</h3>
+    <div id="mensaje-busquedas" class="mensaje" style="display:none;"></div>
+    <div class="filtros-busqueda" style="display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-bottom:12px;">
+        <label>Folio<br><input type="text" id="f-bulto-folio" placeholder="ej. 442745" style="width:120px;"></label>
+        <label>Código producto<br><input type="text" id="f-bulto-codigo" placeholder="ej. 1313-I" style="width:120px;"></label>
+        <label>Quién capturó<br><input type="text" id="f-bulto-operador" placeholder="nombre del operador" style="width:160px;"></label>
+        <label>Desde<br><input type="date" id="f-bulto-desde"></label>
+        <label>Hasta<br><input type="date" id="f-bulto-hasta"></label>
+        <button class="boton" id="btn-buscar-bultos">Buscar</button>
+        <button class="boton boton-secundario" id="btn-limpiar-bultos">Limpiar</button>
+    </div>
+    <div style="display:flex; gap:6px; margin-bottom:12px;">
+        <button class="boton boton-secundario btn-rango" data-dias="1">Hoy</button>
+        <button class="boton boton-secundario btn-rango" data-dias="7">Semana</button>
+        <button class="boton boton-secundario btn-rango" data-dias="30">Mes</button>
+        <button class="boton boton-secundario btn-rango" data-dias="365">Año</button>
+    </div>
+    <p id="resumen-bultos" style="color:#666; font-size:14px;"></p>
+    <table id="tabla-bultos">
+        <thead><tr><th>Folio</th><th>Estatus</th><th>Código</th><th>Pedido</th><th>Peso prod. (kg)</th><th>Peso final (kg)</th><th>Capturó</th><th>Última actividad</th></tr></thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<div class="tarjeta">
+    <h3>Documentos de embarque generados (PDF)</h3>
+    <div id="mensaje-embarques" class="mensaje" style="display:none;"></div>
+    <div class="filtros-busqueda" style="display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-bottom:12px;">
+        <label>Maquila / destino<br><input type="text" id="f-emb-maquila" style="width:140px;"></label>
+        <label>Folio del pedido<br><input type="text" id="f-emb-folio" style="width:120px;"></label>
+        <label>Pedido<br><input type="text" id="f-emb-pedido" style="width:130px;"></label>
+        <label>Quién lo generó<br><input type="text" id="f-emb-operador" style="width:150px;"></label>
+        <label>Desde<br><input type="date" id="f-emb-desde"></label>
+        <label>Hasta<br><input type="date" id="f-emb-hasta"></label>
+        <button class="boton" id="btn-buscar-embarques">Buscar</button>
+        <button class="boton boton-secundario" id="btn-limpiar-embarques">Limpiar</button>
+    </div>
+    <table id="tabla-embarques">
+        <thead><tr><th>Fecha</th><th>Pedido</th><th>Maquila</th><th>Bultos</th><th>Docenas</th><th>Peso (kg)</th><th>Generó</th><th>Folios</th><th>PDF</th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <p id="sin-embarques" style="display:none; color:#666;">Sin documentos que coincidan con la búsqueda.</p>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+function fechaLocalISO(fecha) {
+    const y = fecha.getFullYear();
+    const m = String(fecha.getMonth() + 1).padStart(2, "0");
+    const d = String(fecha.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+}
+
+function eventosBulto(b) {
+    return [
+        [b.timestamp_embarque, "embarque", b.operador_embarque],
+        [b.timestamp_procesos_finales, "procesos", b.operador_procesos_finales],
+        [b.timestamp_ruteo, "ruteo", b.operador_ruteo],
+        [b.timestamp_validacion, "validación", b.operador_validacion],
+        [b.timestamp_produccion, "producción", b.operador_produccion],
+    ].filter(([t]) => t).sort((a, c) => new Date(c[0]) - new Date(a[0]));
+}
+
+function ultimaActividad(b) {
+    const eventos = eventosBulto(b);
+    if (!eventos.length) return "-";
+    return `${new Date(eventos[0][0]).toLocaleString()} (${eventos[0][1]})`;
+}
+
+function quienCapturo(b) {
+    const eventos = eventosBulto(b);
+    for (const [, , operador] of eventos) {
+        if (operador) return operador;
+    }
+    return "-";
+}
+
+async function cargarBultos() {
+    try {
+        const parametros = new URLSearchParams();
+        const folio = document.getElementById("f-bulto-folio").value.trim();
+        const codigo = document.getElementById("f-bulto-codigo").value.trim();
+        const operador = document.getElementById("f-bulto-operador").value.trim();
+        const desde = document.getElementById("f-bulto-desde").value;
+        const hasta = document.getElementById("f-bulto-hasta").value;
+        if (folio) parametros.set("folio", folio);
+        if (codigo) parametros.set("codigo", codigo);
+        if (operador) parametros.set("operador", operador);
+        if (desde) parametros.set("desde", desde);
+        if (hasta) parametros.set("hasta", hasta);
+        const sufijo = parametros.toString() ? `?${parametros.toString()}` : "";
+        const datos = await llamarApi(`/api/historial/bultos${sufijo}`);
+        ocultarMensaje("mensaje-busquedas");
+        const tbody = document.querySelector("#tabla-bultos tbody");
+        tbody.innerHTML = "";
+        document.getElementById("resumen-bultos").textContent =
+            datos.length === 500 ? "Mostrando los 500 más recientes: afina la búsqueda para ver menos resultados."
+            : `${datos.length} bulto(s) encontrados.`;
+        datos.forEach((b) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${esc(b.folio)}</td><td>${esc(b.estatus)}</td><td>${esc(b.codigo_producto || "-")}</td><td>${esc(b.pedido_id || "-")}</td><td>${kgTexto(b.peso_produccion)}</td><td>${kgTexto(b.peso_procesos_finales)}</td><td>${esc(quienCapturo(b))}</td><td>${esc(ultimaActividad(b))}</td>`;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        mostrarMensaje("mensaje-busquedas", e.message, "error");
+    }
+}
+
+document.getElementById("btn-buscar-bultos").addEventListener("click", cargarBultos);
+document.getElementById("btn-limpiar-bultos").addEventListener("click", () => {
+    ["f-bulto-folio", "f-bulto-codigo", "f-bulto-operador", "f-bulto-desde", "f-bulto-hasta"]
+        .forEach((id) => { document.getElementById(id).value = ""; });
+    cargarBultos();
+});
+["f-bulto-folio", "f-bulto-codigo", "f-bulto-operador"].forEach((id) => {
+    document.getElementById(id).addEventListener("keydown", (ev) => { if (ev.key === "Enter") cargarBultos(); });
+});
+document.querySelectorAll(".btn-rango").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        const dias = parseInt(btn.dataset.dias, 10);
+        const hoy = new Date();
+        const inicio = new Date();
+        inicio.setDate(hoy.getDate() - (dias - 1));
+        document.getElementById("f-bulto-desde").value = fechaLocalISO(inicio);
+        document.getElementById("f-bulto-hasta").value = fechaLocalISO(hoy);
+        cargarBultos();
+    });
+});
+
+async function cargarEmbarques() {
+    try {
+        const parametros = new URLSearchParams();
+        const maquila = document.getElementById("f-emb-maquila").value.trim();
+        const folio = document.getElementById("f-emb-folio").value.trim();
+        const pedido = document.getElementById("f-emb-pedido").value.trim();
+        const operador = document.getElementById("f-emb-operador").value.trim();
+        const desde = document.getElementById("f-emb-desde").value;
+        const hasta = document.getElementById("f-emb-hasta").value;
+        if (maquila) parametros.set("maquila", maquila);
+        if (folio) parametros.set("folio", folio);
+        if (pedido) parametros.set("pedido", pedido);
+        if (operador) parametros.set("operador", operador);
+        if (desde) parametros.set("desde", desde);
+        if (hasta) parametros.set("hasta", hasta);
+        const sufijo = parametros.toString() ? `?${parametros.toString()}` : "";
+        const datos = await llamarApi(`/api/historial/embarques${sufijo}`);
+        ocultarMensaje("mensaje-embarques");
+        const tbody = document.querySelector("#tabla-embarques tbody");
+        tbody.innerHTML = "";
+        document.getElementById("sin-embarques").style.display = datos.length ? "none" : "block";
+        datos.forEach((e) => {
+            const tr = document.createElement("tr");
+            const fecha = e.fecha_embarque ? new Date(e.fecha_embarque).toLocaleString() : "-";
+            const folios = e.folios.length > 6
+                ? `${e.folios.slice(0, 6).map(esc).join(", ")}… (${e.total_bultos} en total)`
+                : e.folios.map(esc).join(", ") || "-";
+            const enlace = e.url_documento
+                ? `<a href="${esc(e.url_documento)}" target="_blank" rel="noopener">Descargar</a>`
+                : "-";
+            tr.innerHTML = `<td>${esc(fecha)}</td><td>${esc(e.pedido_id)}</td><td>${esc(e.maquila || "-")}</td><td>${e.total_bultos}</td><td>${e.total_docenas ?? "-"}</td><td>${kgTexto(e.total_peso)}</td><td>${esc(e.operador || "-")}</td><td>${folios}</td><td>${enlace}</td>`;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        mostrarMensaje("mensaje-embarques", e.message, "error");
+    }
+}
+
+document.getElementById("btn-buscar-embarques").addEventListener("click", cargarEmbarques);
+document.getElementById("btn-limpiar-embarques").addEventListener("click", () => {
+    ["f-emb-maquila", "f-emb-folio", "f-emb-pedido", "f-emb-operador", "f-emb-desde", "f-emb-hasta"]
+        .forEach((id) => { document.getElementById(id).value = ""; });
+    cargarEmbarques();
+});
+["f-emb-maquila", "f-emb-folio", "f-emb-pedido", "f-emb-operador"].forEach((id) => {
+    document.getElementById(id).addEventListener("keydown", (ev) => { if (ev.key === "Enter") cargarEmbarques(); });
+});
+
+cargarBultos();
+cargarEmbarques();
+</script>
+{% endblock %}

@@ -55,7 +55,10 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [bascula_bridge] %(message)s")
 logger = logging.getLogger("bascula_bridge")
 
-COM_PORT_CONFIG = os.getenv("COM_PORT", "COM3")
+# AUTO por defecto: en la PC del modulo no hay .env y Windows puede asignarle
+# a la bascula cualquier numero de COM; la deteccion automatica la encuentra
+# sola. Un puerto fijo (ej. COM_PORT=COM3) sigue siendo configurable via .env.
+COM_PORT_CONFIG = os.getenv("COM_PORT", "AUTO")
 AUTO_DETECT = COM_PORT_CONFIG.strip().upper() == "AUTO"
 BAUD_RATE = int(os.getenv("BAUD_RATE", "9600"))
 BRIDGE_PORT = int(os.getenv("BASCULA_BRIDGE_PORT", "8001"))

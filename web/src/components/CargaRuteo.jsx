@@ -2,12 +2,14 @@
 // completo en el navegador y, solo si TODO es valido, hace el upsert
 // acumulativo a foliosRuteo. Si la carga se corta (cierre de pestana, red),
 // basta con volver a subir el mismo archivo: es idempotente.
+import { compararAscendente } from '../utils/texto'
 import { useRef, useState } from 'react'
 import { addDoc, collection, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { parsearFoliosRuteo, ErrorImportacion } from '../utils/importarFoliosRuteo'
 import { cargarFoliosRuteo } from '../utils/cargarRuteo'
+import { recruzarBultosSinRuteo } from '../utils/recruzarBultos'
 import HistorialCargas from './HistorialCargas'
 import {
   analizarHuecos,
@@ -23,6 +25,8 @@ export default function CargaRuteo() {
   const [analisis, setAnalisis] = useState(null) // { esquema, archivo, registros }
   const [progreso, setProgreso] = useState(0)
   const [resumen, setResumen] = useState(null)
+  // Resultado del reintento de cruce que corre despues de cargar el Excel.
+  const [recruce, setRecruce] = useState(null)
   const [error, setError] = useState('')
   const [erroresDetalle, setErroresDetalle] = useState([])
   const [huecos, setHuecos] = useState(null)
@@ -35,6 +39,7 @@ export default function CargaRuteo() {
     setError('')
     setErroresDetalle([])
     setResumen(null)
+    setRecruce(null)
     setAnalisis(null)
     setHuecos(null)
     setLimpieza(null)
@@ -114,11 +119,34 @@ export default function CargaRuteo() {
       })
       setResumen(r)
       setEstado('terminado')
+
+      // Con el ruteo ya cargado, se reintenta el cruce de los bultos que se
+      // pesaron ANTES de que su folio existiera en el Excel (America carga
+      // tarde o le faltan folios): dejan de decir SIN RUTEO y recuperan su
+      // codigo/docenas/pedido. Va en su propio try: si falla, la carga del
+      // Excel ya quedo hecha y solo se pierde el enriquecimiento.
+      setRecruce({ trabajando: true })
+      try {
+        const rc = await recruzarBultosSinRuteo({
+          usuario: { uid: authUser.uid, nombre: perfil?.nombreCompleto || 'Estacion' }
+        })
+        setRecruce({ trabajando: false, ...rc })
+      } catch (err) {
+        console.error('[CargaRuteo] No se pudo reintentar el cruce:', err)
+        setRecruce({ trabajando: false, error: err.message || String(err) })
+      }
       if (r.errores.length > 0) {
         setError(
           `${r.errores.length} folios no se pudieron guardar. Vuelve a subir el mismo archivo para completarlos.`
         )
-        setErroresDetalle(r.errores.slice(0, 10).map((x) => `Folio ${x.folio}: ${x.mensaje}`))
+        // Ordenados por folio (llegaban en orden de terminacion de los
+        // workers, o sea revueltos) para poderlos cotejar contra el Excel.
+        setErroresDetalle(
+          [...r.errores]
+            .sort((a, b) => compararAscendente(a.folio, b.folio))
+            .slice(0, 10)
+            .map((x) => `Folio ${x.folio}: ${x.mensaje}`)
+        )
       }
 
       // Se cierra el registro con el resultado real. Si esto falla, la fila
@@ -240,6 +268,50 @@ export default function CargaRuteo() {
             {resumen.omitidosSinFecha > 0 &&
               `, ${resumen.omitidosSinFecha} omitidos (sin Fecha Actualizacion; no se pisa un dato con fecha conocida)`}
             {resumen.errores.length > 0 && `, ${resumen.errores.length} con error`}.
+            {recruce?.trabajando && (
+              <div style={{ marginTop: 8, fontWeight: 400 }}>
+                Revisando los bultos que se habian pesado sin ruteo...
+              </div>
+            )}
+            {recruce && !recruce.trabajando && !recruce.error && (
+              <div style={{ marginTop: 8, fontWeight: 400 }}>
+                {recruce.resueltos > 0 ? (
+                  <>
+                    <strong>{recruce.resueltos} bulto{recruce.resueltos === 1 ? '' : 's'} que estaba
+                    {recruce.resueltos === 1 ? '' : 'n'} SIN RUTEO ya recuper{recruce.resueltos === 1 ? 'o' : 'aron'} su
+                    codigo</strong> con este archivo:{' '}
+                    {recruce.folios
+                      .slice(0, 12)
+                      .map((f) => `${f.folio}${f.codigo ? ` (${f.codigo})` : ''}`)
+                      .join(', ')}
+                    {recruce.folios.length > 12 && ` y ${recruce.folios.length - 12} mas`}.
+                  </>
+                ) : recruce.revisados > 0 ? (
+                  <>Se revisaron {recruce.revisados} bulto(s) sin ruteo y ninguno aparece en este archivo.</>
+                ) : (
+                  <>No hay bultos pendientes de cruzar.</>
+                )}
+                {recruce.siguenSinRuteo > 0 && (
+                  <> Siguen sin ruteo: <strong>{recruce.siguenSinRuteo}</strong> (no vienen en ningun Excel cargado).</>
+                )}
+                {recruce.omitidosPorPdf > 0 && (
+                  <> {recruce.omitidosPorPdf} sin ruteo ya salieron en un PDF y NO se tocaron:
+                  su papel ya se imprimio asi, avisale a Roberto si hay que corregirlos.</>
+                )}
+                {recruce.errores?.length > 0 && (
+                  <div style={{ color: '#a00', marginTop: 4 }}>
+                    <strong>{recruce.errores.length} bulto(s) NO se pudieron actualizar</strong> (el
+                    Excel si se cargo bien): {recruce.errores[0].mensaje}. Avisale a Roberto.
+                  </div>
+                )}
+              </div>
+            )}
+            {recruce?.error && (
+              <div style={{ marginTop: 8, fontWeight: 400, color: '#8a5300' }}>
+                El Excel se cargo bien, pero no se pudo reintentar el cruce de los bultos sin
+                ruteo: {recruce.error}
+              </div>
+            )}
           </p>
           {limpieza > 0 && (
             <p style={{ fontSize: 13, color: '#555' }}>

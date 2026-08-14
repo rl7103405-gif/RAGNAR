@@ -57,6 +57,12 @@ await db.collection('usuarios').doc(usuario.uid).set({
   empleadoId: EMPLEADO_ID,
   nombreCompleto: NOMBRE_COMPLETO,
   activo: true
-})
+},
+      // merge: NUNCA reemplazar el documento completo. Sin esto, volver a
+      // correr este script (p.ej. para resetear una contrasena) borraba
+      // 'rol' y 'puedeCrearTareas', y desde el 2026-08-12 un perfil sin rol
+      // no tiene acceso a NADA: bloqueo total y silencioso.
+      { merge: true }
+    )
 console.log('Perfil en Firestore listo.')
 process.exit(0)

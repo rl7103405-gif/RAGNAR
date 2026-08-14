@@ -16,10 +16,195 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.activo == true;
     }
 
+    function perfil() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    // Rol del usuario. SIN default permisivo: un perfil sin 'rol' no es
+    // 'completo', es NADA (verificado el 2026-08-12: los 8 perfiles vivos
+    // traen su rol, asi que quitar el fallback no bloquea a nadie). Antes
+    // caia a 'completo', y con usuarios externos en puerta eso significaba
+    // que una maquila con perfil activo operaria como personal interno.
+    function rol() {
+      return perfilActivo() ? perfil().get('rol', '') : '';
+    }
+
+    // A que maquila pertenece este usuario (vacio si no es de una maquila).
+    // Se declara aqui arriba porque esInterno() la usa.
+    function maquilaDelPerfil() {
+      return perfilActivo() ? perfil().get('maquilaId', '') : '';
+    }
+
+    // LISTA BLANCA de roles INTERNOS (personal de Quini). Se enumeran a
+    // proposito: nunca "rol() != 'maquila'", porque un dedazo en el rol o un
+    // campo perdido convertiria a un externo en interno. Lo que no esta aqui
+    // no ve la operacion.
+    //   captura  -> pesadores (Angel, Juan)
+    //   completo -> embarques (America, Diana, Lindbergh, estacion)
+    //   consulta -> solo lectura (Cielo)
+    //   almacen  -> avios (Alvaro; reservado, aun sin usar)
+    //   admin    -> Roberto
+    function esInterno() {
+      return rol() in ['captura', 'completo', 'consulta', 'almacen', 'admin']
+        // Defensa en profundidad: un perfil que trae 'maquilaId' es de una
+        // empresa EXTERNA y jamas es interno, aunque su rol diga otra cosa.
+        // Sin esto, una cuenta hibrida (rol interno + maquilaId) le abriria a
+        // la maquila la operacion completa (pentester, 2026-08-12).
+        && maquilaDelPerfil() == '';
+    }
+
+    function esAdmin() {
+      // esInterno() y no solo el rol: hay ramas que usan esAdmin() DIRECTO
+      // (autorizaciones, saldo inicial de inventario, saldos), y sin esto un
+      // perfil hibrido admin+maquilaId las cruzaria aunque todas las demas
+      // puertas ya lo rechacen. esInterno() no llama esAdmin(): sin recursion.
+      return esInterno() && rol() == 'admin';
+    }
+
+    // ---- Usuarios EXTERNOS: las maquilas ----
+    // ¿Es el usuario de ESTA maquila, y sigue vigente? Se exige que la maquila
+    // este activa en el catalogo: dar de baja una maquila (activo=false) cierra
+    // su portal de inmediato, con un solo interruptor.
+    function esMaquilaDe(mid) {
+      return rol() == 'maquila'
+        && mid is string
+        && mid.size() > 0
+        && maquilaDelPerfil() == mid
+        && exists(/databases/$(database)/documents/maquilas/$(mid))
+        && get(/databases/$(database)/documents/maquilas/$(mid)).data.activo == true
+        // La cuenta de maquila de PRUEBA solo entra al portal de una maquila
+        // de prueba. Su maquilaId ya la ata a la ficticia, asi que esto es
+        // defensa en profundidad: si manana un script le dejara el maquilaId
+        // de una maquila real, seguiria sin poder leerle ni escribirle nada.
+        // (Se lee el mismo documento que ya se acaba de consultar arriba: no
+        // cuesta una lectura mas.)
+        && mismoMundoMaquila(mid);
+    }
+
+    // Rol 'consulta' (Cielo, 2026-08-12): ve el historial, los reportes, los
+    // indicadores y los registros para llevar el control y pasar las
+    // remisiones a Microsip, pero NO opera: no captura bultos, no carga
+    // Excel, no genera remisiones ni toca el catalogo. Es el primer rol de
+    // SOLO LECTURA, asi que cada coleccion que se escribe tiene que
+    // excluirlo explicitamente.
+    function puedeOperar() {
+      // Lista blanca explicita en vez de "todos menos consulta": Alvaro
+      // (almacen) tampoco pesa bultos ni corrige capturas, y con el "menos
+      // consulta" se le colaba.
+      return esInterno() && rol() in ['captura', 'completo', 'admin'];
+    }
+
+    // Operaciones de EMBARQUE: cargar el Excel del dia, emitir remisiones,
+    // reservar folio interno y mantener el catalogo de maquilas. Es trabajo de
+    // embarques (America, Diana, Lindbergh, estacion) y del admin, NO de un
+    // pesador: Angel y Juan capturan folios y ya. Detectado modelando los
+    // permisos contra los perfiles reales (2026-08-12).
+    function puedeEmbarcar() {
+      // 'almacen' (Alvaro) NO va aqui: el maneja AVIOS, no remisiones de
+      // producto. Incluirlo le daria emitir remisiones y quemar folios
+      // internos, que no es su trabajo (mismo error que se cazo con los
+      // pesadores el 2026-08-12).
+      // esInterno() es obligatorio: sin el, un perfil hibrido (rol completo
+      // + maquilaId) emitiria remisiones y quemaria folios internos aunque
+      // todas las demas puertas ya lo rechacen (cazado 2026-08-13).
+      return esInterno() && rol() in ['completo', 'admin'];
+    }
+
+    // Quien puede CREAR/asignar tareas: el admin (Roberto) y quien tenga el
+    // flag puedeCrearTareas en su perfil (Lindbergh). America NO: solo recibe.
+    function puedeCrearTareas() {
+      return esInterno() && (esAdmin() || perfil().get('puedeCrearTareas', false) == true);
+    }
+
+    // ===================================================================
+    // CUENTAS DE PRUEBA (esPrueba:true) -- el corral
+    // ===================================================================
+    // RAGNAR no tiene ambiente aislado: no hay proyecto de staging ni prefijo
+    // de coleccion. Las cuentas de prueba (web/scripts/crear_usuarios_prueba)
+    // entran a la MISMA base que la fabrica, y sus roles son roles de verdad.
+    // Lo que las contiene es esto: un corral hecho de condiciones que solo se
+    // activan cuando quien escribe es una cuenta de prueba.
+    //
+    // Regla de oro de este bloque: para un usuario REAL toda condicion de aqui
+    // colapsa a `true`. Nada de lo que sigue puede cambiarle el comportamiento
+    // a America, Angel, Cielo, Alvaro, Lindbergh ni Roberto -- si alguna vez
+    // hay que elegir entre cerrar mas el corral y arriesgar la operacion real,
+    // gana la operacion real.
+    function esCuentaDePrueba() {
+      return perfilActivo() && perfil().get('esPrueba', false) == true;
+    }
+
+    // Lo unico que una cuenta de prueba puede capturar. El prefijo va en el ID
+    // del documento (el folio), asi que se puede exigir sin leer nada mas, y
+    // es lo que despues permite barrer las pruebas sin tocar un bulto real.
+    function folioDePrueba(f) {
+      return f is string && f.matches('^ZZTEST.*');
+    }
+
+    // La maquila ficticia del catalogo. Se consulta el documento y no una
+    // lista de ids a mano: si manana hay una segunda maquila de pruebas,
+    // basta marcarla y estas reglas la reconocen sin tocarse.
+    function maquilaDePrueba(mid) {
+      return mid is string
+        && mid.size() > 0
+        && exists(/databases/$(database)/documents/maquilas/$(mid))
+        && get(/databases/$(database)/documents/maquilas/$(mid)).data.get('esPrueba', false) == true;
+    }
+
+    // Los tres candados. Se escriben como funciones separadas (y no como un
+    // `alcanceOk(condicion)` generico) a proposito: el argumento de una
+    // funcion se evalua SIEMPRE, asi que pasarle un get()/exists() dentro
+    // gastaria la lectura incluso para los usuarios reales, que son quienes
+    // no deberian pagar nada por este bloque.
+    function soloCuentaReal() {
+      return !esCuentaDePrueba();
+    }
+
+    function alcanceFolioOk(folio) {
+      return !esCuentaDePrueba() || folioDePrueba(folio);
+    }
+
+    // Para las maquilas el candado es SIMETRICO, no unilateral: cada mundo se
+    // queda en el suyo. Un `!esCuentaDePrueba() || ...` dejaria que America o
+    // Roberto le escribieran al portal de la maquila ficticia (emitirle una
+    // remision de verdad, anularle una copia, moverle inventario), y eso
+    // ensucia la prueba desde el otro lado -- ademas de que el limpiador
+    // borraria despues cosas que un usuario real escribio.
+    // Para un usuario real con una maquila real evalua false == false: no le
+    // quita ni un flujo legitimo.
+    function mismoMundoMaquila(mid) {
+      return esCuentaDePrueba() == maquilaDePrueba(mid);
+    }
+
+    // Documentos que nacen marcados como de prueba (pdfsGenerados, tareas).
+    // Van en las dos direcciones:
+    //   - una cuenta de prueba SOLO puede escribirlos con esPrueba:true
+    //   - una cuenta real NUNCA puede escribir ese campo
+    // La segunda mitad importa tanto como la primera: si un usuario real
+    // pudiera marcar un documento como de prueba, el limpiador lo borraria
+    // creyendo que es basura.
+    function marcaDePruebaCoherente(d) {
+      return esCuentaDePrueba()
+        ? d.get('esPrueba', false) == true
+        : !('esPrueba' in d);
+    }
+
+    // Para updates: el documento que ya existe tiene que ser del mismo mundo
+    // que quien lo toca. Sin esto, una cuenta de prueba podria cerrar una
+    // tarea real o anular una remision real.
+    function mismoMundo(datosExistentes) {
+      return esCuentaDePrueba() == (datosExistentes.get('esPrueba', false) == true);
+    }
+
     // Cada quien lee su propio perfil. Nadie escribe desde el cliente: las
-    // altas se hacen con scripts/provisionar_usuario.mjs.
+    // altas se hacen desde web/scripts/ con la llave de servicio --
+    // crear_usuario_interno.mjs para la gente de Quini y
+    // crear_todas_las_maquilas.mjs para las maquilas.
     match /usuarios/{uid} {
-      allow read: if request.auth.uid == uid;
+      // Cada quien lee su propio perfil; ademas, quien puede asignar tareas
+      // lee los demas perfiles para elegir destinatario (nombre y rol, no hay
+      // datos sensibles: la nomina vive en otra base).
+      allow read: if request.auth.uid == uid || puedeCrearTareas();
       allow write: if false;
     }
 
@@ -79,24 +264,418 @@ service cloud.firestore {
         && cruceCoherente(d);
     }
 
+    // ¿La reemision que se intenta escribir es la MISMA que Roberto aprobo?
+    // Compara maquila y lista de folios contra la propuesta de la solicitud.
+    // Las dos listas se ordenan igual en el cliente (compararAscendente), asi
+    // que la igualdad de listas es una comparacion valida.
+    function solicitudCoincide(datos) {
+      let sol = get(/databases/$(database)/documents/solicitudesCorreccion/$(datos.reemision.solicitudId)).data;
+      return sol.estado == 'aprobada'
+        && sol.folio == datos.reemision.anulaRegistroId
+        && sol.tipo == 'editar_pdf'
+        && sol.propuesta.maquilaId == datos.maquila.id
+        && sol.propuesta.folios == datos.folios;
+    }
+
+    // Re-cruce del snapshot de producto: cuando se carga un Excel de ruteo
+    // TARDE, los bultos que quedaron 'sin_ruteo' recuperan su codigo. Lo hace
+    // quien sube el Excel (America), que NO es quien peso el bulto (Angel o
+    // Juan), asi que no puede pasar por bultoValido() -- ese exige
+    // operadorUid == auth.uid y falsear el operador seria peor: la tabla
+    // diria que America peso el bulto. Se acota igual que marcadoPdfValido:
+    // solo los campos del cruce, y nunca sobre un folio ya enviado a PDF.
+    function recruceValido() {
+      let d = request.resource.data;
+      return d.diff(resource.data).affectedKeys()
+          .hasOnly(['producto', 'cruce', 'catalogoVersion', 'actualizadoEn'])
+        && d.keys().hasAll(['producto', 'cruce', 'catalogoVersion', 'actualizadoEn'])
+        && d.actualizadoEn == request.time
+        && d.cruce in ['completo', 'sin_ruteo', 'sin_catalogo']
+        // Solo se permite MEJORAR: de sin_ruteo/sin_catalogo hacia algo mejor.
+        // Nunca borrar un cruce ya resuelto.
+        && resource.data.cruce != 'completo'
+        && (d.producto == null || (d.producto is map && productoValido(d.producto)))
+        && (d.catalogoVersion == null || (d.catalogoVersion is string && d.catalogoVersion.size() <= 40))
+        && cruceCoherente(d)
+        && resource.data.get('pdfGeneradoEn', null) == null;
+    }
+
+    // Liberar el marcador de PDF de un folio que se QUITO de una remision al
+    // corregirla (anular y reemitir). Igual que el re-cruce, lo hace quien
+    // aplica la correccion, no quien peso: se acota a los campos del marcador
+    // y exige la autorizacion 'editar_pdf' de Roberto sobre la remision que se
+    // esta anulando (por eso recibe el registroId).
+    function desmarcadoPorReemision() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['pdfGeneradoEn', 'pdfFolioInterno', 'pdfRegistroId', 'actualizadoEn'])
+        // hasAll no sirve aqui: los campos del marcador deben DESAPARECER.
+        && !('pdfGeneradoEn' in request.resource.data)
+        && !('pdfFolioInterno' in request.resource.data)
+        && !('pdfRegistroId' in request.resource.data)
+        && request.resource.data.actualizadoEn == request.time
+        // La autorizacion se exige sobre EL REGISTRO QUE MARCO A ESTE BULTO
+        // (dato del propio marcador previo), no sobre uno cualquiera: con el
+        // permiso para corregir la remision A no se pueden liberar los folios
+        // de la remision B. Los bultos marcados ANTES de que existiera
+        // pdfRegistroId solo los libera el admin.
+        && (tieneAutorizacion(resource.data.get('pdfRegistroId', '_ninguno_'), 'editar_pdf')
+            || esAdmin());
+    }
+
+    // ¿Hay una autorizacion VIGENTE de Roberto para corregir este folio?
+    // Las reglas no pueden hacer queries, asi que la autorizacion vive en un
+    // documento con ID determinista: autorizaciones/{folio}_{tipo}. La escribe
+    // el admin al aprobar la solicitud y se consume (borra) al aplicarla.
+    function tieneAutorizacion(folio, tipo) {
+      return exists(/databases/$(database)/documents/autorizaciones/$(folio + '_' + tipo));
+    }
+
+    // Alcance de las correcciones para una cuenta de prueba. El campo 'folio'
+    // de una solicitud/autorizacion no siempre es un folio de bulto: en
+    // 'editar_pdf' es el ID del registro de pdfsGenerados que se va a anular.
+    // Por eso el criterio cambia con el tipo -- con el prefijo a secas, una
+    // correccion de remision de prueba nunca calificaria (los IDs de
+    // pdfsGenerados son aleatorios) y una de remision real pasaria de largo.
+    function alcanceCorreccionOk(folio, tipo) {
+      return !esCuentaDePrueba()
+        || (tipo == 'editar_pdf'
+              ? (exists(/databases/$(database)/documents/pdfsGenerados/$(folio))
+                 && get(/databases/$(database)/documents/pdfsGenerados/$(folio)).data.get('esPrueba', false) == true)
+              : folioDePrueba(folio));
+    }
+
+    // Autorizaciones puntuales que solo el admin (Roberto) crea. Cualquier
+    // usuario activo puede borrar la suya al consumirla: es de un solo uso.
+    match /autorizaciones/{autorizacionId} {
+      allow read: if esInterno();
+      allow create: if perfilActivo() && esAdmin()
+        && alcanceCorreccionOk(request.resource.data.folio, request.resource.data.tipo)
+        && request.resource.data.keys().hasAll(['folio', 'tipo', 'solicitudId', 'otorgadaPorUid', 'otorgadaPorNombre', 'creadoEn'])
+        && request.resource.data.keys().hasOnly(['folio', 'tipo', 'solicitudId', 'otorgadaPorUid', 'otorgadaPorNombre', 'creadoEn'])
+        && request.resource.data.folio is string
+        && request.resource.data.folio.size() > 0
+        && request.resource.data.folio.size() <= 50
+        // 'editar_pdf': el "folio" es el ID del registro de pdfsGenerados que
+        // se va a anular y reemitir (mismo mecanismo de ID determinista).
+        && request.resource.data.tipo in ['editar_peso', 'eliminar', 'editar_pdf']
+        && autorizacionId == request.resource.data.folio + '_' + request.resource.data.tipo
+        && request.resource.data.solicitudId is string
+        && request.resource.data.otorgadaPorUid == request.auth.uid
+        && request.resource.data.otorgadaPorNombre is string
+        && request.resource.data.otorgadaPorNombre.size() <= 120
+        && request.resource.data.creadoEn == request.time;
+      allow update: if false;
+      // Se borra al consumirla (un solo uso) o si el admin la revoca. Solo
+      // puede borrarla el admin o QUIEN LA PIDIO: si cualquiera pudiera,
+      // borraria el permiso de un compañero antes de que lo use y este se
+      // quedaria bloqueado sin saber por que.
+      // Borrar tambien lleva alcance: sin esto una cuenta de prueba podria
+      // quemarle a America el permiso que Roberto acababa de darle.
+      allow delete: if puedeOperar()
+        && alcanceCorreccionOk(resource.data.folio, resource.data.tipo)
+        && (esAdmin()
+            || (exists(/databases/$(database)/documents/solicitudesCorreccion/$(resource.data.solicitudId))
+                && get(/databases/$(database)/documents/solicitudesCorreccion/$(resource.data.solicitudId)).data.pedidoPorUid == request.auth.uid));
+    }
+
+    // Marcado "ya salio en un PDF de salida": actualizacion PARCIAL que solo
+    // toca los dos campos del marcador (GenerarPdfModal la hace al emitir el
+    // PDF). Nota deliberada: las ediciones normales reescriben el documento
+    // completo SIN estos campos (tx.set), asi que recapturar o editar el peso
+    // borra el marcador y el folio regresa a "pendientes de PDF" -- correcto,
+    // porque el PDF viejo ya no coincide con el peso nuevo.
+    function marcadoPdfValido() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          // pdfRegistroId (opcional) dice QUE registro de pdfsGenerados marco
+          // este bulto: sin eso, al corregir una remision no se puede saber si
+          // el marcador es de ESA remision o de otra posterior.
+          .hasOnly(['pdfGeneradoEn', 'pdfFolioInterno', 'pdfRegistroId'])
+        // hasAll explicito: un intento de DESMARCAR (FieldValue.delete())
+        // tambien aparece en affectedKeys; se exige que ambos campos existan
+        // en el resultado para que quitar el marcador sea imposible.
+        && request.resource.data.keys().hasAll(['pdfGeneradoEn', 'pdfFolioInterno'])
+        && request.resource.data.pdfGeneradoEn == request.time
+        && request.resource.data.pdfFolioInterno is int
+        && request.resource.data.pdfFolioInterno > 0
+        && request.resource.data.pdfFolioInterno < 1000000000
+        && (!('pdfRegistroId' in request.resource.data)
+            || (request.resource.data.pdfRegistroId is string
+                && request.resource.data.pdfRegistroId.size() <= 128))
+        // Un bulto YA marcado por una remision no se puede re-marcar a la
+        // ligera (seria "robarle" el folio a otra remision vigente): solo si
+        // esta sin marcar, si es el admin, o si hay autorizacion para corregir
+        // justo la remision que lo tenia (caso de anular y reemitir).
+        && (resource.data.get('pdfGeneradoEn', null) == null
+            || esAdmin()
+            || tieneAutorizacion(resource.data.get('pdfRegistroId', '_ninguno_'), 'editar_pdf'));
+    }
+
     // Capturas de folio + peso de la estacion unica de prueba. Se valida
     // el contenido para que nadie pueda suplantar operadorUid, falsificar
     // creadoEn, cambiar el folio del documento o vaciar campos.
     match /bultos/{folio} {
-      allow read: if perfilActivo();
-      allow create: if perfilActivo()
+      allow read: if esInterno();
+      // alcanceFolioOk cubre las tres operaciones y con ellas TODAS las ramas
+      // del update (marcado de PDF, re-cruce y desmarcado por reemision): una
+      // cuenta de prueba no toca un bulto real por ningun camino, ni siquiera
+      // el automatico.
+      allow create: if puedeOperar()
+        && alcanceFolioOk(folio)
         && bultoValido()
         && request.resource.data.folio == folio
         && request.resource.data.creadoEn == request.time;
-      allow update: if perfilActivo()
-        && bultoValido()
-        && request.resource.data.folio == resource.data.folio
-        // creadoEn representa cuando se capturo por primera vez, no la
-        // ultima edicion: se preserva el valor original del documento.
-        && request.resource.data.creadoEn == resource.data.creadoEn;
-      // Eliminar capturas equivocadas es parte del flujo (menu de la tabla);
-      // con el login compartido, cualquier sesion activa puede hacerlo.
-      allow delete: if perfilActivo();
+      allow update: if puedeOperar()
+        && alcanceFolioOk(folio)
+        && ((bultoValido()
+             && request.resource.data.folio == resource.data.folio
+             // creadoEn representa cuando se capturo por primera vez, no la
+             // ultima edicion: se preserva el valor original del documento.
+             && request.resource.data.creadoEn == resource.data.creadoEn
+             // Un folio que YA salio en un PDF no se edita a la ligera: el
+             // papel entregado dejaria de coincidir. Solo lo permite un admin
+             // (Roberto) o una solicitud de correccion que el aprobo.
+             && (resource.data.get('pdfGeneradoEn', null) == null
+                 || esAdmin()
+                 || tieneAutorizacion(resource.data.folio, 'editar_peso')))
+            || marcadoPdfValido()
+            || recruceValido()
+            // El registro anulado viaja en el campo que se esta limpiando:
+            // se toma del propio marcador previo del bulto.
+            || desmarcadoPorReemision());
+      // Eliminar capturas equivocadas es parte del flujo (menu de la tabla),
+      // pero un folio ya enviado a PDF necesita el mismo permiso que editarlo.
+      allow delete: if puedeOperar()
+        && alcanceFolioOk(folio)
+        && (resource.data.get('pdfGeneradoEn', null) == null
+            || esAdmin()
+            || tieneAutorizacion(resource.data.folio, 'eliminar'));
+    }
+
+    // Tareas: metas de produccion por OT o por codigo ("100 docenas de la OT
+    // 7887"). Las crea quien tiene rol completo/admin (papa, Lindbergh,
+    // America); el avance se calcula en el cliente sumando las capturas que
+    // coinciden, y cuando se alcanza la meta se marca 'cumplida'.
+    function tareaValida() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['titulo', 'objetivoTipo', 'objetivoValor', 'metaDocenas', 'estado', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'notas', 'cumplidaEn', 'avanceAlCumplir'])
+        && d.keys().hasOnly(['titulo', 'objetivoTipo', 'objetivoValor', 'metaDocenas', 'estado', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'notas', 'cumplidaEn', 'avanceAlCumplir', 'ots', 'asignadoAUid', 'asignadoANombre', 'esPrueba'])
+        // Destinatario opcional (a quien se le encarga): uid + nombre. Vacio
+        // = sin asignar (la ve quien la creo y el admin).
+        && (!('asignadoAUid' in d) || (d.asignadoAUid is string && d.asignadoAUid.size() <= 128))
+        && (!('asignadoANombre' in d) || (d.asignadoANombre is string && d.asignadoANombre.size() <= 120))
+        // 'ots' es opcional (tareas del Excel especial): lista corta de OTs
+        // de 4 digitos para acotar que folios del ruteo cuentan.
+        && (!('ots' in d) || (d.ots is list && d.ots.size() <= 30))
+        && d.titulo is string
+        && d.titulo.size() > 0
+        && d.titulo.size() <= 120
+        && d.objetivoTipo in ['ot', 'codigo']
+        && d.objetivoValor is string
+        && d.objetivoValor.size() > 0
+        && d.objetivoValor.size() <= 60
+        && d.metaDocenas is number
+        && d.metaDocenas > 0
+        && d.metaDocenas <= 1000000
+        && d.estado in ['abierta', 'cumplida', 'cancelada']
+        && d.creadoPorNombre is string
+        && d.creadoPorNombre.size() <= 120
+        && (d.notas == null || (d.notas is string && d.notas.size() <= 300))
+        && (d.avanceAlCumplir == null
+            || (d.avanceAlCumplir is number && d.avanceAlCumplir >= 0));
+    }
+
+    // ¿A quien se le puede encargar esta tarea? Una cuenta de prueba solo se
+    // la encarga a otra cuenta de prueba (o a nadie): si no, a una persona
+    // real le apareceria en su pantalla una tarea inventada y se pondria a
+    // trabajar en ella.
+    function destinatarioDelMismoMundo(d) {
+      return !esCuentaDePrueba()
+        || !('asignadoAUid' in d)
+        || d.asignadoAUid == ''
+        || (exists(/databases/$(database)/documents/usuarios/$(d.asignadoAUid))
+            && get(/databases/$(database)/documents/usuarios/$(d.asignadoAUid)).data.get('esPrueba', false) == true);
+    }
+
+    match /tareas/{tareaId} {
+      allow read: if esInterno();
+      // Los pesadores (rol 'captura') no crean tareas: solo las cumplen.
+      allow create: if puedeCrearTareas()
+        && marcaDePruebaCoherente(request.resource.data)
+        && destinatarioDelMismoMundo(request.resource.data)
+        && tareaValida()
+        && request.resource.data.estado == 'abierta'
+        && request.resource.data.creadoPorUid == request.auth.uid
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.cumplidaEn == null
+        && request.resource.data.avanceAlCumplir == null;
+      // Cerrar (cumplida/cancelada) o ajustar la meta/notas: cualquier usuario
+      // activo con rol distinto de 'captura'. El campo 'cumplidaEn' solo puede
+      // ser la hora del servidor, nunca una fecha inventada.
+      // Tres ramas con permisos DISTINTOS.
+      // mismoMundo envuelve las tres a proposito (y con parentesis propios:
+      // sin ellos, `A && B || C` se leeria `(A && B) || C` y la rama de
+      // reabrir se quedaria sin candado): una cuenta de prueba no cierra, no
+      // reedita y no reabre una tarea real, ni al reves. La marca esPrueba no
+      // se puede cambiar despues porque tareaValida() la incluye en el hasOnly
+      // pero mismoMundo compara contra el documento que YA existe.
+      // mismoMundo mira el documento VIEJO y marcaDePruebaCoherente el NUEVO.
+      // Hacen falta los dos: con solo el primero, la rama de reedicion completa
+      // (que reescribe el documento entero) dejaba CAMBIAR DE MUNDO -- una
+      // cuenta de prueba podia quitarle la marca a su tarea y convertirla en
+      // una tarea real, y Lindbergh o Roberto podian marcar como prueba una
+      // tarea de verdad, que el limpiador borraria despues sin avisar.
+      allow update: if mismoMundo(resource.data)
+        && marcaDePruebaCoherente(request.resource.data)
+        && destinatarioDelMismoMundo(request.resource.data)
+        && ((
+          resource.data.estado == 'abierta' && (
+            // (1) Quien asigna (Lindbergh/admin): puede reeditar toda la tarea.
+            ( puedeCrearTareas()
+              && tareaValida()
+              && request.resource.data.creadoPorUid == resource.data.creadoPorUid
+              && request.resource.data.creadoEn == resource.data.creadoEn
+              && (request.resource.data.cumplidaEn == null
+                  || request.resource.data.cumplidaEn == resource.data.cumplidaEn
+                  || request.resource.data.cumplidaEn == request.time) )
+            ||
+            // (2) El DESTINATARIO (America) solo puede CERRARLA (cumplir/
+            // cancelar): jamas cambiar su meta, objetivo, titulo ni robarsela.
+            // El hasOnly ancla que solo esos tres campos pueden moverse.
+            ( esInterno()
+              && resource.data.asignadoAUid == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['estado', 'cumplidaEn', 'avanceAlCumplir'])
+              && request.resource.data.estado in ['cumplida', 'cancelada']
+              && (request.resource.data.cumplidaEn == null
+                  || request.resource.data.cumplidaEn == request.time)
+              && (request.resource.data.avanceAlCumplir == null
+                  || (request.resource.data.avanceAlCumplir is number
+                      && request.resource.data.avanceAlCumplir >= 0)) )
+          )
+        ) || (
+          // (3) REABRIR una tarea cerrada: SOLO quien asigna. Es la red de
+          // seguridad del cierre automatico (2026-08-13): si una meta
+          // estimada corta cerro la tarea antes de tiempo, Lindbergh o el
+          // admin la regresan a 'abierta'. Solo se mueven estos tres campos,
+          // de vuelta a como estaban al crearla.
+          resource.data.estado in ['cumplida', 'cancelada']
+          && puedeCrearTareas()
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['estado', 'cumplidaEn', 'avanceAlCumplir'])
+          && request.resource.data.estado == 'abierta'
+          && request.resource.data.cumplidaEn == null
+          && request.resource.data.avanceAlCumplir == null
+        ));
+      allow delete: if false;
+    }
+
+    // Bitacora INMUTABLE de cambios sobre capturas: quien edito o elimino
+    // que, cuando, con que valores anterior/nuevo y con que motivo. Nadie la
+    // edita ni la borra desde el cliente (igual que pdfsGenerados).
+    match /cambiosCaptura/{registroId} {
+      allow read: if esInterno();
+      // El alcance va sobre el folio del CONTENIDO, no del ID (el id es
+      // aleatorio). Sin esto, una cuenta de prueba podria inventar renglones
+      // de bitacora sobre folios reales sin tocar el bulto: la bitacora es
+      // inmutable y esa mentira se quedaria ahi para siempre.
+      allow create: if puedeOperar()
+        && alcanceFolioOk(request.resource.data.folio)
+        && request.resource.data.keys().hasAll(['folio', 'accion', 'antes', 'despues', 'motivo', 'autorizacionId', 'hechoPorUid', 'hechoPorNombre', 'creadoEn'])
+        && request.resource.data.keys().hasOnly(['folio', 'accion', 'antes', 'despues', 'motivo', 'autorizacionId', 'hechoPorUid', 'hechoPorNombre', 'creadoEn'])
+        && request.resource.data.folio is string
+        && request.resource.data.folio.size() > 0
+        && request.resource.data.folio.size() <= 50
+        // 'recruce' = el cruce contra el ruteo se resolvio al cargar un Excel
+        // nuevo (automatico, no una correccion humana del peso).
+        && request.resource.data.accion in ['editar_peso', 'eliminar', 'recaptura', 'recruce']
+        && request.resource.data.antes is map
+        && request.resource.data.despues is map
+        && (request.resource.data.motivo == null
+            || (request.resource.data.motivo is string && request.resource.data.motivo.size() <= 300))
+        && (request.resource.data.autorizacionId == null
+            || (request.resource.data.autorizacionId is string && request.resource.data.autorizacionId.size() <= 60))
+        && request.resource.data.hechoPorUid == request.auth.uid
+        && request.resource.data.hechoPorNombre is string
+        && request.resource.data.hechoPorNombre.size() <= 120
+        && request.resource.data.creadoEn == request.time;
+      allow update, delete: if false;
+    }
+
+    // Solicitudes de correccion de un folio que YA salio en un PDF: el
+    // operador las crea con motivo, y SOLO un admin (Roberto) las aprueba o
+    // rechaza. Una solicitud aprobada y sin usar es la llave que permite
+    // editar/eliminar ese folio.
+    match /solicitudesCorreccion/{solicitudId} {
+      allow read: if esInterno();
+      allow create: if puedeOperar()
+        && alcanceCorreccionOk(request.resource.data.folio, request.resource.data.tipo)
+        && request.resource.data.keys().hasAll(['folio', 'tipo', 'motivo', 'estado', 'pedidoPorUid', 'pedidoPorNombre', 'creadoEn', 'resueltoPorUid', 'resueltoPorNombre', 'resueltoEn', 'usadaEn'])
+        && request.resource.data.keys().hasOnly(['folio', 'tipo', 'motivo', 'estado', 'pedidoPorUid', 'pedidoPorNombre', 'creadoEn', 'resueltoPorUid', 'resueltoPorNombre', 'resueltoEn', 'usadaEn', 'propuesta'])
+        && request.resource.data.folio is string
+        && request.resource.data.folio.size() > 0
+        // 'editar_pdf' guarda el ID del registro de pdfsGenerados (mas largo
+        // que un folio de bulto).
+        && request.resource.data.folio.size() <= 128
+        && request.resource.data.tipo in ['editar_peso', 'eliminar', 'editar_pdf']
+        // La PROPUESTA es obligatoria en editar_pdf: Roberto aprueba el cambio
+        // CONCRETO (que maquila y que folios), no un permiso abierto para que
+        // America decida despues.
+        && (request.resource.data.tipo != 'editar_pdf' || (
+              'propuesta' in request.resource.data
+              && request.resource.data.propuesta is map
+              && request.resource.data.propuesta.keys().hasAll(['maquilaId', 'maquilaNombre', 'folios', 'folioInternoOriginal'])
+              && request.resource.data.propuesta.keys().hasOnly(['maquilaId', 'maquilaNombre', 'folios', 'folioInternoOriginal'])
+              && request.resource.data.propuesta.maquilaId is string
+              && request.resource.data.propuesta.maquilaId.size() > 0
+              && request.resource.data.propuesta.maquilaNombre is string
+              && request.resource.data.propuesta.maquilaNombre.size() > 0
+              && request.resource.data.propuesta.maquilaNombre.size() <= 120
+              && request.resource.data.propuesta.folios is list
+              && request.resource.data.propuesta.folios.size() > 0
+              && request.resource.data.propuesta.folios.size() <= 200
+              && request.resource.data.propuesta.folioInternoOriginal is int
+            ))
+        && (request.resource.data.tipo == 'editar_pdf' || !('propuesta' in request.resource.data))
+        && request.resource.data.motivo is string
+        && request.resource.data.motivo.size() > 0
+        && request.resource.data.motivo.size() <= 300
+        && request.resource.data.estado == 'pendiente'
+        && request.resource.data.pedidoPorUid == request.auth.uid
+        && request.resource.data.pedidoPorNombre is string
+        && request.resource.data.pedidoPorNombre.size() <= 120
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.resueltoPorUid == null
+        && request.resource.data.resueltoPorNombre == null
+        && request.resource.data.resueltoEn == null
+        && request.resource.data.usadaEn == null;
+      // Resolver (aprobar/rechazar): SOLO admin, y solo desde 'pendiente'.
+      // Con alcance: demo_admin no aprueba una correccion que pidio America.
+      allow update: if perfilActivo() && esAdmin()
+        && alcanceCorreccionOk(resource.data.folio, resource.data.tipo)
+        && resource.data.estado == 'pendiente'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['estado', 'resueltoPorUid', 'resueltoPorNombre', 'resueltoEn'])
+        && request.resource.data.estado in ['aprobada', 'rechazada']
+        && request.resource.data.resueltoPorUid == request.auth.uid
+        && request.resource.data.resueltoPorNombre is string
+        && request.resource.data.resueltoEn == request.time;
+      allow delete: if false;
+    }
+
+    // Consumir una solicitud aprobada: quien OPERA puede marcarla como usada
+    // al aplicar la correccion (para que no sirva dos veces), pero NUNCA puede
+    // cambiar su estado ni quien la aprobo. Un rol de solo consulta no la
+    // consume: quemaria el permiso que otra persona esta por usar.
+    // OJO: este es el SEGUNDO match de la misma coleccion. Los permisos de
+    // dos match que coinciden se combinan con OR, asi que el alcance tiene que
+    // repetirse aqui: ponerlo solo arriba dejaria esta puerta abierta.
+    match /solicitudesCorreccion/{solicitudId} {
+      allow update: if puedeOperar()
+        && alcanceCorreccionOk(resource.data.folio, resource.data.tipo)
+        && resource.data.estado == 'aprobada'
+        && resource.data.usadaEn == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usadaEn'])
+        && request.resource.data.usadaEn == request.time;
     }
 
     // Folios esperados del dia, cargados por America desde el Excel
@@ -105,18 +684,23 @@ service cloud.firestore {
     // cualquier sesion activa puede cargar, pero el contenido queda
     // estrictamente validado.
     match /foliosRuteo/{folio} {
-      allow read: if perfilActivo();
-      allow create: if perfilActivo() && ruteoValido(folio);
+      allow read: if esInterno();
+      // El ruteo del dia es de TODA la planta y es un upsert acumulativo: no
+      // hay "ruteo de prueba" que valga. Una carga hecha desde una cuenta de
+      // prueba pisaria los folios buenos y no habria como distinguirla
+      // despues, asi que aqui no entran por ningun lado.
+      allow create: if puedeEmbarcar() && soloCuentaReal() && ruteoValido(folio);
       // En update, ademas de validar el contenido, se exige que
       // fechaActualizacion nunca retroceda: es la misma defensa que ya
       // implementa cargarRuteo.js del lado del cliente (comparar antes de
       // escribir), pero aqui queda garantizada tambien por el servidor.
-      allow update: if perfilActivo() && ruteoValido(folio) && fechaActualizacionMonotona();
+      allow update: if puedeEmbarcar() && soloCuentaReal() && ruteoValido(folio) && fechaActualizacionMonotona();
       // La limpieza de retencion (15 dias sin aparecer en ningun Excel) corre
       // desde el cliente, pero la retencion queda garantizada por el
       // SERVIDOR, no solo por el JS de limpiarRuteoViejo(): solo se permite
       // borrar un folio realmente vencido (cargadoEn + 15 dias en el pasado).
-      allow delete: if perfilActivo()
+      allow delete: if puedeEmbarcar()
+        && soloCuentaReal()
         && resource.data.cargadoEn is timestamp
         && request.time > resource.data.cargadoEn + duration.value(15, 'd');
     }
@@ -162,10 +746,10 @@ service cloud.firestore {
     // (scripts/cargar_catalogo.mjs); los clientes unicamente leen la
     // version vigente via config/catalogoActual.
     match /catalogoVersiones/{version} {
-      allow read: if perfilActivo();
+      allow read: if esInterno();
       allow write: if false;
       match /shards/{shard} {
-        allow read: if perfilActivo();
+        allow read: if esInterno();
         allow write: if false;
       }
     }
@@ -189,14 +773,15 @@ service cloud.firestore {
     }
 
     match /config/ruteoEstado {
-      allow read: if perfilActivo();
-      allow create: if perfilActivo() && ruteoEstadoValido();
+      allow read: if esInterno();
+      // Va con foliosRuteo: es el estado global de esa misma carga.
+      allow create: if puedeEmbarcar() && soloCuentaReal() && ruteoEstadoValido();
       // En update, ademas del contenido valido, se exige que el maximo
       // nunca retroceda (monotonia, igual que fechaActualizacionMonotona en
       // foliosRuteo) y que ultimaLimpieza o se conserve tal cual o sea
       // exactamente "ahora": nunca un timestamp arbitrario/futuro inventado
       // por el cliente.
-      allow update: if perfilActivo() && ruteoEstadoValido()
+      allow update: if puedeEmbarcar() && soloCuentaReal() && ruteoEstadoValido()
         && (resource.data.maxFolioNumero == null
             || (request.resource.data.maxFolioNumero is number
                 && request.resource.data.maxFolioNumero >= resource.data.maxFolioNumero))
@@ -220,16 +805,42 @@ service cloud.firestore {
     }
 
     match /config/folioInternoEstado {
-      allow read: if perfilActivo();
-      allow create: if perfilActivo() && folioInternoValido();
-      allow update: if perfilActivo()
+      allow read: if esInterno();
+      // Reservar un folio interno es una operacion de EMISION: quien solo
+      // consulta (Cielo) no puede quemar el consecutivo oficial. Avanzarlo es
+      // irreversible (nunca retrocede), asi que un numero gastado por error
+      // queda como salto permanente en la numeracion del papel.
+      //
+      // Este es el consecutivo OFICIAL, el que lleva el papa de Roberto en
+      // papel. Las cuentas de prueba tienen el suyo (folioInternoPrueba, aqui
+      // abajo) justamente para que probar una remision no le abra un hueco en
+      // su numeracion. El candado esta aqui y no solo en la app: si el cliente
+      // pasara el contador equivocado, el servidor lo rechaza.
+      allow create: if puedeEmbarcar() && soloCuentaReal() && folioInternoValido();
+      allow update: if puedeEmbarcar()
+        && soloCuentaReal()
+        && folioInternoValido()
+        && request.resource.data.ultimo >= resource.data.ultimo;
+      allow delete: if false;
+    }
+
+    // Consecutivo PARALELO de las cuentas de prueba. Mismo contenido y misma
+    // monotonia que el oficial (para que la prueba se parezca a lo real), pero
+    // en otro documento: lo que se queme aqui no le mueve un numero al papel
+    // de la fabrica. Solo lo tocan las cuentas de prueba; una cuenta real que
+    // llegara aqui por un bug de la app seria rechazada.
+    match /config/folioInternoPrueba {
+      allow read: if esInterno();
+      allow create: if puedeEmbarcar() && esCuentaDePrueba() && folioInternoValido();
+      allow update: if puedeEmbarcar()
+        && esCuentaDePrueba()
         && folioInternoValido()
         && request.resource.data.ultimo >= resource.data.ultimo;
       allow delete: if false;
     }
 
     match /config/{documento} {
-      allow read: if perfilActivo();
+      allow read: if esInterno();
       allow write: if false;
     }
 
@@ -240,10 +851,51 @@ service cloud.firestore {
     // contenido de 'capturas' se valida solo en forma (lista del mismo
     // tamano que folios).
     match /pdfsGenerados/{registroId} {
-      allow read: if perfilActivo();
-      allow create: if perfilActivo()
+      allow read: if esInterno();
+      allow create: if puedeEmbarcar()
+        // Una cuenta de prueba solo puede emitir a la maquila ficticia, y el
+        // registro nace con esPrueba:true (una cuenta real NO puede escribir
+        // ese campo: si pudiera, el limpiador borraria una remision de verdad
+        // creyendola basura).
+        //
+        // ⚠️ LIMITE CONOCIDO: las reglas no pueden recorrer una lista, asi que
+        // no hay forma de exigir aqui que TODOS los folios del array sean
+        // ZZTEST. Si una cuenta de prueba mete folios reales en su remision de
+        // prueba, el registro se crea -- pero el marcado "ya salio en PDF" de
+        // esos bultos se rechaza uno por uno (alcanceFolioOk en /bultos), asi
+        // que ningun bulto real queda tocado: solo queda un registro de prueba
+        // con folios que menciona y que el limpiador se lleva.
+        && mismoMundoMaquila(request.resource.data.maquila.id)
+        && marcaDePruebaCoherente(request.resource.data)
         && request.resource.data.keys().hasAll(['generadoPor', 'maquila', 'folios', 'totalFolios', 'pesoTotalGramos', 'capturas', 'encabezado', 'fechaTexto', 'creadoEn', 'operadorUid'])
-        && request.resource.data.keys().hasOnly(['generadoPor', 'maquila', 'folios', 'totalFolios', 'pesoTotalGramos', 'capturas', 'encabezado', 'fechaTexto', 'creadoEn', 'operadorUid'])
+        && request.resource.data.keys().hasOnly(['generadoPor', 'maquila', 'folios', 'totalFolios', 'pesoTotalGramos', 'capturas', 'encabezado', 'fechaTexto', 'creadoEn', 'operadorUid', 'reemision', 'esPrueba'])
+        // REEMISION (correccion autorizada): este registro anula y sustituye a
+        // otro. Solo se acepta con una autorizacion 'editar_pdf' vigente del
+        // admin sobre el registro que se anula, para que nadie pueda inventar
+        // una remision "corregida" sin permiso de Roberto.
+        && (!('reemision' in request.resource.data) || (
+              request.resource.data.reemision is map
+              && request.resource.data.reemision.keys().hasAll(['anulaRegistroId', 'anulaFolioInterno', 'revision', 'motivo', 'solicitudId'])
+              && request.resource.data.reemision.keys().hasOnly(['anulaRegistroId', 'anulaFolioInterno', 'revision', 'motivo', 'solicitudId'])
+              && request.resource.data.reemision.anulaRegistroId is string
+              && request.resource.data.reemision.anulaRegistroId.size() > 0
+              && request.resource.data.reemision.anulaFolioInterno is int
+              && request.resource.data.reemision.revision is int
+              && request.resource.data.reemision.revision >= 2
+              && request.resource.data.reemision.revision <= 20
+              && request.resource.data.reemision.motivo is string
+              && request.resource.data.reemision.motivo.size() > 0
+              && request.resource.data.reemision.motivo.size() <= 300
+              && request.resource.data.reemision.solicitudId is string
+              && request.resource.data.reemision.solicitudId.size() > 0
+              && tieneAutorizacion(request.resource.data.reemision.anulaRegistroId, 'editar_pdf')
+              // La autorizacion no basta: lo que se emite tiene que ser
+              // EXACTAMENTE lo que Roberto aprobo. Sin este cruce, tener el
+              // permiso equivaldria a poder reemitir a cualquier maquila con
+              // cualquier lista de folios (la garantia viviria solo en la
+              // pantalla, que es inspeccionable).
+              && solicitudCoincide(request.resource.data)
+            ))
         && request.resource.data.generadoPor is string
         && request.resource.data.generadoPor.size() > 0
         && request.resource.data.generadoPor.size() <= 80
@@ -268,15 +920,45 @@ service cloud.firestore {
         && request.resource.data.fechaTexto.size() <= 20
         && request.resource.data.creadoEn == request.time
         && request.resource.data.operadorUid == request.auth.uid;
-      allow update, delete: if false;
+      // El SNAPSHOT es inmutable (folios, capturas, encabezado, maquila: nunca
+      // se tocan). Lo unico que se puede escribir despues es el MARCADOR de
+      // anulacion, y solo con la autorizacion de Roberto sobre este registro:
+      // asi el registro viejo declara por si mismo que fue sustituido, sin que
+      // ninguna vista tenga que ir a buscar sucesores.
+      allow update: if puedeEmbarcar()
+        // Anular una remision (para reemitirla) solo dentro del propio mundo:
+        // una cuenta de prueba no anula un papel real, y una cuenta real no
+        // anula uno de prueba.
+        && mismoMundo(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['anuladaPorRegistroId', 'anuladaEn', 'anuladaFolioInterno'])
+        && request.resource.data.keys().hasAll(['anuladaPorRegistroId', 'anuladaEn', 'anuladaFolioInterno'])
+        && resource.data.get('anuladaPorRegistroId', null) == null
+        && request.resource.data.anuladaPorRegistroId is string
+        && request.resource.data.anuladaPorRegistroId.size() > 0
+        && request.resource.data.anuladaFolioInterno is int
+        && request.resource.data.anuladaFolioInterno > 0
+        && request.resource.data.anuladaEn == request.time
+        // El sucesor tiene que existir Y declarar que anula a ESTE registro:
+        // asi no se puede dejar una remision "ANULADA" sin reemplazo real.
+        // Se usa getAfter (no exists/get): el sucesor se CREA en el mismo
+        // writeBatch, asi que con get() no existiria todavia y la regla
+        // rechazaria el flujo legitimo. getAfter evalua el estado ya aplicado.
+        && getAfter(/databases/$(database)/documents/pdfsGenerados/$(request.resource.data.anuladaPorRegistroId))
+             .data.reemision.anulaRegistroId == registroId
+        && tieneAutorizacion(registroId, 'editar_pdf');
+      allow delete: if false;
     }
 
     // Bitacora INMUTABLE de subidas del Excel de folios: que archivo entro,
     // cuando, quien lo subio y que trajo. Nunca se edita ni se borra desde
     // el cliente (igual que pdfsGenerados).
     match /cargasRuteo/{registroId} {
-      allow read: if perfilActivo();
-      allow create: if perfilActivo()
+      allow read: if esInterno();
+      // Va con foliosRuteo: si una cuenta de prueba no puede cargar el Excel,
+      // tampoco puede escribir la bitacora de esa carga.
+      allow create: if puedeEmbarcar()
+        && soloCuentaReal()
         && request.resource.data.keys().hasAll(['archivo', 'esquema', 'totalFolios', 'nuevos', 'actualizados', 'sinCambios', 'enriquecidos', 'omitidos', 'errores', 'completa', 'subioNombre', 'subioUid', 'creadoEn'])
         && request.resource.data.keys().hasOnly(['archivo', 'esquema', 'totalFolios', 'nuevos', 'actualizados', 'sinCambios', 'enriquecidos', 'omitidos', 'errores', 'completa', 'subioNombre', 'subioUid', 'creadoEn'])
         && request.resource.data.completa == false
@@ -300,7 +982,8 @@ service cloud.firestore {
       // Unico update permitido: CERRAR el registro con el resultado real al
       // terminar la carga (quien la inicio, una sola vez). Lo demas del
       // registro -- archivo, quien, cuando -- queda inmutable.
-      allow update: if perfilActivo()
+      allow update: if puedeEmbarcar()
+        && soloCuentaReal()
         && resource.data.subioUid == request.auth.uid
         && resource.data.completa == false
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -315,13 +998,686 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ===================================================================
+    // AVIOS: el material que Alvaro (almacen) manda a las maquilas para
+    // que puedan ensamblar. Plastiflechas (varios tipos), etiquetas,
+    // cajas, cinta canela. Cada uno es un codigo propio con su unidad.
+    // ===================================================================
+
+    // Quien manda material y maneja el inventario/solicitudes de avios:
+    // Alvaro (rol 'almacen') y el admin. No es trabajo de embarques ni de
+    // captura. OJO: el CATALOGO ya no es de el (ver abajo).
+    function puedeManejarAvios() {
+      // esInterno() y no solo el rol: un perfil hibrido (rol interno +
+      // maquilaId) manejaria los envios de TODAS las maquilas.
+      return esInterno() && rol() in ['almacen', 'admin'];
+    }
+
+    // Quien administra el CATALOGO de avios: Cielo, via el flag
+    // administraCatalogoAvios de su perfil, y el admin. Decision de Roberto
+    // (2026-08-13): Alvaro manda material, pero las claves del catalogo las
+    // controla Cielo. Mismo patron que puedeCrearTareas.
+    function puedeAdministrarCatalogoAvios() {
+      return esInterno()
+        && (esAdmin() || perfil().get('administraCatalogoAvios', false) == true);
+    }
+
+    function avioValido() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['codigo', 'descripcion', 'tipo', 'unidad', 'activo', 'creadoEn', 'creadoPorUid'])
+        && d.keys().hasOnly(['codigo', 'descripcion', 'tipo', 'unidad', 'activo', 'creadoEn', 'creadoPorUid', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'claveMicrosip'])
+        && d.codigo is string
+        && d.codigo.size() > 0
+        && d.codigo.size() <= 60
+        && d.descripcion is string
+        && d.descripcion.size() > 0
+        && d.descripcion.size() <= 200
+        && d.tipo in ['plastiflecha', 'etiqueta', 'caja', 'cinta', 'bolsa', 'otro']
+        // 'kg' entro con el catalogo real de Microsip (bolsas a granel). El
+        // inventario cuenta ENTEROS (kg completos): las cantidades con
+        // decimales se rechazan en el cliente con mensaje claro, porque los
+        // movimientos y saldos de abajo exigen int.
+        && d.unidad in ['piezas', 'rollos', 'millares', 'metros', 'cajas', 'kg']
+        && d.activo is bool
+        // La clave EXACTA de Microsip cuando difiere del codigo normalizado
+        // (los SRFID llevan espacio y el ID no). Para exportar a Microsip, la
+        // fuente canonica es claveMicrosip si existe; si no, el codigo.
+        && (!('claveMicrosip' in d) || (d.claveMicrosip is string && d.claveMicrosip.size() > 0 && d.claveMicrosip.size() <= 60));
+    }
+
+    // El catalogo lo leen TODOS los internos (America y Lindbergh necesitan
+    // ver que material existe) y tambien las maquilas: sin conocer los codigos
+    // no podrian pedir lo que les falta. No revela nada del negocio de otras
+    // maquilas: es una lista de materiales, no de movimientos.
+    match /avios/{avioId} {
+      allow read: if esInterno() || rol() == 'maquila';
+      // El catalogo de avios son las 158 claves reales de Microsip, y los
+      // inventarios de las maquilas cuelgan de ellas: no hay "avio de prueba"
+      // que no ensucie el catalogo de verdad. Las cuentas de prueba lo leen,
+      // no lo escriben.
+      allow create: if puedeAdministrarCatalogoAvios()
+        && soloCuentaReal()
+        && avioValido()
+        && request.resource.data.codigo == avioId
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.creadoPorUid == request.auth.uid;
+      // Se puede corregir la descripcion o dar de baja; el codigo (que es el
+      // ID), la claveMicrosip y el tipo/unidad no se cambian: ya hay
+      // movimientos de inventario contados en esa unidad. Toda edicion queda
+      // firmada (quien y cuando): el catalogo cambio de dueno y conviene el
+      // rastro.
+      allow update: if puedeAdministrarCatalogoAvios()
+        && soloCuentaReal()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['descripcion', 'activo', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && request.resource.data.descripcion is string
+        && request.resource.data.descripcion.size() > 0
+        && request.resource.data.descripcion.size() <= 200
+        && request.resource.data.activo is bool
+        && request.resource.data.actualizadoEn == request.time
+        && request.resource.data.actualizadoPorUid == request.auth.uid
+        && request.resource.data.actualizadoPorNombre == perfil().get('nombreCompleto', '')
+        && request.resource.data.actualizadoPorNombre.size() > 0;
+      allow delete: if false;
+    }
+
+    // ===================================================================
+    // PORTAL DE LA MAQUILA (usuarios EXTERNOS)
+    // ===================================================================
+
+    // Copia MINIMA de la remision que se le manda a la maquila. Solo lo que
+    // ella necesita para verificar lo que recibio: nada de pedidos completos,
+    // guias, catalogo ni datos de otras maquilas.
+    function salidaPortalValida(mid) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['registroId', 'maquilaId', 'folioInterno', 'fechaTexto', 'ots', 'folios', 'renglones', 'totalFolios', 'totalDocenas', 'pesoTotalGramos', 'creadoEn', 'emitidaPorNombre'])
+        && d.keys().hasOnly(['registroId', 'maquilaId', 'folioInterno', 'fechaTexto', 'ots', 'folios', 'renglones', 'totalFolios', 'totalDocenas', 'pesoTotalGramos', 'creadoEn', 'emitidaPorNombre', 'anuladaPorRegistroId', 'anuladaEn'])
+        // 'folios' es el array PLANO: lo usa la regla del acuse para verificar
+        // que la maquila no reclame faltantes que nunca estuvieron.
+        && d.folios is list
+        && d.folios.size() == d.renglones.size()
+        && d.maquilaId == mid
+        && d.registroId is string
+        && d.registroId.size() > 0
+        && d.folioInterno is int
+        && d.folioInterno > 0
+        && d.fechaTexto is string
+        && d.fechaTexto.size() <= 20
+        && d.ots is list
+        && d.ots.size() <= 60
+        && d.renglones is list
+        && d.renglones.size() > 0
+        && d.renglones.size() <= 200
+        && d.totalFolios is int
+        && d.totalFolios == d.renglones.size()
+        && d.totalDocenas is number
+        && d.totalDocenas >= 0
+        && d.pesoTotalGramos is number
+        && d.pesoTotalGramos >= 0
+        && d.emitidaPorNombre is string
+        && d.emitidaPorNombre.size() <= 80
+        && d.creadoEn == request.time;
+    }
+
+    // Acuse de la maquila: declara que recibio, y si hay diferencia la AVISA
+    // (no rechaza). Solo cantidades y folios; jamas precios ni pesos nuevos.
+    function acuseValido(mid, registroId) {
+      let d = request.resource.data;
+      let sal = get(/databases/$(database)/documents/portalMaquila/$(mid)/salidas/$(registroId)).data;
+      return d.keys().hasAll(['registroId', 'maquilaId', 'resultado', 'foliosFaltantes', 'foliosSobrantes', 'comentario', 'recibidoPorUid', 'recibidoPorNombre', 'creadoEn'])
+        && d.keys().hasOnly(['registroId', 'maquilaId', 'resultado', 'foliosFaltantes', 'foliosSobrantes', 'foliosRechazados', 'pesados', 'comentario', 'recibidoPorUid', 'recibidoPorNombre', 'creadoEn'])
+        // La maquila PESA lo que recibe: 'pesados' guarda el peso que ella
+        // midio folio por folio, y 'foliosRechazados' los que no cuadraron.
+        // Los rechazados tienen que ser folios que si iban en la remision.
+        && (!('pesados' in d) || (d.pesados is list && d.pesados.size() <= 200))
+        && (!('foliosRechazados' in d) || (
+              d.foliosRechazados is list
+              && d.foliosRechazados.size() <= 200
+              && (!('folios' in sal) || sal.folios.hasAll(d.foliosRechazados))
+            ))
+        && d.maquilaId == mid
+        && d.registroId is string
+        && d.registroId.size() > 0
+        && d.resultado in ['completo', 'con_diferencias']
+        && d.foliosFaltantes is list
+        && d.foliosSobrantes is list
+        && d.comentario is string
+        && d.comentario.size() <= 300
+        // COHERENCIA ESTRICTA en las dos direcciones. Antes un 'completo'
+        // podia traer faltantes: la UI los escondia y quedaba una declaracion
+        // tramposa por escrito, exhibible despues como "yo si lo reporte".
+        && (d.resultado != 'completo'
+            || (d.foliosFaltantes.size() == 0
+                && d.foliosSobrantes.size() == 0
+                && d.get('foliosRechazados', []).size() == 0
+                && d.comentario.size() == 0))
+        && (d.resultado != 'con_diferencias'
+            || d.foliosFaltantes.size() > 0
+            || d.foliosSobrantes.size() > 0
+            || d.get('foliosRechazados', []).size() > 0
+            || d.comentario.size() > 0)
+        // Los FALTANTES tienen que ser folios que de verdad iban en SU
+        // remision: si no, podria reclamar bultos que nunca se le mandaron.
+        // (Los SOBRANTES no se validan a proposito: un folio que llego
+        // duplicado es un sobrante legitimo.)
+        && d.foliosFaltantes.size() <= sal.totalFolios
+        && d.foliosSobrantes.size() <= 200
+        && (!('folios' in sal) || sal.folios.hasAll(d.foliosFaltantes))
+        && d.recibidoPorUid == request.auth.uid
+        // El nombre lo fija el PERFIL, no el cliente: antes podia firmar como
+        // "America (Quini)" y la declaracion es inmutable.
+        && d.recibidoPorNombre == perfil().get('nombreCompleto', '')
+        && d.creadoEn == request.time;
+    }
+
+    // Lo que la maquila ve de una remision. Lo escribe Quini al emitir el PDF
+    // (mismo lote que la bitacora) y es INMUTABLE: es la copia de un papel ya
+    // emitido.
+    match /portalMaquila/{maquilaId}/salidas/{registroId} {
+      allow read: if esInterno() || esMaquilaDe(maquilaId);
+      allow create: if puedeEmbarcar()
+        && mismoMundoMaquila(maquilaId)
+        && salidaPortalValida(maquilaId)
+        && request.resource.data.registroId == registroId
+        // La copia tiene que corresponder a un registro REAL de la bitacora y
+        // a ESA maquila. getAfter (no get) porque los dos documentos se crean
+        // en el mismo writeBatch. Sin esto, cualquiera con permiso de embarque
+        // podia inyectar una remision fantasma -- o volcar la de otra maquila
+        // -- en el portal, y es irreversible (update/delete estan cerrados).
+        && getAfter(/databases/$(database)/documents/pdfsGenerados/$(registroId)).data.maquila.id == maquilaId
+        && getAfter(/databases/$(database)/documents/pdfsGenerados/$(registroId)).data.folios.size()
+             == request.resource.data.totalFolios;
+      // El SNAPSHOT es inmutable. Lo unico que se puede escribir despues es el
+      // marcador de anulacion, cuando la remision se corrige y se reemite: si
+      // no, la maquila seguiria viendo como vigente un papel ya anulado.
+      allow update: if puedeEmbarcar()
+        && mismoMundoMaquila(maquilaId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['anuladaPorRegistroId', 'anuladaEn'])
+        && request.resource.data.keys().hasAll(['anuladaPorRegistroId', 'anuladaEn'])
+        && resource.data.get('anuladaPorRegistroId', null) == null
+        && request.resource.data.anuladaPorRegistroId is string
+        && request.resource.data.anuladaPorRegistroId.size() > 0
+        && request.resource.data.anuladaEn == request.time
+        && tieneAutorizacion(registroId, 'editar_pdf');
+      allow delete: if false;
+    }
+
+    // Lo que la maquila PIDE cuando le falta material para ensamblar.
+    function solicitudAvioValida(mid) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['maquilaId', 'maquilaNombre', 'renglones', 'nota', 'estado', 'pedidoPorUid', 'pedidoPorNombre', 'creadoEn'])
+        && d.keys().hasOnly(['maquilaId', 'maquilaNombre', 'renglones', 'nota', 'estado', 'pedidoPorUid', 'pedidoPorNombre', 'creadoEn', 'resueltoPorUid', 'resueltoPorNombre', 'resueltoEn', 'respuesta'])
+        && d.maquilaId == mid
+        && d.maquilaNombre is string
+        && d.maquilaNombre.size() > 0
+        && d.maquilaNombre.size() <= 120
+        && d.renglones is list
+        && d.renglones.size() > 0
+        // Tope sano: una solicitud es "me falta esto", no un pedido anual.
+        && d.renglones.size() <= 40
+        && d.nota is string
+        && d.nota.size() <= 300
+        && d.estado == 'pendiente'
+        && d.pedidoPorUid == request.auth.uid
+        // El nombre lo fija el perfil, igual que en el acuse: no se firma
+        // a nombre de otro.
+        && d.pedidoPorNombre == perfil().get('nombreCompleto', '')
+        && d.creadoEn == request.time
+        // No puede nacer ya respondida: la maquila se auto-marcaria "atendida"
+        // con una respuesta inventada de almacen.
+        && !('resueltoPorUid' in d)
+        && !('resueltoPorNombre' in d)
+        && !('resueltoEn' in d)
+        && !('respuesta' in d);
+    }
+
+    match /portalMaquila/{maquilaId}/solicitudesAvios/{solicitudId} {
+      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow create: if esMaquilaDe(maquilaId) && solicitudAvioValida(maquilaId);
+      // La maquila puede CANCELAR su propia solicitud mientras nadie la haya
+      // atendido (se equivoco al pedir). SOLO Alvaro/admin la resuelven: los
+      // pedidos de material son de almacen, no de embarques ni de quien
+      // asigna tareas (recorte de Roberto, 2026-08-13).
+      allow update: if mismoMundoMaquila(maquilaId) && resource.data.estado == 'pendiente' && (
+          ( esMaquilaDe(maquilaId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado'])
+            && request.resource.data.estado == 'cancelada' )
+          ||
+          ( puedeManejarAvios()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['estado', 'resueltoPorUid', 'resueltoPorNombre', 'resueltoEn', 'respuesta'])
+            && request.resource.data.estado in ['atendida', 'rechazada']
+            && request.resource.data.resueltoPorUid == request.auth.uid
+            // El nombre lo fija el perfil (mismo criterio que el acuse): nadie
+            // resuelve firmando como otra persona.
+            && request.resource.data.resueltoPorNombre == perfil().get('nombreCompleto', '')
+            && request.resource.data.resueltoEn == request.time
+            && (!('respuesta' in request.resource.data)
+                || (request.resource.data.respuesta is string
+                    && request.resource.data.respuesta.size() <= 300)) )
+        );
+      allow delete: if false;
+    }
+
+    // Un envio de material de Alvaro a una maquila.
+    function envioAvioValido(mid) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['maquilaId', 'maquilaNombre', 'renglones', 'nota', 'enviadoPorUid', 'enviadoPorNombre', 'creadoEn'])
+        && d.keys().hasOnly(['maquilaId', 'maquilaNombre', 'renglones', 'nota', 'enviadoPorUid', 'enviadoPorNombre', 'creadoEn', 'solicitudId'])
+        && d.maquilaId == mid
+        && d.maquilaNombre is string
+        && d.maquilaNombre.size() > 0
+        && d.maquilaNombre.size() <= 120
+        && d.renglones is list
+        && d.renglones.size() > 0
+        && d.renglones.size() <= 60
+        && d.nota is string
+        && d.nota.size() <= 300
+        && d.enviadoPorUid == request.auth.uid
+        && d.enviadoPorNombre == perfil().get('nombreCompleto', '')
+        && d.creadoEn == request.time
+        && (!('solicitudId' in d)
+            || (d.solicitudId is string && d.solicitudId.size() <= 128));
+    }
+
+    // Acuse de la maquila sobre un envio de material. Declara cuanto llego DE
+    // VERDAD de cada codigo: es la base del inventario y de las disputas
+    // ("yo si te lo mande"). Se firma una vez y no se edita.
+    function acuseAvioValido(mid, envioId) {
+      let d = request.resource.data;
+      let env = get(/databases/$(database)/documents/portalMaquila/$(mid)/enviosAvios/$(envioId)).data;
+      return d.keys().hasAll(['envioId', 'maquilaId', 'resultado', 'recibido', 'comentario', 'recibidoPorUid', 'recibidoPorNombre', 'creadoEn'])
+        && d.keys().hasOnly(['envioId', 'maquilaId', 'resultado', 'recibido', 'comentario', 'recibidoPorUid', 'recibidoPorNombre', 'creadoEn'])
+        && d.envioId == envioId
+        && d.maquilaId == mid
+        && d.resultado in ['completo', 'con_diferencias']
+        // 'recibido' es la lista de lo que llego de verdad, un renglon por
+        // codigo del envio: mismo tamano, sin inventar codigos.
+        && d.recibido is list
+        && d.recibido.size() == env.renglones.size()
+        && d.comentario is string
+        && d.comentario.size() <= 300
+        // Coherencia en las dos direcciones, igual que el acuse de remisiones:
+        // 'completo' no admite comentario de diferencias.
+        && (d.resultado != 'completo' || d.comentario.size() == 0)
+        && d.recibidoPorUid == request.auth.uid
+        && d.recibidoPorNombre == perfil().get('nombreCompleto', '')
+        && d.creadoEn == request.time;
+    }
+
+    // Lectura de envios/acuses de avios: SOLO almacen/admin del lado interno
+    // (America y Lindbergh ya no ven avios: recorte de Roberto 2026-08-13).
+    match /portalMaquila/{maquilaId}/enviosAvios/{envioId} {
+      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      // mismoMundoMaquila: demo_almacen manda material solo a la maquila
+      // ficticia. Los saldos de avios son una cadena encadenada (saldo antes /
+      // saldo despues), asi que un envio de prueba a una maquila real no se
+      // podria deshacer sin romperla.
+      allow create: if puedeManejarAvios() && mismoMundoMaquila(maquilaId) && envioAvioValido(maquilaId);
+      allow update, delete: if false;
+    }
+
+    match /portalMaquila/{maquilaId}/acusesAvios/{envioId} {
+      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow create: if esMaquilaDe(maquilaId)
+        && request.resource.data.envioId == envioId
+        && exists(/databases/$(database)/documents/portalMaquila/$(maquilaId)/enviosAvios/$(envioId))
+        && acuseAvioValido(maquilaId, envioId);
+      allow update, delete: if false;
+    }
+
+    // --- INVENTARIO: libro de movimientos (inmutable) y saldo (espejo) ---
+
+    function movimientoAvioValido(mid) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['maquilaId', 'codigo', 'descripcion', 'unidad', 'tipo', 'cantidad', 'saldoAntes', 'saldoDespues', 'origenTipo', 'motivo', 'hechoPorUid', 'hechoPorNombre', 'creadoEn'])
+        && d.keys().hasOnly(['maquilaId', 'codigo', 'descripcion', 'unidad', 'tipo', 'cantidad', 'saldoAntes', 'saldoDespues', 'origenTipo', 'origenId', 'motivo', 'hechoPorUid', 'hechoPorNombre', 'creadoEn'])
+        && d.maquilaId == mid
+        && d.codigo is string
+        && d.codigo.size() > 0
+        && d.codigo.size() <= 60
+        && d.descripcion is string
+        && d.descripcion.size() <= 200
+        && d.unidad is string
+        && d.unidad.size() <= 20
+        && d.tipo in ['entrada_envio', 'ajuste_conteo', 'saldo_inicial', 'devolucion', 'consumo_ensamble']
+        // ENTEROS y la cadena grabada: saldoDespues == saldoAntes + cantidad.
+        // Con decimales esta igualdad fallaria de forma intermitente.
+        && d.cantidad is int
+        && d.cantidad != 0
+        && d.saldoAntes is int
+        && d.saldoAntes >= 0
+        && d.saldoDespues is int
+        && d.saldoDespues >= 0
+        && d.saldoDespues == d.saldoAntes + d.cantidad
+        && d.origenTipo in ['envio', 'conteo', 'arranque', 'devolucion', 'ensamble']
+        && (!('origenId' in d) || (d.origenId is string && d.origenId.size() <= 128))
+        && d.motivo is string
+        && d.motivo.size() <= 300
+        && d.hechoPorUid == request.auth.uid
+        && d.hechoPorNombre == perfil().get('nombreCompleto', '')
+        && d.creadoEn == request.time;
+    }
+
+    match /portalMaquila/{maquilaId}/movimientosAvios/{movId} {
+      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow create: if mismoMundoMaquila(maquilaId) && movimientoAvioValido(maquilaId) && (
+          // ENTRADA por un envio: la escribe la MAQUILA al acusar, con la
+          // cantidad que declara haber recibido (decision de Roberto: gana lo
+          // que dice la maquila). El ID determinista 'env_{envioId}_{codigo}'
+          // hace imposible aplicar dos veces el mismo envio.
+          ( request.resource.data.tipo == 'entrada_envio'
+            && esMaquilaDe(maquilaId)
+            && request.resource.data.cantidad > 0
+            && request.resource.data.origenTipo == 'envio'
+            && 'origenId' in request.resource.data
+            && movId == 'env_' + request.resource.data.origenId + '_' + request.resource.data.codigo
+            // El acuse se crea en el MISMO lote: getAfter, no get.
+            && getAfter(/databases/$(database)/documents/portalMaquila/$(maquilaId)/acusesAvios/$(request.resource.data.origenId)).data.maquilaId == maquilaId )
+          ||
+          // AJUSTE por conteo fisico y DEVOLUCION: los captura almacen, con
+          // motivo obligatorio de verdad (no un espacio).
+          ( request.resource.data.tipo in ['ajuste_conteo', 'devolucion']
+            && puedeManejarAvios()
+            && request.resource.data.motivo.size() >= 10 )
+          ||
+          // SALDO INICIAL: solo el admin. Es el arranque del inventario y el
+          // punto mas fragil de todo: un saldo "a ojo" contamina todo lo que
+          // se construya encima.
+          ( request.resource.data.tipo == 'saldo_inicial'
+            && esAdmin()
+            && request.resource.data.cantidad > 0
+            && request.resource.data.saldoAntes == 0
+            && movId == 'ini_' + request.resource.data.codigo )
+        );
+      allow update, delete: if false;
+    }
+
+    // El SALDO nunca se escribe solo: siempre en el mismo lote que el
+    // movimiento que lo explica, y encadenado con el saldo anterior.
+    function saldoAtadoAlMovimiento(mid, codigo) {
+      let d = request.resource.data;
+      let m = getAfter(/databases/$(database)/documents/portalMaquila/$(mid)/movimientosAvios/$(d.ultimoMovimientoId)).data;
+      return d.keys().hasAll(['codigo', 'maquilaId', 'unidad', 'cantidad', 'ultimoMovimientoId', 'actualizadoEn'])
+        && d.keys().hasOnly(['codigo', 'maquilaId', 'unidad', 'cantidad', 'ultimoMovimientoId', 'actualizadoEn', 'creadoEn'])
+        && d.codigo == codigo
+        && d.maquilaId == mid
+        && d.cantidad is int
+        && d.cantidad >= 0
+        && d.actualizadoEn == request.time
+        && d.ultimoMovimientoId is string
+        // El movimiento NACIO en este request: uno viejo no se puede
+        // re-aplicar para inflar el saldo.
+        && m.creadoEn == request.time
+        && m.maquilaId == mid
+        && m.codigo == codigo
+        && d.cantidad == m.saldoDespues;
+    }
+
+    match /portalMaquila/{maquilaId}/saldosAvios/{codigo} {
+      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow create: if (puedeManejarAvios() || esAdmin() || esMaquilaDe(maquilaId))
+        && mismoMundoMaquila(maquilaId)
+        && saldoAtadoAlMovimiento(maquilaId, codigo)
+        && request.resource.data.creadoEn == request.time
+        && getAfter(/databases/$(database)/documents/portalMaquila/$(maquilaId)/movimientosAvios/$(request.resource.data.ultimoMovimientoId)).data.saldoAntes == 0;
+      allow update: if (puedeManejarAvios() || esAdmin() || esMaquilaDe(maquilaId))
+        && mismoMundoMaquila(maquilaId)
+        && saldoAtadoAlMovimiento(maquilaId, codigo)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['cantidad', 'ultimoMovimientoId', 'actualizadoEn'])
+        // El movimiento tiene que arrancar EXACTAMENTE del saldo que habia:
+        // si dos personas mueven el mismo codigo a la vez, la segunda falla y
+        // se reintenta, en vez de pisar el saldo.
+        && getAfter(/databases/$(database)/documents/portalMaquila/$(maquilaId)/movimientosAvios/$(request.resource.data.ultimoMovimientoId)).data.saldoAntes == resource.data.cantidad;
+      allow delete: if false;
+    }
+
+    // DISCREPANCIA: se abre sola cuando lo que la maquila declara no coincide
+    // con lo que almacen mando. Es el aviso para Alvaro de que algo no cuadro.
+    match /portalMaquila/{maquilaId}/discrepanciasAvios/{discId} {
+      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow create: if esMaquilaDe(maquilaId)
+        && request.resource.data.keys().hasAll(['maquilaId', 'envioId', 'codigo', 'descripcion', 'unidad', 'cantidadEnviada', 'cantidadRecibida', 'diferencia', 'estado', 'comentarioMaquila', 'abiertaEn'])
+        && request.resource.data.keys().hasOnly(['maquilaId', 'envioId', 'codigo', 'descripcion', 'unidad', 'cantidadEnviada', 'cantidadRecibida', 'diferencia', 'estado', 'comentarioMaquila', 'abiertaEn', 'resueltoPorUid', 'resueltoPorNombre', 'resueltoEn', 'resolucion'])
+        && request.resource.data.maquilaId == maquilaId
+        && discId == request.resource.data.envioId + '_' + request.resource.data.codigo
+        && request.resource.data.cantidadEnviada is int
+        && request.resource.data.cantidadRecibida is int
+        && request.resource.data.diferencia == request.resource.data.cantidadRecibida - request.resource.data.cantidadEnviada
+        && request.resource.data.diferencia != 0
+        && request.resource.data.estado == 'abierta'
+        && request.resource.data.comentarioMaquila is string
+        && request.resource.data.comentarioMaquila.size() <= 300
+        && request.resource.data.abiertaEn == request.time
+        && !('resueltoPorUid' in request.resource.data)
+        // Solo sobre un acuse que se esta creando en este mismo lote.
+        && getAfter(/databases/$(database)/documents/portalMaquila/$(maquilaId)/acusesAvios/$(request.resource.data.envioId)).data.maquilaId == maquilaId;
+      // Almacen la cierra dejando constancia de que se entero y que hizo.
+      allow update: if puedeManejarAvios()
+        && mismoMundoMaquila(maquilaId)
+        && resource.data.estado == 'abierta'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['estado', 'resueltoPorUid', 'resueltoPorNombre', 'resueltoEn', 'resolucion'])
+        && request.resource.data.estado == 'revisada'
+        && request.resource.data.resueltoPorUid == request.auth.uid
+        && request.resource.data.resueltoPorNombre == perfil().get('nombreCompleto', '')
+        && request.resource.data.resueltoEn == request.time
+        && request.resource.data.resolucion is string
+        && request.resource.data.resolucion.size() > 0
+        && request.resource.data.resolucion.size() <= 300;
+      allow delete: if false;
+    }
+
+    // ===================================================================
+    // TAREAS DE ENSAMBLE PARA MAQUILAS (2026-08-13)
+    // ===================================================================
+    // Lindbergh encarga a una maquila que ensamble modelos, con el TECH PACK
+    // del pedido adjunto. El tech pack tiene informacion sensible del cliente:
+    // la maquila solo lo VE mientras la tarea esta abierta, y al terminar la
+    // tarea el archivo se borra. El archivo vive TROCEADO en Firestore
+    // (Storage no esta habilitado en el proyecto): techPackChunks/00..39 de
+    // hasta 950 KB cada uno, con manifiesto (tamano, totalChunks, sha256) en
+    // la tarea para que el visor detecte cualquier corrupcion al rearmarlo.
+    //
+    // Estados: 'preparando' (subiendo el archivo; la maquila NO la ve todavia)
+    // -> 'abierta' (la maquila la ve y puede leer el tech pack) -> 'terminada'
+    // o 'cancelada' (la maquila ya NO puede leer los chunks aunque sigan
+    // fisicamente un momento: el borrado corre en lotes despues del cierre,
+    // porque borrar 40 chunks en el mismo batch reventaria los 10 MiB por
+    // request).
+    function tareaEnsambleValida(mid) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn'])
+        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn'])
+        // 'publicadaEn' se fija la PRIMERA vez que la tarea llega a 'abierta'
+        // y ya no se quita: es lo que decide si la maquila la ve. Un borrador
+        // que se preparo para la maquila equivocada y se cancelo sin publicar
+        // NUNCA fue suyo, y no tiene por que aparecerle.
+        && (d.publicadaEn == null || d.publicadaEn is timestamp)
+        && (d.estado != 'abierta' || d.publicadaEn != null)
+        && d.maquilaId == mid
+        && d.titulo is string
+        && d.titulo.size() > 0
+        && d.titulo.size() <= 120
+        && d.renglones is list
+        && d.renglones.size() > 0
+        && d.renglones.size() <= 60
+        && d.notas is string
+        && d.notas.size() <= 300
+        && d.estado in ['preparando', 'abierta', 'terminada', 'cancelada']
+        && (d.techPack == null || (
+              d.techPack.keys().hasAll(['nombre', 'formato', 'tamano', 'totalChunks', 'sha256', 'subidoEn'])
+              && d.techPack.keys().hasOnly(['nombre', 'formato', 'tamano', 'totalChunks', 'sha256', 'subidoEn'])
+              && d.techPack.nombre is string
+              && d.techPack.nombre.size() > 0
+              && d.techPack.nombre.size() <= 200
+              && d.techPack.formato in ['pdf', 'xlsx']
+              && d.techPack.tamano is int
+              && d.techPack.tamano > 0
+              // Tope 15 MB y coherencia con los chunks: ni un chunk de mas
+              // ni un tamano que no quepa en los declarados.
+              && d.techPack.tamano <= 15728640
+              && d.techPack.totalChunks is int
+              && d.techPack.totalChunks >= 1
+              && d.techPack.totalChunks <= 17
+              && d.techPack.tamano <= d.techPack.totalChunks * 950000
+              && d.techPack.tamano > (d.techPack.totalChunks - 1) * 950000
+              // Hexadecimal de verdad, no 64 caracteres cualesquiera: es lo
+              // que el visor compara para detectar un archivo corrupto.
+              && d.techPack.sha256 is string
+              && d.techPack.sha256.matches('^[0-9a-f]{64}$')
+              && d.techPack.subidoEn is timestamp
+            ));
+    }
+
+    match /portalMaquila/{maquilaId}/tareasEnsamble/{tareaId} {
+      // La maquila solo ve tareas que de verdad llegaron a estar ABIERTAS
+      // alguna vez ('publicadaEn' fijado). Un borrador en 'preparando' -- o
+      // uno que se preparo para la maquila equivocada y se cancelo antes de
+      // publicarlo -- nunca fue suyo y no le aparece.
+      allow read: if puedeCrearTareas()
+        || (esMaquilaDe(maquilaId) && resource.data.get('publicadaEn', null) != null);
+      // Una tarea de ensamble lleva el Tech Pack del pedido adentro: mandarle
+      // una de prueba a una maquila real seria filtrarle el documento de un
+      // cliente. Solo a la ficticia.
+      allow create: if puedeCrearTareas()
+        && mismoMundoMaquila(maquilaId)
+        && tareaEnsambleValida(maquilaId)
+        && request.resource.data.estado in ['preparando', 'abierta']
+        // Una tarea que nace 'abierta' no puede declarar tech pack: los
+        // chunks solo se escriben en 'preparando', asi que un manifiesto en
+        // el create apuntaria a chunks que no existen.
+        && (request.resource.data.estado == 'preparando' || request.resource.data.techPack == null)
+        && (request.resource.data.publicadaEn == null
+            || request.resource.data.publicadaEn == request.time)
+        && request.resource.data.creadoPorUid == request.auth.uid
+        && request.resource.data.creadoPorNombre == perfil().get('nombreCompleto', '')
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.terminadaEn == null
+        && request.resource.data.terminadaPorUid == null
+        && request.resource.data.terminadaPorNombre == null
+        && request.resource.data.techPackBorradoEn == null;
+      allow update: if puedeCrearTareas() && mismoMundoMaquila(maquilaId) && (
+          // Mientras vive ('preparando' o 'abierta'): se reedita, se publica
+          // ('preparando' -> 'abierta'), se regresa a 'preparando' para
+          // cambiarle el archivo, o se cierra. Quien la creo no cambia.
+          ( resource.data.estado in ['preparando', 'abierta']
+            && tareaEnsambleValida(maquilaId)
+            && request.resource.data.creadoPorUid == resource.data.creadoPorUid
+            && request.resource.data.creadoEn == resource.data.creadoEn
+            // 'publicadaEn' se fija UNA vez (al publicar) y ya no se borra:
+            // si se pudiera quitar, una tarea ya entregada desapareceria del
+            // portal de la maquila sin rastro.
+            && ( request.resource.data.publicadaEn == resource.data.get('publicadaEn', null)
+                 || (resource.data.get('publicadaEn', null) == null
+                     && request.resource.data.publicadaEn == request.time) )
+            // Al cerrar queda firmado quien y cuando; mientras vive, en null.
+            && ( (request.resource.data.estado in ['preparando', 'abierta']
+                   && request.resource.data.terminadaEn == null
+                   && request.resource.data.terminadaPorUid == null
+                   && request.resource.data.terminadaPorNombre == null)
+                 || (request.resource.data.estado in ['terminada', 'cancelada']
+                   && request.resource.data.terminadaEn == request.time
+                   && request.resource.data.terminadaPorUid == request.auth.uid
+                   && request.resource.data.terminadaPorNombre == perfil().get('nombreCompleto', '')) ) )
+          ||
+          // Ya cerrada: SOLO la limpieza del tech pack (borrar el manifiesto
+          // cuando los chunks ya se barrieron). Nada mas se puede tocar.
+          ( resource.data.estado in ['terminada', 'cancelada']
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['techPack', 'techPackBorradoEn'])
+            && request.resource.data.techPack == null
+            && request.resource.data.techPackBorradoEn == request.time )
+        );
+      allow delete: if false;
+    }
+
+    match /portalMaquila/{maquilaId}/tareasEnsamble/{tareaId}/techPackChunks/{chunkId} {
+      // La maquila solo lee los chunks de una tarea ABIERTA y con manifiesto:
+      // en cuanto la tarea se cierra, el primer write ya le corto la lectura,
+      // aunque el barrido fisico de los chunks tarde o falle a la mitad.
+      allow read: if puedeCrearTareas()
+        || (esMaquilaDe(maquilaId)
+            && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado == 'abierta'
+            && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.techPack != null);
+      // Los chunks SOLO se escriben con la tarea en 'preparando': el archivo
+      // no se puede cambiar debajo de una tarea que la maquila ya esta viendo.
+      // El ID es de dos digitos 00..16 (tope 17 chunks = 15 MB): el espacio
+      // de IDs queda acotado por regex, no por un campo que se pueda mentir.
+      allow create, update: if puedeCrearTareas()
+        && mismoMundoMaquila(maquilaId)
+        && chunkId.matches('^(0[0-9]|1[0-6])$')
+        && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado == 'preparando'
+        && request.resource.data.keys().hasAll(['maquilaId', 'datos'])
+        && request.resource.data.keys().hasOnly(['maquilaId', 'datos'])
+        && request.resource.data.maquilaId == maquilaId
+        && request.resource.data.datos is bytes
+        && request.resource.data.datos.size() > 0
+        && request.resource.data.datos.size() <= 950000;
+      // El barrido post-cierre y la limpieza de sobrantes al re-subir.
+      allow delete: if puedeCrearTareas() && mismoMundoMaquila(maquilaId);
+    }
+
+    // Consultas de grupo para las vistas internas de avios. Solo lectura y
+    // SOLO almacen/admin: America y Lindbergh ya no ven avios (recorte de
+    // Roberto 2026-08-13) y las reglas lo dicen, no solo las pestanas.
+    match /{rutaSaldos=**}/saldosAvios/{codigo} {
+      allow read: if puedeManejarAvios();
+    }
+    match /{rutaDisc=**}/discrepanciasAvios/{discId} {
+      allow read: if puedeManejarAvios();
+    }
+    match /{rutaMov=**}/movimientosAvios/{movId} {
+      allow read: if puedeManejarAvios();
+    }
+
+    // Alvaro ve los envios y acuses de TODAS las maquilas de una consulta.
+    match /{rutaEnvios=**}/enviosAvios/{envioId} {
+      allow read: if puedeManejarAvios();
+    }
+    match /{rutaAcusesAvios=**}/acusesAvios/{envioId} {
+      allow read: if puedeManejarAvios();
+    }
+
+    // Alvaro necesita ver las solicitudes de TODAS las maquilas de una sola
+    // consulta (collectionGroup). Las reglas escritas en la ruta concreta NO
+    // autorizan consultas de grupo: hace falta este comodin recursivo. Se
+    // acota a LECTURA de almacen/admin -- si dijera solo perfilActivo(), una
+    // maquila podria leer las solicitudes de su competencia.
+    match /{rutaPortal=**}/solicitudesAvios/{solicitudId} {
+      allow read: if puedeManejarAvios();
+    }
+
+    // El acuse de recibido. La maquila lo crea UNA sola vez y no se edita ni
+    // se borra: es su declaracion firmada de lo que llego.
+    match /portalMaquila/{maquilaId}/acuses/{registroId} {
+      allow read: if esInterno() || esMaquilaDe(maquilaId);
+      allow create: if esMaquilaDe(maquilaId)
+        && request.resource.data.registroId == registroId
+        // El exists va ANTES de acuseValido: esa funcion hace get() de la
+        // salida y necesita que exista.
+        && exists(/databases/$(database)/documents/portalMaquila/$(maquilaId)/salidas/$(registroId))
+        // Una remision ANULADA (corregida y reemitida) no se acusa: hay que
+        // acusar la que la sustituye.
+        && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/salidas/$(registroId))
+             .data.get('anuladaPorRegistroId', null) == null
+        && acuseValido(maquilaId, registroId);
+      allow update, delete: if false;
+    }
+
     // Maquilas (destinos del PDF de salida). El ID del doc es el nombre
     // normalizado: los duplicados son imposibles por construccion. La
     // direccion es OBLIGATORIA (se precarga como Direccion Envio del PDF);
     // despues del alta solo se pueden cambiar 'activo' y 'direccion'.
     match /maquilas/{maquilaId} {
-      allow read: if perfilActivo();
-      allow create: if perfilActivo()
+      allow read: if esInterno();
+      // Dar de alta una maquila es dar de alta un destino real de embarque:
+      // eso no se prueba desde la app. La ficticia la crea el script de altas
+      // con la llave de servicio, que no pasa por aqui.
+      allow create: if puedeEmbarcar()
+        && soloCuentaReal()
         && request.resource.data.keys().hasAll(['nombre', 'direccion', 'activo', 'creadoEn', 'creadoPorUid'])
         && request.resource.data.keys().hasOnly(['nombre', 'direccion', 'activo', 'creadoEn', 'creadoPorUid'])
         && request.resource.data.nombre is string
@@ -333,7 +1689,12 @@ service cloud.firestore {
         && request.resource.data.activo == true
         && request.resource.data.creadoEn == request.time
         && request.resource.data.creadoPorUid == request.auth.uid;
-      allow update: if perfilActivo()
+      // Cambiar 'activo' o la direccion de una maquila REAL es operacion de
+      // verdad (dar de baja a una maquila le cierra el portal en el acto), y
+      // este documento no guarda quien lo toco: si una cuenta de prueba lo
+      // hiciera, nadie podria rastrearlo. Solo la ficticia.
+      allow update: if puedeEmbarcar()
+        && mismoMundoMaquila(maquilaId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo', 'direccion'])
         && request.resource.data.activo is bool
         && request.resource.data.direccion is string

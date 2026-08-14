@@ -19,7 +19,7 @@ from io import BytesIO
 import openpyxl
 
 from app.models import Bulto, CatalogoPeso, FolioRuteo
-from app.validation import canonizar_folio, PATRON_FOLIO, PATRON_PEDIDO
+from app.validation import canonizar_folio, PATRON_FOLIO, pedido_es_valido
 
 logger = logging.getLogger("importar_excel")
 
@@ -170,9 +170,9 @@ def parsear_folios_ruteo(contenido: bytes, nombre_archivo: str) -> dict:
                 errores.append(f"Fila {num_fila}: cantidades negativas")
             elif fecha_actualizacion_invalida:
                 errores.append(f"Fila {num_fila}: 'Fecha Actualizacion' no es una fecha válida")
-            elif pedido and (len(pedido) > 100 or not PATRON_PEDIDO.fullmatch(pedido)):
+            elif pedido and not pedido_es_valido(pedido):
                 errores.append(
-                    f"Fila {num_fila}: pedido inválido (usa sólo letras, números, punto, guion o guion bajo, "
+                    f"Fila {num_fila}: pedido inválido (no puede contener caracteres de control, "
                     "máximo 100 caracteres)"
                 )
             elif (total or docenas or 0) <= 0:

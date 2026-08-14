@@ -2,6 +2,8 @@
 // que se sube al sistema para que todo quede resguardado en el mismo lugar:
 // SOLO cuatro columnas (Folio, Codigo, Docenas, Pares), sin encabezados
 // decorativos ni totales, para que entre limpio.
+import { compararAscendente } from './texto'
+
 const ENCABEZADOS = ['Folio', 'Codigo', 'Docenas', 'Pares']
 
 /** Arma el .xlsx y lo devuelve como Blob (quien llama decide cuando
@@ -16,7 +18,10 @@ export async function generarExcelSalida({ capturas, fecha }) {
   hoja.addRow(ENCABEZADOS)
   hoja.getRow(1).font = { bold: true }
 
-  capturas.forEach((c) => {
+  // Folios en orden ascendente: el sistema destino y quien coteja el papel
+  // esperan la misma secuencia que el PDF.
+  const ordenadas = [...capturas].sort((a, b) => compararAscendente(a.folio, b.folio))
+  ordenadas.forEach((c) => {
     const p = c.producto || {}
     const docenas = typeof p.docenas === 'number' ? p.docenas : p.total
     hoja.addRow([
@@ -25,10 +30,10 @@ export async function generarExcelSalida({ capturas, fecha }) {
       String(c.folio),
       p.codigo ?? '',
       typeof docenas === 'number' ? docenas : '',
-      // Pares = docenas x 12 (confirmado por Roberto el 2026-07-30). NO se
-      // usa el campo 'pares' del Excel de ruteo: ese casi siempre viene en 0
-      // y no es lo que necesita la migracion.
-      typeof docenas === 'number' ? docenas * 12 : ''
+      // Pares SIEMPRE en 0 (pedido por Roberto el 2026-08-04; antes era
+      // docenas x 12): la migracion solo toma las docenas y el sistema
+      // destino calcula lo demas.
+      0
     ])
   })
 

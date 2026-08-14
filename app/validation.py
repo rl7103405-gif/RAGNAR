@@ -1,12 +1,31 @@
 """Validaciones compartidas para datos capturados por los operadores."""
 import math
 import re
+import unicodedata
 
 from fastapi import HTTPException
 
 
 PATRON_FOLIO = re.compile(r"^[A-Za-z0-9._-]+$")
-PATRON_PEDIDO = re.compile(r"^[A-Za-z0-9._-]+$")
+# Los pedidos reales del ERP traen espacios, diagonales y acentos
+# (ej. "7880_CALCETA DEPORTIVA SPARTAN_TALLA S/M_JULIO"): se acepta cualquier
+# texto imprimible sin caracteres de control.
+PATRON_PEDIDO = re.compile(r"^[^\x00-\x1F\x7F]+$")
+# Categorías Unicode que el patrón de arriba no cubre pero que tampoco deben
+# aparecer en un pedido: controles C1, formato invisible (zero-width, RTL
+# override) y separadores de línea/párrafo. El espacio normal es Zs y sigue
+# permitido.
+_CATEGORIAS_PEDIDO_PROHIBIDAS = ("Cc", "Cf", "Zl", "Zp")
+
+
+def pedido_es_valido(texto: str) -> bool:
+    """True si `texto` es un pedido aceptable: sin controles ASCII/Unicode
+    invisibles ni de dirección de texto, y dentro del tope de longitud."""
+    if not texto or len(texto) > 100:
+        return False
+    if not PATRON_PEDIDO.fullmatch(texto):
+        return False
+    return not any(unicodedata.category(c) in _CATEGORIAS_PEDIDO_PROHIBIDAS for c in texto)
 
 
 def normalizar_folio(valor: str) -> str:
@@ -36,10 +55,10 @@ def normalizar_pedido(valor: str | None) -> str:
     pedido = (valor or "").strip()
     if not pedido:
         raise HTTPException(status_code=400, detail="Pedido vacío")
-    if len(pedido) > 100 or not PATRON_PEDIDO.fullmatch(pedido):
+    if not pedido_es_valido(pedido):
         raise HTTPException(
             status_code=400,
-            detail="Pedido inválido: usa sólo letras, números, punto, guion o guion bajo (máximo 100 caracteres)",
+            detail="Pedido inválido: no puede contener caracteres de control y su máximo es de 100 caracteres",
         )
     return pedido
 

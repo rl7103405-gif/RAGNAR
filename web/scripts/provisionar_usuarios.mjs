@@ -79,7 +79,13 @@ for (const u of usuarios) {
     empleadoId: u.usuario,
     nombreCompleto: u.nombre,
     activo: true
-  })
+  },
+      // merge: NUNCA reemplazar el documento completo. Sin esto, volver a
+      // correr este script (p.ej. para resetear una contrasena) borraba
+      // 'rol' y 'puedeCrearTareas', y desde el 2026-08-12 un perfil sin rol
+      // no tiene acceso a NADA: bloqueo total y silencioso.
+      { merge: true }
+    )
   console.log(`Perfil de ${u.nombre} listo.`)
 }
 console.log('Listo: ' + usuarios.length + ' usuarios provisionados.')

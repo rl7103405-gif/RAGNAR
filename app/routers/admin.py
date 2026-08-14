@@ -14,6 +14,7 @@ from app.auth import requiere_estacion, requiere_estacion_vista
 from app.atalanta import atalanta_disponible
 from app.zebra_print import zebra_configurada
 from app.validation import normalizar_folio, canonizar_folio, normalizar_texto
+from app.services.busquedas import buscar_bultos, buscar_embarques
 from app.services.importar_excel import (
     ErrorImportacion,
     parsear_folios_ruteo,
@@ -39,30 +40,35 @@ def vista_admin(request: Request, usuario: dict = Depends(requiere_estacion_vist
 
 
 @router.get("/api/admin/bultos")
-def listar_bultos(db: Session = Depends(get_db), usuario: dict = Depends(solo_admin)):
-    bultos = db.query(Bulto).order_by(Bulto.id.desc()).limit(500).all()
-    return [
-        {
-            "folio": b.folio,
-            "estatus": b.estatus,
-            "pedido_id": b.pedido_id,
-            "cliente": b.cliente,
-            "codigo_producto": b.codigo_producto,
-            "docenas": b.docenas,
-            "peso_produccion": b.peso_produccion,
-            "peso_procesos_finales": b.peso_procesos_finales,
-            "diferencia_gramos": b.diferencia_gramos,
-            "diferencia_porcentaje": b.diferencia_porcentaje,
-            "diferencia_alerta": b.diferencia_alerta,
-            "operador_produccion": b.operador_produccion,
-            "operador_ruteo": b.operador_ruteo,
-            "operador_procesos_finales": b.operador_procesos_finales,
-            "operador_embarque": b.operador_embarque,
-            "timestamp_produccion": b.timestamp_produccion.isoformat() if b.timestamp_produccion else None,
-            "timestamp_procesos_finales": b.timestamp_procesos_finales.isoformat() if b.timestamp_procesos_finales else None,
-        }
-        for b in bultos
-    ]
+def listar_bultos(
+    folio: str | None = None,
+    codigo: str | None = None,
+    operador: str | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(solo_admin),
+):
+    """Historial de capturas con búsqueda (lógica compartida en services/busquedas.py)."""
+    return buscar_bultos(db, folio=folio, codigo=codigo, operador=operador, desde=desde, hasta=hasta)
+
+
+@router.get("/api/admin/embarques")
+def listar_embarques(
+    pedido: str | None = None,
+    maquila: str | None = None,
+    operador: str | None = None,
+    folio: str | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+    db: Session = Depends(get_db),
+    usuario: dict = Depends(solo_admin),
+):
+    """Documentos de salida (PDF) con búsqueda (lógica compartida en services/busquedas.py)."""
+    return buscar_embarques(
+        db, pedido=pedido, maquila=maquila, operador=operador,
+        folio=folio, desde=desde, hasta=hasta,
+    )
 
 
 @router.get("/api/admin/estatus-sistema")

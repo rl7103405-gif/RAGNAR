@@ -16,7 +16,7 @@ from app.auth import (
     NoAutenticado, AccesoDenegado, RUTA_POR_ESTACION,
     crear_usuarios_default, ensure_usuario_validacion,
 )
-from app.routers import auth_router, produccion, ruteadores, validacion, procesos, embarque, admin
+from app.routers import auth_router, produccion, ruteadores, validacion, procesos, embarque, admin, historial
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger("app")
@@ -39,6 +39,7 @@ app.include_router(validacion.router)
 app.include_router(procesos.router)
 app.include_router(embarque.router)
 app.include_router(admin.router)
+app.include_router(historial.router)
 
 
 @app.exception_handler(NoAutenticado)

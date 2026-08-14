@@ -9,6 +9,7 @@
 // ordenes distintas en el mismo papel. Si una orden no cabe en una hoja,
 // sigue en la siguiente repitiendo su encabezado, y el pie lleva las dos
 // numeraciones (hoja de la orden y hoja del paquete completo).
+import { compararAscendente } from './texto'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { LOGO_QUINI_PNG_BASE64 } from '../assets/logoQuini'
@@ -26,19 +27,26 @@ function textoEncabezado(valor) {
   return valor === null || valor === undefined ? '' : String(valor)
 }
 
-const SIN_ORDEN = 'SIN ORDEN'
+export const SIN_ORDEN = 'SIN ORDEN'
 
-/** Orden de trabajo de una captura: los primeros 4 digitos de su pedido
- *  (del pedido '7887_REPOSICION_2408' sale '7887'). */
-export function ordenDeCaptura(captura) {
-  const pedido = captura.producto?.pedido
-  if (!pedido) return SIN_ORDEN
+/** OT a partir del texto del pedido: los primeros 4 digitos
+ *  ('7887_REPOSICION_2408' -> '7887'). Exportada para que la meta derivada del
+ *  ruteo y el avance de las tareas usen EXACTAMENTE el mismo criterio: si aqui
+ *  un folio es de la OT 7887, alla tambien. */
+export function otDePedido(pedido) {
+  if (!pedido) return null
   const m = /^\d{4}/.exec(String(pedido).trim())
-  return m ? m[0] : SIN_ORDEN
+  return m ? m[0] : null
 }
 
-/** Agrupa las capturas por orden de trabajo, conservando el orden en que
- *  aparecio cada orden por primera vez. */
+/** Orden de trabajo de una captura (SIN_ORDEN si su pedido no la trae). */
+export function ordenDeCaptura(captura) {
+  return otDePedido(captura.producto?.pedido) ?? SIN_ORDEN
+}
+
+/** Agrupa las capturas por orden de trabajo. Las OT salen en orden ASCENDENTE
+ *  (SIN ORDEN al final) y dentro de cada OT los folios tambien ascendentes:
+ *  asi el papel se coteja de corrido contra el fisico. */
 function agruparPorOrden(capturas) {
   const grupos = new Map()
   capturas.forEach((c) => {
@@ -46,10 +54,19 @@ function agruparPorOrden(capturas) {
     if (!grupos.has(orden)) grupos.set(orden, [])
     grupos.get(orden).push(c)
   })
-  return [...grupos.entries()].map(([orden, lista]) => ({ orden, capturas: lista }))
+  return [...grupos.entries()]
+    .sort(([a], [b]) => {
+      if (a === SIN_ORDEN) return 1
+      if (b === SIN_ORDEN) return -1
+      return compararAscendente(a, b)
+    })
+    .map(([orden, lista]) => ({
+      orden,
+      capturas: [...lista].sort((a, b) => compararAscendente(a.folio, b.folio))
+    }))
 }
 
-export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} }) {
+export function generarPdfSalida({ capturas, operador, fecha, encabezado = {}, esPrueba = false }) {
   const encBase = {
     folioInterno: textoEncabezado(encabezado.folioInterno),
     fechaSolicitud: textoEncabezado(encabezado.fechaSolicitud),
@@ -104,6 +121,33 @@ export function generarPdfSalida({ capturas, operador, fecha, encabezado = {} })
       pdf.text(texto, anchoPagina - margen, paginaAlto - 8, { align: 'right' })
     }
   })
+
+  // ---- Marca de PRUEBA ----
+  // Va en TODAS las hojas y atravesada: un papel de prueba tiene que
+  // distinguirse de un vistazo aunque se imprima en blanco y negro, se
+  // fotocopie o alguien lo encuentre suelto en una mesa. Se dibuja al final
+  // para que quede ENCIMA del contenido, y en gris claro para que el papel
+  // siga siendo legible (el objetivo es que nadie lo confunda con una
+  // remision de verdad, no inutilizarlo).
+  if (esPrueba) {
+    const total = pdf.internal.getNumberOfPages()
+    for (let p = 1; p <= total; p++) {
+      pdf.setPage(p)
+      pdf.setTextColor(210, 210, 210)
+      pdf.setFontSize(70)
+      pdf.setFont(undefined, 'bold')
+      pdf.text('P R U E B A', anchoPagina / 2, paginaAlto / 2, {
+        align: 'center',
+        angle: 20
+      })
+      pdf.setFontSize(9)
+      pdf.setTextColor(180, 60, 60)
+      pdf.text('DOCUMENTO DE PRUEBA - SIN VALOR PARA EMBARQUE', margen, paginaAlto - 8)
+      // Se devuelven los ajustes por si algo se dibujara despues.
+      pdf.setTextColor(0, 0, 0)
+      pdf.setFont(undefined, 'normal')
+    }
+  }
 
   // Se devuelve el PDF como Blob en vez de descargarlo aqui: quien llama
   // primero REGISTRA la generacion en la bitacora (pdfsGenerados) y solo

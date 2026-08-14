@@ -82,7 +82,11 @@ export default function PanelIndicadores() {
   }, [capturas, pdfs])
 
   const parcial = capturasParcial || pdfsParcial
-  const marca = parcial ? '+' : ''
+  // El '+' solo se pone mientras el conteo NO es definitivo: durante la carga
+  // (que va encadenando paginas y pintando el avance) o si de plano se topo el
+  // techo de paginas. Ya terminada la consulta, los numeros son del periodo
+  // completo y se muestran limpios.
+  const marca = parcial || cargando ? '+' : ''
 
   return (
     <>
@@ -95,10 +99,14 @@ export default function PanelIndicadores() {
       />
 
       {error && <div className="alerta-error" style={{ marginBottom: 12 }}>{error}</div>}
-      {cargando && <p className="texto-suave">Consultando...</p>}
-      {parcial && (
+      {cargando && (
+        <p className="texto-suave">
+          Consultando el periodo completo... {capturas.length} bultos y {pdfs.length} PDFs hasta ahora.
+        </p>
+      )}
+      {!cargando && parcial && (
         <div className="alerta-error" style={{ background: '#fff4e0', color: '#8a5300', marginBottom: 12 }}>
-          Hay mas datos de los que caben en una consulta: estos indicadores son PARCIALES.
+          El periodo tiene mas datos de los que se pueden traer de una sola vez: estos indicadores son PARCIALES.
         </div>
       )}
 

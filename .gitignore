@@ -18,3 +18,6 @@ serviceAccountKey.json
 logs/
 paquete_modulo/
 build_tmp/
+
+# Cuentas de acceso: NUNCA al repo ni al vault (patron de captura-mecanicos)
+CUENTAS-Y-CONTRASENAS.md

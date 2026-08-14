@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
+import { coincide } from '../utils/texto'
 
 export const MAX_NOMBRE_MAQUILA = 80
 // Mismo tope que el campo 'Direccion Envio' del PDF (una linea a lo ancho):
@@ -69,8 +70,13 @@ export function useMaquilas() {
 }
 
 export default function Maquilas() {
-  const { authUser } = useAuth()
-  const maquilas = useMaquilas()
+  const { authUser, esPrueba } = useAuth()
+  const todasLasMaquilas = useMaquilas()
+  // El catalogo tambien se separa por mundo: a la gente de la fabrica no le
+  // aparece la maquila ficticia (no tiene nada que hacer ahi y darla de baja
+  // por error cerraria el portal de pruebas), y la cuenta de prueba solo ve la
+  // suya. Las reglas ya impiden que cualquiera de los dos toque la del otro.
+  const maquilas = todasLasMaquilas.filter((m) => (m.esPrueba === true) === esPrueba)
   const [nombre, setNombre] = useState('')
   const [direccion, setDireccion] = useState('')
   const [mensaje, setMensaje] = useState('')
@@ -78,6 +84,10 @@ export default function Maquilas() {
   const [guardando, setGuardando] = useState(false)
   const [editando, setEditando] = useState(null) // maquila en edicion de direccion
   const [nuevaDireccion, setNuevaDireccion] = useState('')
+  const [busqueda, setBusqueda] = useState('')
+  const maquilasVisibles = busqueda.trim()
+    ? maquilas.filter((m) => coincide(m.nombre, busqueda) || coincide(m.direccion, busqueda))
+    : maquilas
 
   const avisar = (texto, error = false) => {
     setMensaje(texto)
@@ -195,6 +205,17 @@ export default function Maquilas() {
       <div className="tarjeta">
         <h2>Maquilas registradas ({maquilas.filter((m) => m.activo).length} activas)</h2>
         {maquilas.length === 0 && <p className="texto-suave">Sin maquilas todavia.</p>}
+        {maquilas.length > 1 && (
+          <label className="campo" style={{ maxWidth: 320 }}>
+            <span>Buscar</span>
+            <input
+              type="text"
+              placeholder="Buscar por nombre o direccion..."
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+            />
+          </label>
+        )}
         <table className="tabla-datos">
           <thead>
             <tr>
@@ -204,7 +225,7 @@ export default function Maquilas() {
             </tr>
           </thead>
           <tbody>
-            {maquilas.map((m) => (
+            {maquilasVisibles.map((m) => (
               <tr key={m.id} style={{ opacity: m.activo ? 1 : 0.5 }}>
                 <td>{m.nombre}{!m.activo && ' (inactiva)'}</td>
                 <td>{m.direccion || '-'}</td>

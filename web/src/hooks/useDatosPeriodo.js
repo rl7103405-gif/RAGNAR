@@ -14,12 +14,22 @@ import {
   where
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { useAuth } from '../context/AuthContext'
+import { bultoEsDePrueba, documentoEsDePrueba, soloDeMiMundo } from '../utils/mundoDatos'
 import { rangoDePeriodo } from '../utils/periodos'
 
 const PAGINA_CAPTURAS = 500
 const PAGINA_PDFS = 100
+// Tope de seguridad: cuantas paginas se encadenan solas antes de rendirse y
+// marcar el resultado como parcial. Con 500 por pagina esto cubre 50,000
+// capturas (mas de un ano de operacion) sin que el usuario tenga que picarle
+// a "Cargar mas": un indicador anual que dice "500+" no sirve para nada.
+const MAX_PAGINAS = 100
 
 export function useDatosPeriodo(tipo, offset) {
+  // El mundo de quien mira: una cuenta real no ve las pruebas y una de
+  // prueba solo ve las suyas (ver utils/mundoDatos.js).
+  const { esPrueba } = useAuth()
   const [capturas, setCapturas] = useState([])
   const [capturasParcial, setCapturasParcial] = useState(false)
   const [ultimaCaptura, setUltimaCaptura] = useState(null)
@@ -40,7 +50,7 @@ export function useDatosPeriodo(tipo, offset) {
   const tipoOffsetRef = useRef({ tipo, offset })
   useEffect(() => {
     tipoOffsetRef.current = { tipo, offset }
-  }, [tipo, offset])
+  }, [tipo, offset, esPrueba])
 
   useEffect(() => {
     let cancelado = false
@@ -53,41 +63,94 @@ export function useDatosPeriodo(tipo, offset) {
       setPdfsParcial(false)
       setUltimaCaptura(null)
       setUltimoPdf(null)
+      // Si una pagina intermedia truena, lo ya pintado NO es el total: estas
+      // banderas dejan que el catch lo marque como parcial en vez de dejar
+      // pasar un numero incompleto como definitivo.
+      let capturasCompletas = false
+      let pdfsCompletos = false
       try {
         const inicio = Timestamp.fromDate(rango.inicio)
         const fin = Timestamp.fromDate(rango.fin)
 
-        const snapCapturas = await getDocs(
-          query(
+        // Se encadenan TODAS las paginas del periodo (no solo la primera):
+        // los indicadores y los totales deben ser del periodo completo. El
+        // parcial solo queda si se topa MAX_PAGINAS o si truena una pagina
+        // intermedia (ver el catch: lo ya pintado no puede pasar por total).
+        const capturasTodas = []
+        let cursorCapturas = null
+        let paginasCapturas = 0
+        let hayMasCapturas = true
+        while (hayMasCapturas && paginasCapturas < MAX_PAGINAS) {
+          const restricciones = [
             collection(db, 'bultos'),
             where('creadoEn', '>=', inicio),
             where('creadoEn', '<', fin),
-            orderBy('creadoEn', 'desc'),
-            limit(PAGINA_CAPTURAS)
+            orderBy('creadoEn', 'desc')
+          ]
+          const snap = await getDocs(
+            cursorCapturas
+              ? query(...restricciones, startAfter(cursorCapturas), limit(PAGINA_CAPTURAS))
+              : query(...restricciones, limit(PAGINA_CAPTURAS))
           )
-        )
-        if (cancelado) return
-        setCapturas(snapCapturas.docs.map((d) => ({ id: d.id, ...d.data() })))
-        setCapturasParcial(snapCapturas.size === PAGINA_CAPTURAS)
-        setUltimaCaptura(snapCapturas.docs[snapCapturas.docs.length - 1] || null)
+          if (cancelado) return
+          capturasTodas.push(
+            ...soloDeMiMundo(
+              snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+              esPrueba,
+              bultoEsDePrueba
+            )
+          )
+          cursorCapturas = snap.docs[snap.docs.length - 1] || null
+          hayMasCapturas = snap.size === PAGINA_CAPTURAS
+          paginasCapturas += 1
+          // Se va pintando lo que ya llego: con periodos grandes el usuario ve
+          // avanzar los numeros en vez de una pantalla vacia.
+          setCapturas([...capturasTodas])
+        }
+        capturasCompletas = true
+        setCapturasParcial(hayMasCapturas)
+        setUltimaCaptura(cursorCapturas)
 
-        const snapPdfs = await getDocs(
-          query(
+        const pdfsTodos = []
+        let cursorPdfs = null
+        let paginasPdfs = 0
+        let hayMasPdfs = true
+        while (hayMasPdfs && paginasPdfs < MAX_PAGINAS) {
+          const restricciones = [
             collection(db, 'pdfsGenerados'),
             where('creadoEn', '>=', inicio),
             where('creadoEn', '<', fin),
-            orderBy('creadoEn', 'desc'),
-            limit(PAGINA_PDFS)
+            orderBy('creadoEn', 'desc')
+          ]
+          const snap = await getDocs(
+            cursorPdfs
+              ? query(...restricciones, startAfter(cursorPdfs), limit(PAGINA_PDFS))
+              : query(...restricciones, limit(PAGINA_PDFS))
           )
-        )
-        if (cancelado) return
-        setPdfs(snapPdfs.docs.map((d) => ({ id: d.id, ...d.data() })))
-        setPdfsParcial(snapPdfs.size === PAGINA_PDFS)
-        setUltimoPdf(snapPdfs.docs[snapPdfs.docs.length - 1] || null)
+          if (cancelado) return
+          pdfsTodos.push(
+            ...soloDeMiMundo(
+              snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+              esPrueba,
+              documentoEsDePrueba
+            )
+          )
+          cursorPdfs = snap.docs[snap.docs.length - 1] || null
+          hayMasPdfs = snap.size === PAGINA_PDFS
+          paginasPdfs += 1
+          setPdfs([...pdfsTodos])
+        }
+        pdfsCompletos = true
+        setPdfsParcial(hayMasPdfs)
+        setUltimoPdf(cursorPdfs)
       } catch (err) {
         if (!cancelado) {
           console.error('[useDatosPeriodo] Error consultando:', err)
           setError('No se pudo consultar: ' + (err.message || err))
+          // Lo que alcanzo a llegar antes del error ya esta pintado: se marca
+          // parcial para que no se lea como el total del periodo.
+          if (!capturasCompletas) setCapturasParcial(true)
+          if (!pdfsCompletos) setPdfsParcial(true)
         }
       } finally {
         if (!cancelado) setCargando(false)
@@ -98,8 +161,10 @@ export function useDatosPeriodo(tipo, offset) {
       cancelado = true
     }
     // rango.inicio/fin derivan de tipo+offset; con estos dos basta.
+    // esPrueba tambien: al cambiar de cuenta hay que releer, o la sesion nueva
+    // se queda mirando los datos del mundo anterior.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tipo, offset])
+  }, [tipo, offset, esPrueba])
 
   const periodoSigueVigente = (tipoAlEmpezar, offsetAlEmpezar) =>
     tipoOffsetRef.current.tipo === tipoAlEmpezar &&

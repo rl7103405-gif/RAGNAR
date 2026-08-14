@@ -77,7 +77,7 @@ def listar_pedidos_activos(db: Session = Depends(get_db), usuario: dict = Depend
     return pedidos
 
 
-@router.get("/api/embarque/pedido/{pedido_id}")
+@router.get("/api/embarque/pedido/{pedido_id:path}")
 def detalle_pedido(pedido_id: str, db: Session = Depends(get_db), usuario: dict = Depends(solo_embarque)):
     pedido_id = normalizar_pedido(pedido_id)
     bultos = db.query(Bulto).filter(Bulto.pedido_id == pedido_id).order_by(Bulto.folio).all()
