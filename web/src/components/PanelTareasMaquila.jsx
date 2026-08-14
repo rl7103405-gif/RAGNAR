@@ -21,7 +21,9 @@ import {
   limpiarTechPack,
   prepararCambioDeTechPack,
   subirTechPack,
-  terminarTareaEnsamble
+  terminarTareaEnsamble,
+  devolverTareaEnsamble,
+  ESTADOS_VIVOS
 } from '../utils/tareasEnsamble'
 
 const RENGLON_VACIO = { codigo: '', descripcion: '', cantidad: '', unidad: 'packs' }
@@ -164,6 +166,32 @@ export default function PanelTareasMaquila() {
     }
   }
 
+  /** Regresarle la tarea a la maquila con el motivo escrito: no cuadro lo que
+   *  entrego. Vuelve a 'iniciada' y ella ve por que. */
+  const onDevolver = async (tarea) => {
+    const motivo = window.prompt(
+      `¿Por que le regresas "${tarea.titulo}" a ${nombreMaquila(tarea.maquilaId)}?\n\n` +
+        'Esto lo va a leer la maquila en su portal.'
+    )
+    if (motivo === null) return
+    setError('')
+    setAviso('')
+    setTrabajando(tarea.id)
+    try {
+      await devolverTareaEnsamble({
+        maquilaId: tarea.maquilaId,
+        tareaId: tarea.id,
+        usuario: usuario(),
+        motivo
+      })
+      setAviso(`"${tarea.titulo}" regreso a la maquila con tu motivo.`)
+    } catch (err) {
+      reportar(err)
+    } finally {
+      setTrabajando(null)
+    }
+  }
+
   const onLimpiarPendiente = async (tarea) => {
     setError('')
     setTrabajando(tarea.id)
@@ -179,6 +207,20 @@ export default function PanelTareasMaquila() {
   }
 
   const fechaDe = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '-')
+  // Con HORA: de la diferencia entre estas marcas sale cuanto tardo la maquila
+  // en armar, y con la fecha sola no se puede medir nada.
+  const fechaHora = (t) =>
+    t?.toDate ? t.toDate().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '-'
+
+  /** Cuanto paso entre dos marcas, en dias/horas/minutos. */
+  const tiempoEntre = (desde, hasta) => {
+    if (!desde?.toDate || !hasta?.toDate) return '-'
+    const min = Math.max(0, Math.round((hasta.toDate() - desde.toDate()) / 60000))
+    if (min < 60) return `${min} min`
+    const h = Math.floor(min / 60)
+    if (h < 24) return `${h} h ${min % 60} min`
+    return `${Math.floor(h / 24)} d ${h % 24} h`
+  }
 
   if (!puedeCrearTareas) {
     return (
@@ -188,7 +230,10 @@ export default function PanelTareasMaquila() {
     )
   }
 
-  const vivas = tareas.filter((t) => ['preparando', 'abierta'].includes(t.estado))
+  // Las que la maquila dice que ya termino van APARTE y arriba: son las que
+  // esperan una decision de Quini, y si se mezclan con el resto se pierden.
+  const porConfirmar = tareas.filter((t) => t.estado === 'declarada')
+  const vivas = tareas.filter((t) => ESTADOS_VIVOS.includes(t.estado) && t.estado !== 'declarada')
   const cerradas = tareas.filter((t) => ['terminada', 'cancelada'].includes(t.estado))
 
   const tarjeta = (t) => (
@@ -223,6 +268,46 @@ export default function PanelTareasMaquila() {
         ))}
       </div>
       {t.notas && <p className="texto-suave" style={{ fontSize: 13, margin: '6px 0 0' }}>{t.notas}</p>}
+
+      {/* Lo que reporto la maquila. Con hora, no solo fecha: es de donde sale
+          cuanto tardo en armar, y con la fecha sola no se puede medir. */}
+      {(t.iniciadaEn || t.declaradaEn || t.devueltaEn) && (
+        <div className="texto-suave" style={{ fontSize: 12, marginTop: 6 }}>
+          {t.iniciadaEn && <>Empezo el {fechaHora(t.iniciadaEn)}</>}
+          {t.declaradaEn && (
+            <>
+              {' · '}
+              <strong style={{ color: '#16a34a' }}>dijo que termino el {fechaHora(t.declaradaEn)}</strong>
+            </>
+          )}
+          {t.devueltaEn && <> · se la regreso {t.devueltaPorNombre} el {fechaHora(t.devueltaEn)}</>}
+          {/* El tiempo de armado es AUTORREPORTADO: la maquila decide cuando
+              pica "empece". Si nunca lo pico, inicio y fin se sellaron en la
+              misma escritura y la resta da cero -- que NO es una medicion de
+              cero, es que no hubo medicion. Se dice aqui para que nadie meta
+              ese numero en una tarifa creyendo que midio algo. */}
+          {t.iniciadaEn && t.declaradaEn && (
+            <>
+              {' · '}
+              {String(t.iniciadaEn?.seconds) === String(t.declaradaEn?.seconds) ? (
+                <em>sin medicion de tiempo: no marco cuando empezo</em>
+              ) : (
+                <>tiempo de armado (segun ella): {tiempoEntre(t.iniciadaEn, t.declaradaEn)}</>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {t.notaMaquila && (
+        <p style={{ fontSize: 13, margin: '4px 0 0' }}>
+          <strong>Nota de la maquila:</strong> {t.notaMaquila}
+        </p>
+      )}
+      {t.motivoDevolucion && (
+        <p className="texto-suave" style={{ fontSize: 12, margin: '4px 0 0' }}>
+          Motivo con el que se le regreso: {t.motivoDevolucion}
+        </p>
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center' }}>
         {t.techPack && (
@@ -289,7 +374,62 @@ export default function PanelTareasMaquila() {
             </button>
           </>
         )}
-        {['terminada', 'cancelada'].includes(t.estado) && t.techPack && (
+        {/* Ya la empezo la maquila: el tech pack YA NO se cambia (seria
+            cambiarle el encargo debajo de las manos a quien esta armando; las
+            reglas tampoco lo permiten). Solo cerrar o cancelar. */}
+        {t.estado === 'iniciada' && (
+          <>
+            <button
+              className="btn-primario"
+              disabled={trabajando === t.id}
+              onClick={() => onTerminar(t, 'terminada')}
+              title="Cuando la maquila ya regreso el producto terminado"
+            >
+              Terminar (regreso el PT)
+            </button>
+            <button
+              className="btn-secundario"
+              disabled={trabajando === t.id}
+              onClick={() => onTerminar(t, 'cancelada')}
+            >
+              Cancelar
+            </button>
+          </>
+        )}
+        {/* La maquila dice que ya termino: aqui se decide. */}
+        {t.estado === 'declarada' && (
+          <>
+            <button
+              className="btn-primario"
+              disabled={trabajando === t.id}
+              onClick={() => onTerminar(t, 'terminada')}
+              title="Confirmas que ya regreso el producto terminado y cierras la tarea"
+              style={{ background: '#16a34a' }}
+            >
+              Confirmar y cerrar
+            </button>
+            <button
+              className="btn-secundario"
+              disabled={trabajando === t.id}
+              onClick={() => onDevolver(t)}
+              title="No cuadro lo que entrego: se la regresas con un motivo"
+            >
+              Regresarsela
+            </button>
+            <button
+              className="btn-secundario"
+              disabled={trabajando === t.id}
+              onClick={() => onTerminar(t, 'cancelada')}
+            >
+              Cancelar
+            </button>
+          </>
+        )}
+        {/* La señal de "quedo basura por barrer" es techPackBorradoEn, NO el
+            manifiesto: al cerrar, el manifiesto se borra en el mismo write,
+            y una subida cortada deja chunks SIN manifiesto. Mirando el
+            manifiesto, esos chunks no tenian forma de limpiarse nunca. */}
+        {['terminada', 'cancelada'].includes(t.estado) && !t.techPackBorradoEn && (
           <button
             className="btn-secundario"
             disabled={trabajando === t.id}
@@ -449,6 +589,20 @@ export default function PanelTareasMaquila() {
           {trabajando === 'crear' ? progreso || 'Creando...' : 'Encargar a la maquila'}
         </button>
       </form>
+
+      {/* Lo que espera una decision tuya, arriba y aparte: si se mezcla con el
+          resto, una maquila puede quedarse dias esperando que le confirmen. */}
+      {porConfirmar.length > 0 && (
+        <div className="tarjeta" style={{ borderLeft: '4px solid #16a34a' }}>
+          <h2>Por confirmar ({porConfirmar.length})</h2>
+          <p className="texto-suave" style={{ fontSize: 13, marginTop: 2 }}>
+            Estas maquilas ya avisaron que terminaron. Al confirmar se cierra la tarea y{' '}
+            <strong>se borra su tech pack</strong>; si no cuadro lo que entregaron, regresasela con el
+            motivo.
+          </p>
+          {porConfirmar.map(tarjeta)}
+        </div>
+      )}
 
       <div className="tarjeta">
         <h2>Tareas de ensamble ({vivas.length})</h2>

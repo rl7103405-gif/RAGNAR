@@ -1477,26 +1477,104 @@ service cloud.firestore {
     // del pedido adjunto. El tech pack tiene informacion sensible del cliente:
     // la maquila solo lo VE mientras la tarea esta abierta, y al terminar la
     // tarea el archivo se borra. El archivo vive TROCEADO en Firestore
-    // (Storage no esta habilitado en el proyecto): techPackChunks/00..39 de
-    // hasta 950 KB cada uno, con manifiesto (tamano, totalChunks, sha256) en
+    // (Storage no esta habilitado en el proyecto): techPackChunks/00..16 de
+    // hasta 950 KB cada uno (tope 17), con manifiesto (tamano, totalChunks, sha256) en
     // la tarea para que el visor detecte cualquier corrupcion al rearmarlo.
     //
     // Estados: 'preparando' (subiendo el archivo; la maquila NO la ve todavia)
-    // -> 'abierta' (la maquila la ve y puede leer el tech pack) -> 'terminada'
+    // -> 'abierta' (la maquila la ve y puede leer el tech pack) -> 'iniciada'
+    // y 'declarada' (lo que ella misma reporta; sigue leyendo el archivo) ->
+    // 'terminada'
     // o 'cancelada' (la maquila ya NO puede leer los chunks aunque sigan
     // fisicamente un momento: el borrado corre en lotes despues del cierre,
     // porque borrar 40 chunks en el mismo batch reventaria los 10 MiB por
     // request).
+    // ---- Estados que la tarea recorre estando VIVA ----
+    // La maquila reporta su avance (2026-08-14): 'iniciada' cuando empieza a
+    // armar y 'declarada' cuando dice que termino. La tarea NO se cierra con
+    // eso: cerrarla es de Quini, y es el cierre lo que borra el tech pack.
+    // Asi un dedazo de la maquila no le quita el documento que necesita.
+    function estadosVivosTarea() {
+      return ['preparando', 'abierta', 'iniciada', 'declarada'];
+    }
+
+    // El reporte de la maquila (sus tiempos y firmas, y el motivo con el que
+    // Quini se la regreso) NO lo escribe Quini: solo se mueve por las ramas
+    // que le corresponden a cada quien.
+    //
+    // Hace falta decirlo explicitamente porque la rama de reedicion de Quini
+    // valida el documento COMPLETO en vez de acotar por diff: sin esto, desde
+    // 'abierta' podria sembrar un 'iniciadaEn' con la fecha que quisiera y
+    // firmarlo a nombre de la maquila -- y de esa fecha sale cuanto tardo en
+    // armar, que es lo que despues va a pagar. Que nadie pueda fabricar el
+    // numero que le conviene es justo el punto de medirlo.
+    function reporteDeLaMaquilaIntacto() {
+      let n = request.resource.data;
+      let v = resource.data;
+      return n.get('iniciadaEn', null) == v.get('iniciadaEn', null)
+        && n.get('iniciadaPorUid', null) == v.get('iniciadaPorUid', null)
+        && n.get('iniciadaPorNombre', null) == v.get('iniciadaPorNombre', null)
+        && n.get('declaradaEn', null) == v.get('declaradaEn', null)
+        && n.get('declaradaPorUid', null) == v.get('declaradaPorUid', null)
+        && n.get('declaradaPorNombre', null) == v.get('declaradaPorNombre', null)
+        && n.get('notaMaquila', null) == v.get('notaMaquila', null)
+        && n.get('devueltaEn', null) == v.get('devueltaEn', null)
+        && n.get('devueltaPorUid', null) == v.get('devueltaPorUid', null)
+        && n.get('devueltaPorNombre', null) == v.get('devueltaPorNombre', null)
+        && n.get('motivoDevolucion', null) == v.get('motivoDevolucion', null);
+    }
+
+    // ¿La terna quien/cuando de una firma esta COMPLETA o completamente
+    // vacia? Nunca a medias: una firma con fecha y sin nombre (o al reves) es
+    // un dato que no se puede auditar.
+    function firmaCoherente(d, campoEn, campoUid, campoNombre) {
+      return (d.get(campoEn, null) == null
+              && d.get(campoUid, null) == null
+              && d.get(campoNombre, null) == null)
+        || (d.get(campoEn, null) is timestamp
+            && d.get(campoUid, null) is string
+            && d.get(campoNombre, null) is string
+            && d.get(campoNombre, '').size() > 0);
+    }
+
     function tareaEnsambleValida(mid) {
       let d = request.resource.data;
+      // Los campos del reporte de la maquila van en hasOnly pero NO en hasAll,
+      // y se leen con get(...,null): asi las tareas que ya estaban vivas antes
+      // de este cambio siguen siendo validas sin migrarlas. Meterlos en hasAll
+      // habria obligado a migrar todos los documentos ANTES de poder tocar
+      // ninguno.
       return d.keys().hasAll(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn'])
-        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn'])
+        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion'])
+        // Las tres firmas del ciclo, cada una entera o vacia.
+        && firmaCoherente(d, 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre')
+        && firmaCoherente(d, 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre')
+        && firmaCoherente(d, 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre')
+        && (d.get('notaMaquila', null) == null
+            || (d.get('notaMaquila', '') is string && d.get('notaMaquila', '').size() <= 300))
+        && (d.get('motivoDevolucion', null) == null
+            || (d.get('motivoDevolucion', '') is string && d.get('motivoDevolucion', '').size() <= 300))
+        // Coherencia estado <-> firmas. No se puede declarar sin haber
+        // iniciado, ni estar 'iniciada'/'declarada' sin su firma: si no, los
+        // tiempos que se midan despues son mentira.
+        && (d.estado != 'iniciada' || d.get('iniciadaEn', null) != null)
+        && (d.estado != 'declarada' || (d.get('iniciadaEn', null) != null && d.get('declaradaEn', null) != null))
+        && (d.get('declaradaEn', null) == null || d.get('iniciadaEn', null) != null)
+        // Mientras vive, nada de firma de cierre. (El cierre directo desde
+        // 'abierta' o 'iniciada' sigue permitido: ahi las firmas de la maquila
+        // simplemente se quedan en null y el reporte lo marca como incompleto.)
+        && (!(d.estado in estadosVivosTarea())
+            || (d.terminadaEn == null && d.terminadaPorUid == null && d.terminadaPorNombre == null))
+        // El manifiesto solo se borra en una tarea ya cerrada.
+        && (d.get('techPackBorradoEn', null) == null
+            || (!(d.estado in estadosVivosTarea()) && d.techPack == null))
         // 'publicadaEn' se fija la PRIMERA vez que la tarea llega a 'abierta'
         // y ya no se quita: es lo que decide si la maquila la ve. Un borrador
         // que se preparo para la maquila equivocada y se cancelo sin publicar
         // NUNCA fue suyo, y no tiene por que aparecerle.
         && (d.publicadaEn == null || d.publicadaEn is timestamp)
-        && (d.estado != 'abierta' || d.publicadaEn != null)
+        // Todo estado en que la maquila la ve exige publicadaEn.
+        && (!(d.estado in ['abierta', 'iniciada', 'declarada']) || d.publicadaEn != null)
         && d.maquilaId == mid
         && d.titulo is string
         && d.titulo.size() > 0
@@ -1506,7 +1584,7 @@ service cloud.firestore {
         && d.renglones.size() <= 60
         && d.notas is string
         && d.notas.size() <= 300
-        && d.estado in ['preparando', 'abierta', 'terminada', 'cancelada']
+        && d.estado in ['preparando', 'abierta', 'iniciada', 'declarada', 'terminada', 'cancelada']
         && (d.techPack == null || (
               d.techPack.keys().hasAll(['nombre', 'formato', 'tamano', 'totalChunks', 'sha256', 'subidoEn'])
               && d.techPack.keys().hasOnly(['nombre', 'formato', 'tamano', 'totalChunks', 'sha256', 'subidoEn'])
@@ -1559,13 +1637,19 @@ service cloud.firestore {
         && request.resource.data.terminadaPorUid == null
         && request.resource.data.terminadaPorNombre == null
         && request.resource.data.techPackBorradoEn == null;
+      // ---- Lo que hace QUINI (Lindbergh o el admin) ----
       allow update: if puedeCrearTareas() && mismoMundoMaquila(maquilaId) && (
-          // Mientras vive ('preparando' o 'abierta'): se reedita, se publica
-          // ('preparando' -> 'abierta'), se regresa a 'preparando' para
-          // cambiarle el archivo, o se cierra. Quien la creo no cambia.
+          // (1) Mientras nadie la ha empezado ('preparando' o 'abierta'): se
+          // reedita entera, se publica ('preparando' -> 'abierta'), se regresa
+          // a 'preparando' para cambiarle el archivo, o se cierra. Quien la
+          // creo no cambia.
           ( resource.data.estado in ['preparando', 'abierta']
             && tareaEnsambleValida(maquilaId)
+            // Esta rama reescribe el documento entero (es la de reedicion),
+            // asi que lo que NO se puede tocar hay que blindarlo a mano.
+            && reporteDeLaMaquilaIntacto()
             && request.resource.data.creadoPorUid == resource.data.creadoPorUid
+            && request.resource.data.creadoPorNombre == resource.data.creadoPorNombre
             && request.resource.data.creadoEn == resource.data.creadoEn
             // 'publicadaEn' se fija UNA vez (al publicar) y ya no se borra:
             // si se pudiera quitar, una tarea ya entregada desapareceria del
@@ -1583,24 +1667,143 @@ service cloud.firestore {
                    && request.resource.data.terminadaPorUid == request.auth.uid
                    && request.resource.data.terminadaPorNombre == perfil().get('nombreCompleto', '')) ) )
           ||
-          // Ya cerrada: SOLO la limpieza del tech pack (borrar el manifiesto
-          // cuando los chunks ya se barrieron). Nada mas se puede tocar.
+          // (2) La maquila YA la empezo o ya la declaro terminada: aqui Quini
+          // solo CIERRA (o cancela). Se acota con un diff exacto a propósito:
+          // reeditarle los renglones o el tech pack a alguien que ya esta
+          // armando cambia el encargo debajo de sus manos, y reescribir el
+          // documento entero le permitiria ademas pisar la firma de la maquila
+          // (los tiempos que despues pagan la maquila).
+          ( resource.data.estado in ['iniciada', 'declarada']
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['estado', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPack'])
+            // El manifiesto se borra EN EL MISMO WRITE que cierra, no despues.
+            // La maquila conserva lectura del documento mientras publicadaEn
+            // exista, asi que dejarlo un momento mas le seguiria mostrando el
+            // nombre del archivo -- y ese nombre suele traer el cliente y el
+            // pedido. Los chunks se barren luego; 'techPackBorradoEn' se queda
+            // en null hasta que ese barrido de verdad termine.
+            && (request.resource.data.get('techPack', null) == null
+                || request.resource.data.get('techPack', null) == resource.data.get('techPack', null))
+            && request.resource.data.estado in ['terminada', 'cancelada']
+            && request.resource.data.terminadaEn == request.time
+            && request.resource.data.terminadaPorUid == request.auth.uid
+            && request.resource.data.terminadaPorNombre == perfil().get('nombreCompleto', '') )
+          ||
+          // (3) DEVOLVER una tarea declarada: no cuadro lo que entrego, vuelve
+          // a manos de la maquila. Queda firmado quien la devolvio y por que
+          // -- sin eso, la maquila veria su tarea "abierta otra vez" sin
+          // entender que paso, y no se distinguiria de que ella misma retirara
+          // su declaracion.
+          ( resource.data.estado == 'declarada'
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['estado', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre',
+                           'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion'])
+            && request.resource.data.estado == 'iniciada'
+            // La declaracion se limpia (la tarea ya no esta declarada), pero
+            // el 'iniciadaEn' original NO se toca: el tiempo de armado tiene
+            // que incluir el retrabajo, o devolver una tarea seria una forma
+            // de mejorarle el numero a la maquila.
+            && request.resource.data.declaradaEn == null
+            && request.resource.data.declaradaPorUid == null
+            && request.resource.data.declaradaPorNombre == null
+            && request.resource.data.devueltaEn == request.time
+            && request.resource.data.devueltaPorUid == request.auth.uid
+            && request.resource.data.devueltaPorNombre == perfil().get('nombreCompleto', '')
+            && request.resource.data.motivoDevolucion is string
+            && request.resource.data.motivoDevolucion.size() > 0
+            && request.resource.data.motivoDevolucion.size() <= 300 )
+          ||
+          // (4) Ya cerrada: SOLO la limpieza del tech pack (borrar el
+          // manifiesto cuando los chunks ya se barrieron). Nada mas.
           ( resource.data.estado in ['terminada', 'cancelada']
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['techPack', 'techPackBorradoEn'])
             && request.resource.data.techPack == null
             && request.resource.data.techPackBorradoEn == request.time )
         );
+
+      // ---- Lo que hace la MAQUILA: reportar su avance ----
+      // Tres transiciones, cada una con su diff exacto. La maquila NUNCA toca
+      // el encargo (titulo, renglones, notas), ni el tech pack, ni las firmas
+      // de Quini: dar 'allow update sobre su propio documento' sin acotar deja
+      // reescribirlo entero (es la lección que dejaron las tareas internas,
+      // donde la persona asignada podía bajarse la meta a 0.01).
+      allow update: if esMaquilaDe(maquilaId)
+        && resource.data.get('publicadaEn', null) != null
+        && tareaEnsambleValida(maquilaId)
+        && (
+          // (a) EMPECE. Solo desde 'abierta', y una vez: 'iniciadaEn' nace
+          // aqui y ya no se vuelve a mover en toda la vida de la tarea.
+          ( resource.data.estado == 'abierta'
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['estado', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre'])
+            && request.resource.data.estado == 'iniciada'
+            && request.resource.data.iniciadaEn == request.time
+            && request.resource.data.iniciadaPorUid == request.auth.uid
+            && request.resource.data.iniciadaPorNombre == perfil().get('nombreCompleto', '') )
+          ||
+          // (b) YA TERMINE. Desde 'iniciada' -- y tambien desde 'abierta',
+          // porque a quien se le olvido marcar el inicio no se le puede dejar
+          // la tarea atorada; en ese caso el inicio se sella tambien ahora y
+          // el tiempo de armado sale en cero, que es la verdad conocida.
+          ( resource.data.estado in ['abierta', 'iniciada']
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['estado', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre',
+                           'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila',
+                           'motivoDevolucion'])
+            && request.resource.data.estado == 'declarada'
+            // Al volver a declarar se SALDA la devolucion anterior: el motivo
+            // deja de estar pendiente porque ya se respondio. Solo se puede
+            // limpiar (nunca escribir otro), y el rastro de QUIEN la devolvio
+            // y CUANDO se conserva -- eso no lo puede tocar la maquila.
+            //
+            // Es lo que evita que el aviso "te la regresaron" reaparezca mas
+            // tarde, cuando la maquila retire una declaracion posterior: el
+            // estado 'iniciada' se alcanza por dos caminos distintos y solo
+            // uno de ellos es una devolucion de verdad.
+            && request.resource.data.get('motivoDevolucion', null) == null
+            // Si ya estaba iniciada, su firma de inicio se conserva intacta.
+            && ( resource.data.estado == 'abierta'
+                 || ( request.resource.data.iniciadaEn == resource.data.iniciadaEn
+                      && request.resource.data.iniciadaPorUid == resource.data.iniciadaPorUid
+                      && request.resource.data.iniciadaPorNombre == resource.data.iniciadaPorNombre ) )
+            && ( resource.data.estado == 'iniciada'
+                 || ( request.resource.data.iniciadaEn == request.time
+                      && request.resource.data.iniciadaPorUid == request.auth.uid
+                      && request.resource.data.iniciadaPorNombre == perfil().get('nombreCompleto', '') ) )
+            && request.resource.data.declaradaEn == request.time
+            && request.resource.data.declaradaPorUid == request.auth.uid
+            && request.resource.data.declaradaPorNombre == perfil().get('nombreCompleto', '')
+            && (request.resource.data.get('notaMaquila', null) == null
+                || (request.resource.data.notaMaquila is string
+                    && request.resource.data.notaMaquila.size() <= 300)) )
+          ||
+          // (c) ME EQUIVOQUE: retira su propia declaracion, mientras Quini no
+          // la haya confirmado ni devuelto. El 'iniciadaEn' se conserva.
+          ( resource.data.estado == 'declarada'
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['estado', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila'])
+            && request.resource.data.estado == 'iniciada'
+            && request.resource.data.declaradaEn == null
+            && request.resource.data.declaradaPorUid == null
+            && request.resource.data.declaradaPorNombre == null )
+        );
       allow delete: if false;
     }
 
     match /portalMaquila/{maquilaId}/tareasEnsamble/{tareaId}/techPackChunks/{chunkId} {
-      // La maquila solo lee los chunks de una tarea ABIERTA y con manifiesto:
-      // en cuanto la tarea se cierra, el primer write ya le corto la lectura,
-      // aunque el barrido fisico de los chunks tarde o falle a la mitad.
+      // La maquila lee los chunks mientras la tarea esta VIVA EN SUS MANOS
+      // ('abierta', 'iniciada' o 'declarada') y con manifiesto. En cuanto se
+      // cierra, el primer write ya le corto la lectura, aunque el barrido
+      // fisico tarde o falle a la mitad.
+      //
+      // ⚠️ Los tres estados, no solo 'abierta': el tech pack es EL DOCUMENTO
+      // CON EL QUE ARMA, y dejarlo solo en 'abierta' significaria que al picar
+      // "empece" lo pierde justo cuando lo necesita. 'declarada' tambien
+      // cuenta, porque una tarea devuelta vuelve a sus manos.
       allow read: if puedeCrearTareas()
         || (esMaquilaDe(maquilaId)
-            && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado == 'abierta'
+            && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado in ['abierta', 'iniciada', 'declarada']
             && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.techPack != null);
       // Los chunks SOLO se escriben con la tarea en 'preparando': el archivo
       // no se puede cambiar debajo de una tarea que la maquila ya esta viendo.
@@ -1617,7 +1820,17 @@ service cloud.firestore {
         && request.resource.data.datos.size() > 0
         && request.resource.data.datos.size() <= 950000;
       // El barrido post-cierre y la limpieza de sobrantes al re-subir.
-      allow delete: if puedeCrearTareas() && mismoMundoMaquila(maquilaId);
+      //
+      // Acotado por ESTADO: 'preparando' (se esta reemplazando el archivo) o
+      // una tarea ya cerrada (el barrido de verdad). Antes se podia borrar en
+      // cualquier estado: el cliente no lo hacia, pero nada impedia que un
+      // interno le vaciara el tech pack a una maquila a media faena, dejandole
+      // el documento con el que trabaja en "archivo corrupto". No es escalada
+      // de privilegios, es dejar a alguien sin poder trabajar (2026-08-14).
+      allow delete: if puedeCrearTareas()
+        && mismoMundoMaquila(maquilaId)
+        && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado
+             in ['preparando', 'terminada', 'cancelada'];
     }
 
     // Consultas de grupo para las vistas internas de avios. Solo lectura y

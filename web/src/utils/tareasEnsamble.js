@@ -49,12 +49,36 @@ export const CHUNK_BYTES = 950000
 export const MAX_TECHPACK_BYTES = 15728640
 export const MAX_CHUNKS = 17
 
+// El ciclo completo, desde que Quini la encarga hasta que la cierra:
+//
+//   preparando ─► abierta ─► iniciada ─► declarada ─► terminada
+//                    │           │           │  ▲
+//                    └───────────┴───────────┘  └── Quini confirma
+//                         cancelada (Quini)         (aqui se borra el
+//                                                    tech pack)
+//
+// 'iniciada' y 'declarada' las mueve LA MAQUILA; el cierre es de Quini. Esa
+// separacion no es burocracia: cerrar borra el tech pack, y un dedazo de la
+// maquila le quitaria el documento con el que esta armando. Ademas nadie
+// deberia poder darse por recibido a si mismo -- es el mismo criterio del
+// acuse de bultos y de la revalidacion de calidad en captura-mecanicos.
 export const ESTADOS_TAREA_ENSAMBLE = {
   preparando: 'Subiendo el tech pack',
-  abierta: 'Abierta',
+  abierta: 'Sin empezar',
+  iniciada: 'En proceso',
+  declarada: 'Terminada por la maquila — por confirmar',
   terminada: 'Terminada',
   cancelada: 'Cancelada'
 }
+
+/** Estados en que la tarea sigue viva (no se ha cerrado). */
+export const ESTADOS_VIVOS = ['preparando', 'abierta', 'iniciada', 'declarada']
+
+/** Estados en que la maquila la tiene en sus manos: la ve, la trabaja y
+ *  puede consultar el tech pack. Mismo conjunto que exigen las reglas. */
+export const ESTADOS_EN_LA_MAQUILA = ['abierta', 'iniciada', 'declarada']
+
+export const estaViva = (tarea) => ESTADOS_VIVOS.includes(tarea?.estado)
 
 const pad2 = (n) => String(n).padStart(2, '0')
 
@@ -157,7 +181,21 @@ export async function crearTareaEnsamble({
     terminadaEn: null,
     terminadaPorUid: null,
     terminadaPorNombre: null,
-    techPackBorradoEn: null
+    techPackBorradoEn: null,
+    // Las firmas del reporte de la maquila nacen vacias. Las tareas creadas
+    // ANTES de esto no las traen y no pasa nada: las reglas las leen con
+    // get(campo, null), justamente para no tener que migrar nada.
+    iniciadaEn: null,
+    iniciadaPorUid: null,
+    iniciadaPorNombre: null,
+    declaradaEn: null,
+    declaradaPorUid: null,
+    declaradaPorNombre: null,
+    notaMaquila: null,
+    devueltaEn: null,
+    devueltaPorUid: null,
+    devueltaPorNombre: null,
+    motivoDevolucion: null
   }
   onProgreso('Creando la tarea...')
   await setDoc(ref, base)
@@ -230,6 +268,97 @@ export async function prepararCambioDeTechPack(maquilaId, tareaId) {
   await updateDoc(refTarea(maquilaId, tareaId), { estado: 'preparando' })
 }
 
+// ---------------------------------------------------------------------------
+// Lo que reporta LA MAQUILA
+// ---------------------------------------------------------------------------
+// Las tres funciones escriben exactamente los campos que su rama de las reglas
+// admite. Si aqui se manda uno de mas, el servidor rechaza la escritura
+// entera: el diff de las reglas es `hasOnly`, no una sugerencia.
+
+/** "Ya empece a armar esto." Solo desde 'abierta'. */
+export async function iniciarTareaEnsamble({ maquilaId, tareaId, usuario }) {
+  if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado.')
+  await updateDoc(refTarea(maquilaId, tareaId), {
+    estado: 'iniciada',
+    iniciadaEn: serverTimestamp(),
+    iniciadaPorUid: usuario.uid,
+    iniciadaPorNombre: usuario.nombre
+  })
+}
+
+/**
+ * "Ya termine." NO cierra la tarea: la deja esperando la confirmacion de
+ * Quini, y el tech pack sigue disponible mientras tanto.
+ *
+ * Si la tarea nunca se marco como iniciada, se sella el inicio AHORA junto con
+ * la declaracion (queda tiempo de armado cero, que es la verdad que se sabe).
+ * La alternativa seria obligar a picar "empece" antes, y eso deja atorada a
+ * quien se le olvido.
+ */
+export async function declararTareaEnsambleTerminada({ maquilaId, tarea, usuario, nota }) {
+  if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado.')
+  const notaLimpia = String(nota || '').trim().slice(0, 300)
+  const sinIniciar = tarea.estado === 'abierta'
+  await updateDoc(refTarea(maquilaId, tarea.id), {
+    estado: 'declarada',
+    ...(sinIniciar
+      ? {
+          iniciadaEn: serverTimestamp(),
+          iniciadaPorUid: usuario.uid,
+          iniciadaPorNombre: usuario.nombre
+        }
+      : {}),
+    declaradaEn: serverTimestamp(),
+    declaradaPorUid: usuario.uid,
+    declaradaPorNombre: usuario.nombre,
+    notaMaquila: notaLimpia || null,
+    // Declarar de nuevo SALDA la devolucion anterior: el motivo ya fue
+    // atendido y deja de estar pendiente. Quien la devolvio y cuando se
+    // conservan (eso es historia, no un pendiente).
+    motivoDevolucion: null
+  })
+}
+
+/** "Me equivoque, todavia no termino." Solo mientras Quini no la haya
+ *  confirmado ni devuelto. El inicio NO se toca. */
+export async function retirarDeclaracionTareaEnsamble({ maquilaId, tareaId }) {
+  await updateDoc(refTarea(maquilaId, tareaId), {
+    estado: 'iniciada',
+    declaradaEn: null,
+    declaradaPorUid: null,
+    declaradaPorNombre: null,
+    notaMaquila: null
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Lo que resuelve QUINI
+// ---------------------------------------------------------------------------
+
+/**
+ * DEVOLVER una tarea declarada: no cuadro lo que entrego. Vuelve a manos de la
+ * maquila con el motivo escrito, para que sepa que corregir -- y para que se
+ * distinga de que ella misma haya retirado su declaracion.
+ *
+ * El 'iniciadaEn' original se conserva a proposito: el tiempo de armado tiene
+ * que incluir el retrabajo.
+ */
+export async function devolverTareaEnsamble({ maquilaId, tareaId, usuario, motivo }) {
+  if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado.')
+  const motivoLimpio = String(motivo || '').trim().slice(0, 300)
+  if (!motivoLimpio) throw new ErrorTareaEnsamble('Escribe por que se la regresas: es lo que va a leer la maquila.')
+  await updateDoc(refTarea(maquilaId, tareaId), {
+    estado: 'iniciada',
+    declaradaEn: null,
+    declaradaPorUid: null,
+    declaradaPorNombre: null,
+    devueltaEn: serverTimestamp(),
+    devueltaPorUid: usuario.uid,
+    devueltaPorNombre: usuario.nombre,
+    motivoDevolucion: motivoLimpio
+  })
+}
+
 /**
  * Termina (o cancela) la tarea y BORRA el tech pack.
  *
@@ -244,15 +373,22 @@ export async function terminarTareaEnsamble({ maquilaId, tarea, estado, usuario,
   if (!['terminada', 'cancelada'].includes(estado)) throw new ErrorTareaEnsamble('Estado invalido.')
   if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado.')
   onProgreso(estado === 'terminada' ? 'Cerrando la tarea...' : 'Cancelando la tarea...')
+  // El manifiesto se va EN ESTE MISMO write. La maquila sigue pudiendo leer
+  // el documento de la tarea (su permiso depende de publicadaEn, no del
+  // estado), asi que dejar el manifiesto un momento mas le seguiria mostrando
+  // el NOMBRE del archivo -- y ese nombre suele traer el cliente y el pedido.
   await updateDoc(refTarea(maquilaId, tarea.id), {
     estado,
     terminadaEn: serverTimestamp(),
     terminadaPorUid: usuario.uid,
-    terminadaPorNombre: usuario.nombre
+    terminadaPorNombre: usuario.nombre,
+    techPack: null
   })
-  if (tarea.techPack) {
-    await limpiarTechPack({ maquilaId, tareaId: tarea.id, onProgreso })
-  }
+  // Y los chunks se barren SIEMPRE, sin preguntar si habia manifiesto: una
+  // subida que se corto a la mitad deja chunks con el manifiesto todavia en
+  // null, y condicionar el barrido a que exista los dejaba ahi para siempre,
+  // sin ninguna ruta para limpiarlos.
+  await limpiarTechPack({ maquilaId, tareaId: tarea.id, onProgreso })
 }
 
 /** Barre los chunks en lotes chicos y limpia el manifiesto. Reintentable. */
