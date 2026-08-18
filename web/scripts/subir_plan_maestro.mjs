@@ -21,9 +21,13 @@ import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import {
   collection,
   doc,
+  getDoc,
+  getDocs,
   getFirestore,
+  query,
   serverTimestamp,
   setDoc,
+  where,
   writeBatch
 } from 'firebase/firestore'
 import { leerPlanMaestro } from '../src/utils/importarPlanMaestro.js'
@@ -143,7 +147,6 @@ if (!pass) {
 const cred = await signInWithEmailAndPassword(auth, `${usuario}@${DOMINIO}`, pass)
 const uid = cred.user.uid
 // El nombre tiene que ser EXACTO al del perfil: las reglas lo comparan.
-const { getDoc } = await import('firebase/firestore')
 const perfilSnap = await getDoc(doc(db, 'usuarios', uid))
 const nombre = String(perfilSnap.data()?.nombreCompleto || '').slice(0, 120)
 if (!nombre) {
@@ -181,11 +184,76 @@ for (const p of pedidos) {
     ...(p.destino ? { destino: String(p.destino).slice(0, 120) } : {})
   })
 }
+// --- ACUMULATIVO: se conserva lo que el plan anterior sabia y este archivo no
+// menciona. La unidad de reemplazo es la ORDEN DE TRABAJO. Sin esto, subir el
+// mes que falta BORRA el que ya estaba.
+const activoPrevio = await getDoc(doc(db, 'config', 'planMaestroActivo'))
+const versionAnterior = activoPrevio.exists() ? activoPrevio.data().versionId : null
+let heredadasLineas = 0
+let heredadosPedidos = 0
+if (versionAnterior) {
+  console.log('   Recuperando lo que ya sabia el plan anterior...')
+  const otsNuevas = new Set(entradas.map(([, l]) => l.ot))
+  const pedidosNuevos = new Set([...porPedido.values()].map((p) => p.pedidoClave))
+  const [snapL, snapP] = await Promise.all([
+    getDocs(query(collection(db, 'planMaestroLineas'), where('versionId', '==', versionAnterior))),
+    getDocs(query(collection(db, 'planMaestroPedidos'), where('versionId', '==', versionAnterior)))
+  ])
+  snapL.docs.forEach((d) => {
+    const { versionId: _v, creadoEn: _c, subidoPorUid: _s, ...l } = d.data()
+    if (!l.ot || otsNuevas.has(l.ot)) return
+    const id = idDeLinea({ versionId, oc: l.oc, ot: l.ot, codigo: l.codigo })
+    if (!porId.has(id)) {
+      porId.set(id, { ...l, versionId })
+      heredadasLineas++
+    }
+  })
+  snapP.docs.forEach((d) => {
+    const { versionId: _v, creadoEn: _c, subidoPorUid: _s, ...pd } = d.data()
+    if (!pd.pedidoClave || pedidosNuevos.has(pd.pedidoClave)) return
+    const id = idDePedido(versionId, pd.pedidoClave)
+    if (!porPedido.has(id)) {
+      porPedido.set(id, { ...pd, versionId })
+      heredadosPedidos++
+    }
+  })
+  console.log(`   Se conservan ${heredadasLineas} lineas y ${heredadosPedidos} pedidos del plan anterior.`)
+}
+
+// QUE CAMBIO: lo mismo que ensena la pantalla, para poder verificarlo desde
+// aqui sin abrir el navegador.
+const ocsAntes = new Set()
+const ocAntesDeOt = new Map()
+if (versionAnterior) {
+  const snapPrev = await getDocs(
+    query(collection(db, 'planMaestroLineas'), where('versionId', '==', versionAnterior))
+  )
+  snapPrev.docs.forEach((d) => {
+    const l = d.data()
+    if (l.oc) ocsAntes.add(l.oc)
+    if (l.ot && l.oc && !ocAntesDeOt.has(l.ot)) ocAntesDeOt.set(l.ot, l.oc)
+  })
+}
+const ocsDelArchivo = new Set(entradas.map(([, l]) => l.oc).filter(Boolean))
+const nuevasOc = [...ocsDelArchivo].filter((o) => !ocsAntes.has(o))
+const mudadas = []
+const vistas = new Set()
+entradas.forEach(([, l]) => {
+  if (vistas.has(l.ot)) return
+  vistas.add(l.ot)
+  const antes = ocAntesDeOt.get(l.ot)
+  if (antes && antes !== l.oc) mudadas.push(`OT ${l.ot}: ${antes} -> ${l.oc}`)
+})
+console.log(`   Ordenes de compra NUEVAS: ${nuevasOc.length}${nuevasOc.length ? ' (' + nuevasOc.slice(0, 8).join(', ') + ')' : ''}`)
+console.log(`   Ordenes de trabajo que cambiaron de OC: ${mudadas.length}`)
+mudadas.slice(0, 8).forEach((m) => console.log('     ' + m))
+
+const entradas2 = [...porId.entries()]
 const entradasPedidos = [...porPedido.entries()]
 
 await setDoc(refVersion, {
   archivo: path.basename(absoluta).slice(0, 120),
-  totalLineas: entradas.length,
+  totalLineas: entradas2.length,
   totalPedidos: entradasPedidos.length,
   estado: 'borrador',
   subidoPorUid: uid,
@@ -195,9 +263,11 @@ await setDoc(refVersion, {
 })
 
 let escritas = 0
-const total = entradas.length + entradasPedidos.length
+// entradas2, no entradas: si no, el contador muestra '450 de 80' en cuanto
+// hay lineas heredadas y parece que algo trona.
+const total = entradas2.length + entradasPedidos.length
 for (const [coleccion, items] of [
-  ['planMaestroLineas', entradas],
+  ['planMaestroLineas', entradas2],
   ['planMaestroPedidos', entradasPedidos]
 ]) {
   for (let i = 0; i < items.length; i += LOTE) {
@@ -211,14 +281,32 @@ for (const [coleccion, items] of [
   }
 }
 
-const resumen = resumirOcs(entradas.map(([, l]) => l))
+const resumen = resumirOcs(entradas2.map(([, l]) => l))
 const ocs = resumen.length <= TOPE_RESUMEN ? resumen : null
 const cierre = writeBatch(db)
-cierre.set(refVersion, { estado: 'activa', activadaEn: serverTimestamp() }, { merge: true })
+cierre.set(
+  refVersion,
+  {
+    estado: 'activa',
+    activadaEn: serverTimestamp(),
+    resumen: {
+      ocsNuevas: nuevasOc.slice(0, 60),
+      totalOcsNuevas: nuevasOc.length,
+      totalOcsActualizadas: [...ocsDelArchivo].filter((o) => ocsAntes.has(o)).length,
+      otsNuevas: [...vistas].filter((o) => !ocAntesDeOt.has(o)).length,
+      otsActualizadas: [...vistas].filter((o) => ocAntesDeOt.has(o)).length,
+      conservadas: heredadasLineas,
+      pedidosConservados: heredadosPedidos,
+      mudadas: mudadas.slice(0, 40),
+      totalMudadas: mudadas.length
+    }
+  },
+  { merge: true }
+)
 cierre.set(doc(db, 'config', 'planMaestroActivo'), {
   versionId,
   archivo: path.basename(absoluta).slice(0, 120),
-  totalLineas: entradas.length,
+  totalLineas: entradas2.length,
   totalPedidos: entradasPedidos.length,
   ...(ocs ? { ocs } : {}),
   activadaEn: serverTimestamp(),
@@ -228,7 +316,7 @@ cierre.set(doc(db, 'config', 'planMaestroActivo'), {
 await cierre.commit()
 
 console.log(`[4/4] LISTO. Version ${versionId} activa:`)
-console.log(`   ${entradas.length} lineas del arbol, ${entradasPedidos.length} pedidos en el diccionario,`)
+console.log(`   ${entradas2.length} lineas del arbol, ${entradasPedidos.length} pedidos en el diccionario,`)
 console.log(`   ${resumen.length} ordenes de compra para Lindbergh.`)
 await signOut(auth)
 process.exit(0)

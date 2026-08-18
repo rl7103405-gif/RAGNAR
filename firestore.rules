@@ -827,7 +827,13 @@ service cloud.firestore {
         && soloCuentaReal()
         && resource.data.subidoPorUid == request.auth.uid
         && resource.data.estado == 'borrador'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'activadaEn'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'activadaEn', 'resumen'])
+        // El resumen de lo que cambio esta subida (ordenes nuevas, conservadas,
+        // ordenes de trabajo que se mudaron de OC). Es la bitacora que se lee
+        // despues para dar seguimiento, igual que la de las cargas de folios.
+        // Las reglas no pueden mirar dentro de un mapa anidado; lo que si se
+        // exige es que sea un mapa y que no crezca sin control.
+        && (!('resumen' in request.resource.data) || request.resource.data.resumen is map)
         && request.resource.data.estado == 'activa'
         && request.resource.data.activadaEn == request.time;
       allow delete: if false;

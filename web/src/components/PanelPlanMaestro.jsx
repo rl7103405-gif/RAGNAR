@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext'
 import { leerPlanMaestro } from '../utils/importarPlanMaestro'
 import { ErrorPlanMaestro, REF_ACTIVA, guardarPlanMaestro } from '../utils/planMaestro'
 import { olvidarCacheDelPlan } from '../utils/otResuelta'
+import HistorialPlanes from './HistorialPlanes'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
@@ -25,6 +26,8 @@ export default function PanelPlanMaestro() {
   const [progreso, setProgreso] = useState('')
   const [trabajando, setTrabajando] = useState(false)
   const [vigente, setVigente] = useState(null)
+  // Lo que cambio en la ultima subida, para ensenarlo despues de guardar.
+  const [cambios, setCambios] = useState(null)
   // Guard sincrono contra el doble clic en "Guardar y activar": el estado
   // 'trabajando' no se propaga hasta el siguiente render, asi que un segundo
   // clic entre el primer clic y ese render alcanzaria a leer 'trabajando'
@@ -49,6 +52,7 @@ export default function PanelPlanMaestro() {
   const onElegir = async (file) => {
     setError('')
     setAviso('')
+    setCambios(null)
     setLectura(null)
     setArchivo(file || null)
     if (!file) return
@@ -91,7 +95,11 @@ export default function PanelPlanMaestro() {
       // Si el Excel traia renglones repetidos del mismo codigo se fundieron
       // en uno sumando cantidades: decirlo, o el numero final parece que
       // perdio renglones.
-      const fundidos = res.leidasDelExcel - res.lineas
+      // res.lineas ahora incluye lo HEREDADO del plan anterior, asi que hay que
+      // restarlo para volver a comparar contra los renglones de ESTE archivo. Sin
+      // eso el resultado sale negativo desde la segunda subida y el aviso de
+      // 'renglones fusionados' no vuelve a aparecer nunca.
+      const fundidos = res.leidasDelExcel - (res.lineas - (res.heredadas || 0))
       setAviso(
         `Plan maestro subido: ${res.lineas} lineas del arbol` +
           (fundidos > 0
@@ -100,6 +108,10 @@ export default function PanelPlanMaestro() {
           ` y ${res.pedidos} pedidos en el diccionario. Ya es el plan vigente: Lindbergh lo ve ` +
           'agrupado, y a partir de ahora los folios nuevos toman su orden de trabajo de aqui.'
       )
+      // Que cambio de verdad con esta subida. Sin esto, subir un plan es un
+      // acto ciego: no se sabe si aporto algo, si piso lo que ya estaba, ni si
+      // una orden de trabajo se cambio de orden de compra.
+      setCambios(res.cambios || null)
       // La sesion tenia cacheada la version anterior: si no se olvida, los
       // folios que se capturen enseguida se resolverian contra el plan viejo.
       olvidarCacheDelPlan()
@@ -123,6 +135,73 @@ export default function PanelPlanMaestro() {
     <>
       {error && <div className="alerta-error" style={{ marginBottom: 12 }}>{error}</div>}
       {aviso && <div className="alerta-exito" style={{ marginBottom: 12 }}>{aviso}</div>}
+
+      {/* QUE CAMBIO CON ESTA SUBIDA. Mismo vocabulario que la carga de folios
+          que sube America a diario: nuevas, actualizadas, y lo que se
+          conservo. Un plan es un documento vivo que se sube mes con mes, y sin
+          esto no hay manera de darle seguimiento. */}
+      {cambios && (
+        <div className="tarjeta" style={{ marginBottom: 12 }}>
+          <h2>Que cambio con esta subida</h2>
+          <div className="detalle-kpis" style={{ marginTop: 8 }}>
+            <div className="kpi">
+              <div className="kpi-num">{cambios.ocsNuevas.length}</div>
+              <div className="kpi-lbl">ordenes de compra NUEVAS</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-num">{cambios.ocsActualizadas.length}</div>
+              <div className="kpi-lbl">ordenes que ya existian</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-num">{cambios.otsNuevas}</div>
+              <div className="kpi-lbl">ordenes de trabajo nuevas</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-num">{cambios.conservadas}</div>
+              <div className="kpi-lbl">lineas conservadas del plan anterior</div>
+            </div>
+          </div>
+
+          {cambios.ocsNuevas.length > 0 && (
+            <p style={{ fontSize: 13, marginTop: 10 }}>
+              <strong>Nuevas:</strong> {cambios.ocsNuevas.join(' · ')}
+            </p>
+          )}
+
+          <p className="texto-suave" style={{ fontSize: 13 }}>
+            El plan es <strong>acumulativo</strong>: este archivo agrego o corrigio lo suyo, y lo que
+            no menciona se conservo tal cual. Subir el mes que falta ya no borra el mes que estaba.
+          </p>
+
+          {/* Lo mas delicado que puede traer un archivo: una orden de trabajo
+              que se muda de orden de compra mueve produccion ya contada de una
+              a otra. Va destacado. */}
+          {cambios.otsQueCambiaronDeOc.length > 0 && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: '10px 12px',
+                borderRadius: 6,
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                fontSize: 13
+              }}
+            >
+              <strong>
+                {cambios.otsQueCambiaronDeOc.length} ordenes de trabajo cambiaron de orden de compra:
+              </strong>
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                {cambios.otsQueCambiaronDeOc.slice(0, 15).map((c) => (
+                  <li key={c.ot}>
+                    OT {c.ot}: estaba en {c.antes}, ahora en {c.ahora}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+        </div>
+      )}
 
       <div className="tarjeta">
         <h2>Plan maestro de produccion</h2>
@@ -306,6 +385,10 @@ export default function PanelPlanMaestro() {
           </button>
         </div>
       )}
+
+      <div style={{ marginTop: 18 }}>
+        <HistorialPlanes />
+      </div>
     </>
   )
 }

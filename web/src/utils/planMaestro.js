@@ -193,6 +193,65 @@ export async function destinoDeOt(ot) {
 // Escritura (la sube Adrian)
 // ---------------------------------------------------------------------------
 
+
+/**
+ * Lo que la version ANTERIOR sabia y la subida nueva no menciona.
+ *
+ * ⚠️ EL PLAN ES ACUMULATIVO POR ORDEN DE TRABAJO, no un reemplazo.
+ *
+ * Se aprendio caro el 2026-08-18: Adrian trabaja un archivo POR MES, y al
+ * subir el de julio encima del de agosto se perdieron las 54 ordenes que solo
+ * traia agosto. Resultado: las 122 tareas abiertas se quedaron SIN orden de
+ * compra de golpe — la app quedo peor que antes de subir nada, y sin dar un
+ * solo error. Subir un mes que faltaba tiene que SUMAR, no borrar el anterior.
+ *
+ * La unidad de reemplazo es la ORDEN DE TRABAJO: si el archivo nuevo habla de
+ * la OT 7887, lo que diga manda y las lineas viejas de esa OT se descartan
+ * (asi una correccion sigue funcionando). Si no la menciona, se conserva tal
+ * cual. Igual el diccionario, pero por texto de pedido.
+ */
+async function loQueSeArrastra({ versionAnterior, versionId, otsNuevas, pedidosNuevos, onProgreso }) {
+  if (!versionAnterior) return { lineas: [], pedidos: [] }
+  onProgreso('Recuperando lo que ya sabia el plan anterior...')
+  try {
+    const [snapLineas, snapPedidos] = await Promise.all([
+      getDocs(query(collection(db, 'planMaestroLineas'), where('versionId', '==', versionAnterior))),
+      getDocs(query(collection(db, 'planMaestroPedidos'), where('versionId', '==', versionAnterior)))
+    ])
+    const ocAnteriorDeOt = new Map()
+    snapLineas.docs.forEach((d) => {
+      const l = d.data()
+      if (l.ot && l.oc && !ocAnteriorDeOt.has(l.ot)) ocAnteriorDeOt.set(l.ot, l.oc)
+    })
+    const lineas = snapLineas.docs
+      .map((d) => d.data())
+      .filter((l) => l.ot && !otsNuevas.has(l.ot))
+      .map(({ versionId: _v, creadoEn: _c, subidoPorUid: _s, ...resto }) => ({ ...resto, versionId }))
+    const pedidos = snapPedidos.docs
+      .map((d) => d.data())
+      .filter((p) => p.pedidoClave && !pedidosNuevos.has(p.pedidoClave))
+      .map(({ versionId: _v, creadoEn: _c, subidoPorUid: _s, ...resto }) => ({ ...resto, versionId }))
+    return { lineas, pedidos, ocAnteriorDeOt }
+  } catch (err) {
+    // ⚠️ AQUI SE ABORTA, no se sigue. La primera version de esto avisaba en
+    // pantalla y subia igual, con solo lo del archivo nuevo — o sea que un
+    // corte de red bastaba para repetir el incidente del 18-08 (julio encima
+    // de agosto dejo 122 tareas sin orden de compra). Y el aviso llegaba
+    // DESPUES de que el plan incompleto ya estaba activo, que es cuando ya no
+    // sirve de nada.
+    //
+    // Se lanza antes de escribir el primer documento, asi que no queda nada a
+    // medias: ni version huerfana ni puntero movido. El plan que ya estaba
+    // sigue siendo el vigente, que es lo correcto cuando no se puede
+    // garantizar que el nuevo lo conserve.
+    console.warn('[PlanMaestro] No se pudo arrastrar el plan anterior:', err?.message)
+    throw new ErrorPlanMaestro(
+      'No se pudo leer el plan que ya estaba, y subir asi habria borrado lo que sabia. ' +
+        'No se subio nada: el plan anterior sigue vigente. Vuelve a intentarlo.'
+    )
+  }
+}
+
 /**
  * Guarda una version NUEVA del plan y la deja activa.
  *
@@ -253,13 +312,74 @@ export async function guardarPlanMaestro({
       ...(p.destino ? { destino: String(p.destino).slice(0, 120) } : {})
     })
   }
+  // --- LO ACUMULATIVO: se arrastra lo que el plan anterior sabia y este
+  // archivo no menciona. Sin esto, subir el mes que falta BORRA el mes que ya
+  // estaba (paso el 18-08 con julio sobre agosto: 122 tareas se quedaron sin
+  // orden de compra de golpe y sin un solo error en pantalla).
+  const versionAnterior = await versionActiva()
+  const heredado = await loQueSeArrastra({
+    versionAnterior,
+    versionId,
+    otsNuevas: new Set(entradas.map(([, l]) => l.ot)),
+    pedidosNuevos: new Set(porPedido.size ? [...porPedido.values()].map((p) => p.pedidoClave) : []),
+    onProgreso
+  })
+  heredado.lineas.forEach((l) => {
+    const id = idDeLinea({ versionId, oc: l.oc, ot: l.ot, codigo: l.codigo })
+    if (!porId.has(id)) porId.set(id, l)
+  })
+  heredado.pedidos.forEach((pd) => {
+    const id = idDePedido(versionId, pd.pedidoClave)
+    if (!porPedido.has(id)) porPedido.set(id, pd)
+  })
+
+  // QUE CAMBIO CON ESTA SUBIDA. Mismo vocabulario que la carga de folios que
+  // sube America a diario (nuevos / actualizados / sin cambios), porque es el
+  // mismo gesto y no tiene por que aprenderse otro. Sin esto, subir un plan es
+  // un acto ciego: no se sabe si aporto algo o si piso lo que ya estaba.
+  const ocAntes = heredado.ocAnteriorDeOt || new Map()
+  const ocsAntes = new Set([...ocAntes.values()])
+  const cambios = {
+    ocsNuevas: [],
+    ocsActualizadas: [],
+    otsNuevas: 0,
+    otsActualizadas: 0,
+    otsQueCambiaronDeOc: [],
+    conservadas: heredado.lineas.length,
+    pedidosConservados: heredado.pedidos.length
+  }
+  const ocsDelArchivo = new Map() // oc -> Set(ot)
+  entradas.forEach(([, l]) => {
+    if (!l.oc) return
+    if (!ocsDelArchivo.has(l.oc)) ocsDelArchivo.set(l.oc, new Set())
+    ocsDelArchivo.get(l.oc).add(l.ot)
+  })
+  const otsVistas = new Set()
+  entradas.forEach(([, l]) => {
+    if (otsVistas.has(l.ot)) return
+    otsVistas.add(l.ot)
+    const antes = ocAntes.get(l.ot)
+    if (!antes) cambios.otsNuevas += 1
+    else if (antes !== l.oc) {
+      cambios.otsActualizadas += 1
+      // Una OT que se mueve de orden de compra es lo mas delicado que puede
+      // traer un archivo: hay que verlo, no enterarse despues.
+      cambios.otsQueCambiaronDeOc.push({ ot: l.ot, antes, ahora: l.oc })
+    } else cambios.otsActualizadas += 1
+  })
+  for (const oc of ocsDelArchivo.keys()) {
+    if (ocsAntes.has(oc)) cambios.ocsActualizadas.push(oc)
+    else cambios.ocsNuevas.push(oc)
+  }
+
+  const entradas2 = [...porId.entries()]
   const entradasPedidos = [...porPedido.entries()]
-  const totalEscrituras = entradas.length + entradasPedidos.length
+  const totalEscrituras = entradas2.length + entradasPedidos.length
 
   onProgreso('Registrando la subida...')
   await setDoc(refVersion, {
     archivo: String(archivo || '').slice(0, 120),
-    totalLineas: entradas.length,
+    totalLineas: entradas2.length,
     totalPedidos: entradasPedidos.length,
     estado: 'borrador',
     subidoPorUid: usuario.uid,
@@ -288,7 +408,7 @@ export async function guardarPlanMaestro({
     }
   }
 
-  await escribirLotes(entradas, 'planMaestroLineas')
+  await escribirLotes(entradas2, 'planMaestroLineas')
   await escribirLotes(entradasPedidos, 'planMaestroPedidos')
 
   onProgreso('Activando el plan...')
@@ -296,7 +416,7 @@ export async function guardarPlanMaestro({
   // lectura. Si un dia hubiera cientos de ordenes de compra dejaria de caber
   // (un documento de Firestore topa en 1 MB) y la subida entera fallaria: por
   // eso, pasado el tope, se omite y la pestana lo reconstruye leyendo.
-  const resumen = resumirOcs(entradas.map(([, l]) => l))
+  const resumen = resumirOcs(entradas2.map(([, l]) => l))
   const ocs = resumen.length <= TOPE_RESUMEN ? resumen : null
   if (!ocs) {
     console.warn(
@@ -305,11 +425,32 @@ export async function guardarPlanMaestro({
     )
   }
   const cierre = writeBatch(db)
-  cierre.set(refVersion, { estado: 'activa', activadaEn: serverTimestamp() }, { merge: true })
+  // El resumen viaja DENTRO de la version: es la bitacora que se consulta
+  // despues para dar seguimiento, igual que la de las cargas de folios de
+  // America. Los arrays se topan para no inflar el documento.
+  cierre.set(
+    refVersion,
+    {
+      estado: 'activa',
+      activadaEn: serverTimestamp(),
+      resumen: {
+        ocsNuevas: cambios.ocsNuevas.slice(0, 60),
+        totalOcsNuevas: cambios.ocsNuevas.length,
+        totalOcsActualizadas: cambios.ocsActualizadas.length,
+        otsNuevas: cambios.otsNuevas,
+        otsActualizadas: cambios.otsActualizadas,
+        conservadas: cambios.conservadas,
+        pedidosConservados: cambios.pedidosConservados,
+        mudadas: cambios.otsQueCambiaronDeOc.slice(0, 40),
+        totalMudadas: cambios.otsQueCambiaronDeOc.length
+      }
+    },
+    { merge: true }
+  )
   cierre.set(REF_ACTIVA(), {
     versionId,
     archivo: String(archivo || '').slice(0, 120),
-    totalLineas: entradas.length,
+    totalLineas: entradas2.length,
     totalPedidos: entradasPedidos.length,
     // El resumen por OC viaja aqui para que abrir la pestana cueste UNA
     // lectura en vez de las 3419 lineas del plan.
@@ -325,8 +466,13 @@ export async function guardarPlanMaestro({
 
   return {
     versionId,
-    lineas: entradas.length,
+    lineas: entradas2.length,
     pedidos: entradasPedidos.length,
-    leidasDelExcel: lineas.length
+    leidasDelExcel: lineas.length,
+    // Cuanto vino de este archivo y cuanto se conservo del plan anterior: la
+    // pantalla lo dice, para que subir un mes no parezca que borro otro.
+    heredadas: heredado.lineas.length,
+    heredadosPedidos: heredado.pedidos.length,
+    cambios
   }
 }
