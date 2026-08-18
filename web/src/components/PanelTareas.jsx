@@ -205,6 +205,15 @@ export default function PanelTareas() {
   // Se ubican las OT de todas las tareas en una sola tanda (la pantalla llega a
   // tener 124 tarjetas; una consulta por tarjeta seria absurdo). Las tareas por
   // codigo tambien cuentan: su lista `ots` dice a que ordenes pertenecen.
+  // DONDE CAE CADA TAREA EN EL PLAN. Lindbergh pide por orden de trabajo pero
+  // tiene que cumplir ordenes de compra: sin esto, la pantalla le da 124
+  // tarjetas sueltas y el agrupador se lo tiene que saber de memoria — que es
+  // exactamente lo que la junta del 17-08 pidio quitarle.
+  const [ubicaciones, setUbicaciones] = useState(new Map())
+  // Un solo buscador que entiende folio, codigo, orden de trabajo, orden de
+  // compra y destino: cada quien busca por lo que ya trae en la cabeza.
+  const [busqueda, setBusqueda] = useState('')
+
   const otsDeLasTareas = useMemo(() => {
     const set = new Set()
     misTareas.forEach((t) => {
@@ -356,14 +365,6 @@ export default function PanelTareas() {
   // y se les resta lo ya capturado. { [tareaId]: { cargando, folios, error } }
   const [faltantes, setFaltantes] = useState({})
 
-  // DONDE CAE CADA TAREA EN EL PLAN. Lindbergh pide por orden de trabajo pero
-  // tiene que cumplir ordenes de compra: sin esto, la pantalla le da 124
-  // tarjetas sueltas y el agrupador se lo tiene que saber de memoria — que es
-  // exactamente lo que la junta del 17-08 pidio quitarle.
-  const [ubicaciones, setUbicaciones] = useState(new Map())
-  // Un solo buscador que entiende folio, codigo, orden de trabajo, orden de
-  // compra y destino: cada quien busca por lo que ya trae en la cabeza.
-  const [busqueda, setBusqueda] = useState('')
 
   const consultarFaltantes = async (tarea) => {
     if (tarea.objetivoTipo !== 'codigo') return

@@ -67,6 +67,28 @@ export function normalizarPedido(valor) {
     .slice(0, 200)
 }
 
+/**
+ * La ORDEN DE TRABAJO leida del TEXTO del pedido. Es el respaldo, no la verdad
+ * (la verdad la manda el plan maestro, ver otResuelta.js).
+ *
+ * Dos formas, en este orden:
+ *   1. 'OT:6872' al final -> 6872. Si el texto la dice, es esa. Cubre los 838
+ *      renglones del plan real que empiezan con 'C_' y antes no daban nada.
+ *   2. Los primeros 4 digitos ('7887_REPOSICION_2408' -> '7887'), que es como
+ *      se derivo siempre y sigue siendo correcto en 2556 de 3419 casos.
+ *
+ * Vive en el nucleo (sin Firebase) porque la usa hasta pdf.js, que corre al
+ * generar el papel y no debe arrastrar el cliente de Firestore.
+ */
+export function otDelTexto(pedido) {
+  if (!pedido) return null
+  const texto = String(pedido).trim()
+  const marcada = /OT\s*[:#-]\s*(\d{3,6})/i.exec(texto)
+  if (marcada) return normalizarOt(marcada[1])
+  const primeros = /^\d{4}/.exec(texto)
+  return primeros ? normalizarOt(primeros[0]) : null
+}
+
 // ---------------------------------------------------------------------------
 // Estados de la orden de compra
 // ---------------------------------------------------------------------------

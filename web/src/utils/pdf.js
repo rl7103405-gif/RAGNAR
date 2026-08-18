@@ -10,6 +10,9 @@
 // sigue en la siguiente repitiendo su encabezado, y el pie lleva las dos
 // numeraciones (hoja de la orden y hoja del paquete completo).
 import { compararAscendente } from './texto'
+// Del nucleo, que NO importa Firebase: pdf.js corre al generar el papel y no
+// tiene por que arrastrar el cliente de Firestore.
+import { normalizarOt, otDelTexto } from './planMaestroNucleo.js'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { LOGO_QUINI_PNG_BASE64 } from '../assets/logoQuini'
@@ -39,9 +42,32 @@ export function otDePedido(pedido) {
   return m ? m[0] : null
 }
 
-/** Orden de trabajo de una captura (SIN_ORDEN si su pedido no la trae). */
+/**
+ * Orden de trabajo de una captura (SIN_ORDEN si no se puede saber).
+ *
+ * ⚠️ EL PUNTO UNICO donde se decide a que OT pertenece un bulto. Lo usan el
+ * PDF, Captura, Historial, el agrupador y las Tareas: mientras todos pasen por
+ * aqui, lo que se ve en pantalla coincide con lo que sale en el papel.
+ *
+ * Orden de preferencia:
+ *   1. `producto.ot`, congelada al capturar. Ahi ya se resolvio contra el plan
+ *      maestro de Adrian, que es la fuente buena, y no se vuelve a tocar: si
+ *      se re-resolviera, subir el plan de la semana que entra movria de orden
+ *      produccion ya contada.
+ *   2. El texto del pedido, para los bultos anteriores al 2026-08-17 que no
+ *      traen el campo.
+ *
+ * Antes esto derivaba SIEMPRE del texto con otDePedido (primeros 4 digitos).
+ * Medido contra el plan real: fallaba en 863 de 3419 pedidos — 838 que
+ * empiezan con 'C_' y no daban nada, y 25 del tipo '7512_REPOSICION_7551' que
+ * contestaban 7512 siendo 7551, o sea una OT que SI existe. El arbol ya usaba
+ * el criterio bueno y estas pantallas no: los mismos folios se agrupaban
+ * distinto segun donde los miraras.
+ */
 export function ordenDeCaptura(captura) {
-  return otDePedido(captura.producto?.pedido) ?? SIN_ORDEN
+  const congelada = captura?.producto?.ot
+  if (congelada) return normalizarOt(congelada)
+  return otDelTexto(captura?.producto?.pedido) ?? SIN_ORDEN
 }
 
 /** Agrupa las capturas por orden de trabajo. Las OT salen en orden ASCENDENTE

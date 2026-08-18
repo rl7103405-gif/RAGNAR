@@ -25,6 +25,7 @@ import { collection, documentId, getDocs, orderBy, query, where } from 'firebase
 import { db } from '../firebase/config'
 import { docenasDeCaptura } from './reimprimir'
 import { MAX_IN, normalizarCodigo, normalizarOt, normalizarPedido } from './planMaestro'
+import { ordenDeCaptura, SIN_ORDEN } from './pdf'
 import { otDelTexto, resolverVarios } from './otResuelta'
 
 /**
@@ -44,10 +45,12 @@ import { otDelTexto, resolverVarios } from './otResuelta'
  * 273 de 1214 pedidos del diccionario.
  */
 export function otDeBulto(bulto) {
-  const guardada = bulto?.producto?.ot
-  if (guardada) return normalizarOt(guardada)
-  const ot = otDelTexto(bulto?.producto?.pedido)
-  return ot ? normalizarOt(ot) : ''
+  // Delega en ordenDeCaptura (pdf.js), que es EL punto unico donde se decide
+  // la OT de un bulto: campo congelado primero, texto de respaldo despues.
+  // Antes esto tenia su propia copia de esa logica y el arbol se agrupaba
+  // distinto que el PDF y que el Historial.
+  const ot = ordenDeCaptura(bulto)
+  return ot === SIN_ORDEN ? '' : normalizarOt(ot)
 }
 
 /**

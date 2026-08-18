@@ -28,32 +28,15 @@
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { idDePedido, normalizarOt, normalizarPedido, planVigente } from './planMaestro'
+import { otDelTexto } from './planMaestroNucleo.js'
 
 /** De donde salio la OT de un bulto. Se guarda junto a ella. */
 export const ORIGEN_PLAN = 'plan'
 export const ORIGEN_TEXTO = 'texto'
 export const ORIGEN_NINGUNA = 'ninguna'
 
-/**
- * La OT leida del TEXTO del pedido. Es el respaldo, no la verdad.
- *
- * Dos formas, en este orden:
- *   1. 'OT:6872' al final -> 6872. Es explicita: si el texto la dice, es esa.
- *      Cubre los 838 renglones que empiezan con 'C_' y antes no daban nada.
- *   2. Los primeros 4 digitos ('7887_REPOSICION_2408' -> '7887'), que es como
- *      se ha derivado siempre y sigue siendo correcto en 2556 de 3419 casos.
- *
- * Lo que NO puede hacer: los 25 casos tipo '7512_REPOSICION_7551', donde los
- * dos numeros son OT reales y solo el plan sabe cual manda.
- */
-export function otDelTexto(pedido) {
-  if (!pedido) return null
-  const texto = String(pedido).trim()
-  const marcada = /OT\s*[:#-]\s*(\d{3,6})/i.exec(texto)
-  if (marcada) return normalizarOt(marcada[1])
-  const primeros = /^\d{4}/.exec(texto)
-  return primeros ? normalizarOt(primeros[0]) : null
-}
+// otDelTexto vive en el nucleo (sin Firebase) porque tambien la usa pdf.js.
+export { otDelTexto } from './planMaestroNucleo.js'
 
 // ---------------------------------------------------------------------------
 // Cache de sesion

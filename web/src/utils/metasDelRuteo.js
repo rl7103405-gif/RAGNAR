@@ -11,7 +11,9 @@
 // ESTIMADA para que quien importa decida si la acepta o la corrige a mano.
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import { otDePedido } from './pdf'
+// El MISMO criterio de texto que usa ordenDeCaptura: si aqui una OT se lee
+// distinto que alla, la meta se calcula sobre folios que la tarea no cuenta.
+import { otDelTexto } from './planMaestroNucleo.js'
 
 // Tope del operador 'in' de Firestore.
 const LOTE_IN = 30
@@ -105,7 +107,7 @@ export async function rellenarMetasDesdeRuteo(tareas) {
     }
 
     const relevantes = delCodigo.filter((f) => {
-      if (!ots.includes(otDePedido(f.pedido))) return false
+      if (!ots.includes(otDelTexto(f.pedido))) return false
       // La fecha del folio si la trae; si no, cuando se vio por ultima vez.
       // Ver el porque de los dos criterios en DIAS_RUTEO_VIGENTE.
       const propia = f.fecha?.toDate ? f.fecha.toDate() : null
@@ -149,7 +151,7 @@ export async function rellenarMetasDesdeRuteo(tareas) {
       // Se comparan contra los folios que SI contaron (relevantes): si una OT
       // solo tiene folios viejos, su meta no entro en la suma y hay que
       // avisarlo igual que si no tuviera ninguno.
-      otsSinRuteo: ots.filter((ot) => !relevantes.some((f) => otDePedido(f.pedido) === ot))
+      otsSinRuteo: ots.filter((ot) => !relevantes.some((f) => otDelTexto(f.pedido) === ot))
     }
   })
 
