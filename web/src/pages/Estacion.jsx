@@ -20,33 +20,28 @@ import PanelReportes from '../components/PanelReportes'
 import PanelIndicadores from '../components/PanelIndicadores'
 import PanelAutorizaciones from '../components/PanelAutorizaciones'
 import PanelTareas from '../components/PanelTareas'
-import PanelTareasMaquila from '../components/PanelTareasMaquila'
 import PanelPlanMaestro from '../components/PanelPlanMaestro'
 import PanelArbolOrdenes from '../components/PanelArbolOrdenes'
-import Maquilas from '../components/Maquilas'
 import PortalMaquila from '../components/PortalMaquila'
-import Avios from '../components/Avios'
 import PedirAviosMaquila from '../components/PedirAviosMaquila'
-import PanelSolicitudesAvios from '../components/PanelSolicitudesAvios'
-import PanelEnviarAvios from '../components/PanelEnviarAvios'
 import RecibirAviosMaquila from '../components/RecibirAviosMaquila'
-import PanelInventarioAvios from '../components/PanelInventarioAvios'
 import TareasEnsambleMaquila from '../components/TareasEnsambleMaquila'
+import PanelMaquilasTodo from '../components/PanelMaquilasTodo'
 import { useAuth } from '../context/AuthContext'
 
 const TABS = [
   { id: 'captura', label: 'Captura' },
   { id: 'tareas', label: 'Tareas' },
-  { id: 'tareas-maquila', label: 'Tareas a maquilas' },
   { id: 'folios', label: 'Folios del dia' },
   { id: 'historial', label: 'Historial' },
   { id: 'reportes', label: 'Reportes' },
   { id: 'indicadores', label: 'Indicadores' },
+  // UNA sola pestana para todo lo de maquilas (Roberto, 18-08: "hay que
+  // reducir la cantidad de pestanas, esta disperso por muchos lados"). Antes
+  // eran seis: Maquilas, Tareas a maquilas, Piden material, Mandar material,
+  // Inventario maquilas y Avios. Adentro viven como secciones, en el orden
+  // del trabajo real. Ver PanelMaquilasTodo.jsx.
   { id: 'maquilas', label: 'Maquilas' },
-  { id: 'avios', label: 'Avios' },
-  { id: 'pedidos-avios', label: 'Piden material' },
-  { id: 'enviar-avios', label: 'Mandar material' },
-  { id: 'inventario-avios', label: 'Inventario maquilas' },
   // El arbol OC -> OT -> codigo que pidio Lindbergh (junta 17-08). Va con
   // nombre de negocio, no tecnico: el vocabulario en pantalla es parte del
   // sistema.
@@ -63,12 +58,12 @@ const TABS_CAPTURA = ['captura']
 // desde el 2026-08-13 ADMINISTRA EL CATALOGO DE AVIOS (pestana Avios; el alta
 // se gatea con su flag administraCatalogoAvios). Sigue sin capturar, sin
 // cargar el Excel del dia y sin crear tareas.
-const TABS_CONSULTA = ['ordenes', 'historial', 'reportes', 'indicadores', 'registros', 'avios']
+const TABS_CONSULTA = ['ordenes', 'historial', 'reportes', 'indicadores', 'registros', 'maquilas']
 
 // Alvaro (rol 'almacen') maneja los AVIOS que se mandan: solicitudes, envios
 // e inventario de las maquilas (SOLO avios: bultos y embarques no son suyos).
 // El catalogo lo consulta pero ya no lo administra (es de Cielo).
-const TABS_ALMACEN = ['pedidos-avios', 'enviar-avios', 'inventario-avios', 'avios', 'tareas']
+const TABS_ALMACEN = ['maquilas', 'tareas']
 
 // Adrian (rol 'produccion'): sube el plan maestro y comprueba en el arbol que
 // quedo bien amarrado. No captura, no embarca, no toca avios.
@@ -174,7 +169,9 @@ export default function Estacion() {
         : esAdmin
           ? TABS.map((t) => t.id)
           : TABS_COMPLETO
-  const conTareas = puedeCrearTareas && !base.includes('tareas-maquila') ? [...base, 'tareas-maquila'] : base
+  // Quien puede encargar tareas a maquilas entra por la pestana de Maquilas,
+  // donde 'Tareas' es la primera seccion.
+  const conTareas = puedeCrearTareas && !base.includes('maquilas') ? [...base, 'maquilas'] : base
   // El plan maestro solo lo ve quien lo sube: es de produccion, no de
   // embarques.
   const permitidas = puedeSubirPlanMaestro ? conTareas : conTareas.filter((t) => t !== 'plan-maestro')
@@ -200,16 +197,11 @@ export default function Estacion() {
 
       {tabActiva === 'captura' && <PanelCaptura />}
       {tabActiva === 'tareas' && <PanelTareas />}
-      {tabActiva === 'tareas-maquila' && <PanelTareasMaquila />}
       {tabActiva === 'folios' && <CargaRuteo />}
       {tabActiva === 'historial' && <PanelHistorial />}
       {tabActiva === 'reportes' && <PanelReportes />}
       {tabActiva === 'indicadores' && <PanelIndicadores />}
-      {tabActiva === 'maquilas' && <Maquilas />}
-      {tabActiva === 'avios' && <Avios />}
-      {tabActiva === 'pedidos-avios' && <PanelSolicitudesAvios />}
-      {tabActiva === 'enviar-avios' && <PanelEnviarAvios />}
-      {tabActiva === 'inventario-avios' && <PanelInventarioAvios />}
+      {tabActiva === 'maquilas' && <PanelMaquilasTodo />}
       {tabActiva === 'ordenes' && <PanelArbolOrdenes />}
       {tabActiva === 'plan-maestro' && <PanelPlanMaestro />}
       {tabActiva === 'registros' && <PanelAutorizaciones />}

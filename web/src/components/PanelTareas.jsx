@@ -34,6 +34,8 @@ import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { ordenDeCaptura } from '../utils/pdf'
 import { docenasDeCaptura } from '../utils/reimprimir'
+import { ubicarOts } from '../utils/ubicacionEnPlan'
+import { normalizarOt } from '../utils/planMaestro'
 import { coincide } from '../utils/texto'
 import { leerExcelTareas, tituloYNotas, ErrorImportacionTareas } from '../utils/importarTareas'
 import { rellenarMetasDesdeRuteo } from '../utils/metasDelRuteo'
@@ -200,8 +202,97 @@ export default function PanelTareas() {
       puedeCrearTareas ? conAvance : conAvance.filter((t) => t.asignadoAUid === authUser?.uid),
     [conAvance, puedeCrearTareas, authUser?.uid]
   )
-  const abiertas = useMemo(() => misTareas.filter((t) => t.estado === 'abierta'), [misTareas])
-  const cerradas = useMemo(() => misTareas.filter((t) => t.estado !== 'abierta'), [misTareas])
+  // Se ubican las OT de todas las tareas en una sola tanda (la pantalla llega a
+  // tener 124 tarjetas; una consulta por tarjeta seria absurdo). Las tareas por
+  // codigo tambien cuentan: su lista `ots` dice a que ordenes pertenecen.
+  const otsDeLasTareas = useMemo(() => {
+    const set = new Set()
+    misTareas.forEach((t) => {
+      if (t.objetivoTipo === 'ot' && t.objetivoValor) set.add(String(t.objetivoValor))
+      ;(Array.isArray(t.ots) ? t.ots : []).forEach((o) => set.add(String(o)))
+    })
+    return [...set]
+  }, [misTareas])
+
+  useEffect(() => {
+    let cancelado = false
+    if (!otsDeLasTareas.length) return
+    ubicarOts(otsDeLasTareas).then((mapa) => {
+      if (!cancelado) setUbicaciones(mapa)
+    })
+    return () => {
+      cancelado = true
+    }
+  }, [otsDeLasTareas.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** La orden de compra y el destino de una tarea, si el plan los conoce. */
+  const enElPlan = (t) => {
+    const ots = t.objetivoTipo === 'ot' ? [t.objetivoValor] : Array.isArray(t.ots) ? t.ots : []
+    for (const ot of ots) {
+      // normalizarOt y no una copia a mano: ubicarOts indexa el Map con esa
+      // misma funcion, y dos criterios distintos harian que el cruce falle sin
+      // dar ningun error (regla dura que ya nos mordio).
+      const u = ubicaciones.get(normalizarOt(ot))
+      if (u) return { ...u, ot: String(ot) }
+    }
+    return null
+  }
+
+  // Un solo buscador para todos los niveles: America teclea un folio o un
+  // codigo, Lindbergh una orden de trabajo o una de compra, y el papa el
+  // nombre del cliente. Cada quien busca por lo que ya trae en la cabeza en
+  // vez de aprenderse el vocabulario de otro.
+  const filtradas = useMemo(() => {
+    const q = busqueda.trim()
+    if (!q) return misTareas
+    return misTareas.filter((t) => {
+      const u = enElPlan(t)
+      return (
+        coincide(t.titulo, q) ||
+        coincide(t.objetivoValor, q) ||
+        coincide(t.notas || '', q) ||
+        coincide(t.asignadoANombre || '', q) ||
+        (Array.isArray(t.ots) && t.ots.some((o) => coincide(String(o), q))) ||
+        (u && (coincide(u.oc, q) || coincide(u.destino, q)))
+      )
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [misTareas, busqueda, ubicaciones])
+
+  // COMO VA CADA ORDEN DE COMPRA, sumando sus tareas. Es lo que Lindbergh
+  // necesita y no tenia: el pide por orden de TRABAJO, pero a el le exigen la
+  // orden de COMPRA. Aqui las dos cosas viven en la misma pantalla.
+  const porOrdenDeCompra = useMemo(() => {
+    const mapa = new Map()
+    filtradas
+      .filter((t) => t.estado === 'abierta')
+      .forEach((t) => {
+        const u = enElPlan(t)
+        if (!u?.oc) return
+        if (!mapa.has(u.oc)) {
+          mapa.set(u.oc, { oc: u.oc, destino: u.destino, tareas: 0, meta: 0, hecho: 0, ots: new Set() })
+        }
+        const g = mapa.get(u.oc)
+        g.tareas += 1
+        g.meta += Number(t.metaDocenas) || 0
+        // Topado en su propia meta, igual que el arbol: sin el tope, una tarea
+        // sobrecumplida tapa a otra que no arranco y la orden se ve lista.
+        g.hecho += Math.min(t.avance?.docenas || 0, Number(t.metaDocenas) || 0)
+        if (u.ot) g.ots.add(u.ot)
+        if (!g.destino && u.destino) g.destino = u.destino
+      })
+    return [...mapa.values()]
+      .map((g) => ({
+        ...g,
+        ots: [...g.ots],
+        porcentaje: g.meta > 0 ? Math.min(100, (g.hecho / g.meta) * 100) : null
+      }))
+      .sort((a, b) => String(a.oc).localeCompare(String(b.oc), 'es', { numeric: true }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtradas, ubicaciones])
+
+  const abiertas = useMemo(() => filtradas.filter((t) => t.estado === 'abierta'), [filtradas])
+  const cerradas = useMemo(() => filtradas.filter((t) => t.estado !== 'abierta'), [filtradas])
   const listas = useMemo(
     () => abiertas.filter((t) => t.avance.docenas >= t.metaDocenas),
     [abiertas]
@@ -264,6 +355,15 @@ export default function PanelTareas() {
   // se toman los folios del codigo (acotados a las OTs de la tarea si trae),
   // y se les resta lo ya capturado. { [tareaId]: { cargando, folios, error } }
   const [faltantes, setFaltantes] = useState({})
+
+  // DONDE CAE CADA TAREA EN EL PLAN. Lindbergh pide por orden de trabajo pero
+  // tiene que cumplir ordenes de compra: sin esto, la pantalla le da 124
+  // tarjetas sueltas y el agrupador se lo tiene que saber de memoria — que es
+  // exactamente lo que la junta del 17-08 pidio quitarle.
+  const [ubicaciones, setUbicaciones] = useState(new Map())
+  // Un solo buscador que entiende folio, codigo, orden de trabajo, orden de
+  // compra y destino: cada quien busca por lo que ya trae en la cabeza.
+  const [busqueda, setBusqueda] = useState('')
 
   const consultarFaltantes = async (tarea) => {
     if (tarea.objetivoTipo !== 'codigo') return
@@ -656,6 +756,28 @@ export default function PanelTareas() {
               Para {t.asignadoANombre}
             </span>
           )}
+          {/* De que orden de compra es y a quien va. Sale del plan de Adrian:
+              sin esto la tarjeta es un numero suelto y el agrupador se lo
+              tiene que saber alguien de memoria. */}
+          {(() => {
+            const u = enElPlan(t)
+            if (!u?.oc) return null
+            return (
+              <span
+                style={{
+                  fontSize: 12,
+                  background: '#ecfdf5',
+                  color: '#065f46',
+                  borderRadius: 999,
+                  padding: '2px 10px'
+                }}
+                title={`Orden de compra ${u.oc}${u.destino ? `, va a ${u.destino}` : ''}`}
+              >
+                OC {u.oc}
+                {u.destino ? ` · ${u.destino}` : ''}
+              </span>
+            )
+          })()}
         </div>
 
         <div style={{ margin: '10px 0 6px' }}>
@@ -1126,8 +1248,100 @@ export default function PanelTareas() {
           bultos (no hay que reportar nada) y &quot;Ver folios que faltan&quot; te dice exactamente
           que folios buscar en planta para completar cada una.
         </p>
+
+        <input
+          type="search"
+          placeholder="Buscar por folio, codigo, orden de trabajo, orden de compra o cliente..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          style={{ width: '100%', margin: '8px 0 4px', padding: '8px 10px' }}
+        />
+        {busqueda.trim() && (
+          <p className="texto-suave" style={{ fontSize: 12, marginTop: 0 }}>
+            {filtradas.length} de {misTareas.length} tareas coinciden.
+          </p>
+        )}
+
+        {/* COMO VA CADA ORDEN DE COMPRA. Lindbergh encarga por orden de
+            trabajo, pero lo que le exigen es la orden de compra: aqui la ve
+            sin salirse de sus tareas ni sabersela de memoria. */}
+        {porOrdenDeCompra.length > 0 && (
+          <div style={{ margin: '10px 0 14px' }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>
+              Como van las ordenes de compra de estas tareas
+            </span>
+            {porOrdenDeCompra.map((o) => (
+              <div
+                key={o.oc}
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  alignItems: 'center',
+                  padding: '6px 0',
+                  borderTop: '1px solid #eef2f7',
+                  fontSize: 13
+                }}
+              >
+                <strong style={{ minWidth: 90 }}>{o.oc}</strong>
+                {o.destino && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      background: '#ecfdf5',
+                      color: '#065f46',
+                      borderRadius: 999,
+                      padding: '2px 10px'
+                    }}
+                  >
+                    {o.destino}
+                  </span>
+                )}
+                <span className="texto-suave">
+                  {o.tareas} {o.tareas === 1 ? 'tarea' : 'tareas'} · {o.ots.length}{' '}
+                  {o.ots.length === 1 ? 'orden de trabajo' : 'ordenes de trabajo'}
+                </span>
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div
+                    style={{
+                      background: '#e5e7eb',
+                      borderRadius: 999,
+                      height: 8,
+                      width: 120,
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${o.porcentaje === null ? 0 : Math.max(2, o.porcentaje)}%`,
+                        height: '100%',
+                        background:
+                          o.porcentaje === null
+                            ? '#94a3b8'
+                            : o.porcentaje >= 99
+                              ? '#16a34a'
+                              : o.porcentaje >= 50
+                                ? '#d97706'
+                                : '#dc2626'
+                      }}
+                    />
+                  </div>
+                  <strong style={{ minWidth: 44, textAlign: 'right' }}>
+                    {/* Sin meta no hay porcentaje: un 0% diria "no han hecho
+                        nada", que no es lo mismo que "no se contra que
+                        medirlo". */}
+                    {o.porcentaje === null ? '—' : `${o.porcentaje.toFixed(0)}%`}
+                  </strong>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {abiertas.length === 0 ? (
-          <p className="texto-suave">Sin tareas abiertas.</p>
+          <p className="texto-suave">
+            {busqueda.trim() ? 'Ninguna tarea abierta coincide con la busqueda.' : 'Sin tareas abiertas.'}
+          </p>
         ) : (
           abiertas.map(tarjetaTarea)
         )}
