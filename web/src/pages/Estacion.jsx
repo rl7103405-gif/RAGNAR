@@ -20,13 +20,12 @@ import PanelReportes from '../components/PanelReportes'
 import PanelIndicadores from '../components/PanelIndicadores'
 import PanelAutorizaciones from '../components/PanelAutorizaciones'
 import PanelTareas from '../components/PanelTareas'
-import PanelPlanMaestro from '../components/PanelPlanMaestro'
-import PanelArbolOrdenes from '../components/PanelArbolOrdenes'
 import PortalMaquila from '../components/PortalMaquila'
 import PedirAviosMaquila from '../components/PedirAviosMaquila'
 import RecibirAviosMaquila from '../components/RecibirAviosMaquila'
 import TareasEnsambleMaquila from '../components/TareasEnsambleMaquila'
 import PanelMaquilasTodo from '../components/PanelMaquilasTodo'
+import PanelOrdenesYPlan from '../components/PanelOrdenesYPlan'
 import { useAuth } from '../context/AuthContext'
 
 const TABS = [
@@ -46,7 +45,6 @@ const TABS = [
   // nombre de negocio, no tecnico: el vocabulario en pantalla es parte del
   // sistema.
   { id: 'ordenes', label: 'Ordenes de compra' },
-  { id: 'plan-maestro', label: 'Plan maestro' },
   { id: 'registros', label: 'Registros' }
 ]
 
@@ -67,7 +65,9 @@ const TABS_ALMACEN = ['maquilas', 'tareas']
 
 // Adrian (rol 'produccion'): sube el plan maestro y comprueba en el arbol que
 // quedo bien amarrado. No captura, no embarca, no toca avios.
-const TABS_PRODUCCION = ['plan-maestro', 'ordenes']
+// Adrian entra a 'Ordenes de compra': ahi sube el plan y comprueba en el
+// mismo lugar que quedo bien amarrado.
+const TABS_PRODUCCION = ['ordenes']
 
 // 'completo' (America, Diana, Lindbergh, estacion): todo lo de embarques,
 // SIN avios (recorte de Roberto 2026-08-13: inventario de maquilas, mandar
@@ -174,7 +174,7 @@ export default function Estacion() {
   const conTareas = puedeCrearTareas && !base.includes('maquilas') ? [...base, 'maquilas'] : base
   // El plan maestro solo lo ve quien lo sube: es de produccion, no de
   // embarques.
-  const permitidas = puedeSubirPlanMaestro ? conTareas : conTareas.filter((t) => t !== 'plan-maestro')
+  const permitidas = conTareas
   const visibles = TABS.filter((t) => permitidas.includes(t.id))
   // La pestana inicial no puede ser 'captura' para quien no la tiene.
   const tabActiva = visibles.some((t) => t.id === tab) ? tab : visibles[0]?.id
@@ -202,8 +202,7 @@ export default function Estacion() {
       {tabActiva === 'reportes' && <PanelReportes />}
       {tabActiva === 'indicadores' && <PanelIndicadores />}
       {tabActiva === 'maquilas' && <PanelMaquilasTodo />}
-      {tabActiva === 'ordenes' && <PanelArbolOrdenes />}
-      {tabActiva === 'plan-maestro' && <PanelPlanMaestro />}
+      {tabActiva === 'ordenes' && <PanelOrdenesYPlan />}
       {tabActiva === 'registros' && <PanelAutorizaciones />}
     </Layout>
   )

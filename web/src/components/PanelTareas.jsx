@@ -213,6 +213,10 @@ export default function PanelTareas() {
   // Un solo buscador que entiende folio, codigo, orden de trabajo, orden de
   // compra y destino: cada quien busca por lo que ya trae en la cabeza.
   const [busqueda, setBusqueda] = useState('')
+  // Que ordenes y que OT estan desplegadas. Arrancan cerradas: la gracia de
+  // agrupar es no ver 123 tarjetas de golpe.
+  const [ocsAbiertas, setOcsAbiertas] = useState(new Set())
+  const [otsAbiertas, setOtsAbiertas] = useState(new Set())
 
   const otsDeLasTareas = useMemo(() => {
     const set = new Set()
@@ -271,37 +275,74 @@ export default function PanelTareas() {
   // COMO VA CADA ORDEN DE COMPRA, sumando sus tareas. Es lo que Lindbergh
   // necesita y no tenia: el pide por orden de TRABAJO, pero a el le exigen la
   // orden de COMPRA. Aqui las dos cosas viven en la misma pantalla.
-  const porOrdenDeCompra = useMemo(() => {
-    const mapa = new Map()
-    filtradas
-      .filter((t) => t.estado === 'abierta')
-      .forEach((t) => {
-        const u = enElPlan(t)
-        if (!u?.oc) return
-        if (!mapa.has(u.oc)) {
-          mapa.set(u.oc, { oc: u.oc, destino: u.destino, tareas: 0, meta: 0, hecho: 0, ots: new Set() })
-        }
-        const g = mapa.get(u.oc)
-        g.tareas += 1
-        g.meta += Number(t.metaDocenas) || 0
-        // Topado en su propia meta, igual que el arbol: sin el tope, una tarea
-        // sobrecumplida tapa a otra que no arranco y la orden se ve lista.
-        g.hecho += Math.min(t.avance?.docenas || 0, Number(t.metaDocenas) || 0)
-        if (u.ot) g.ots.add(u.ot)
-        if (!g.destino && u.destino) g.destino = u.destino
-      })
-    return [...mapa.values()]
-      .map((g) => ({
-        ...g,
-        ots: [...g.ots],
-        porcentaje: g.meta > 0 ? Math.min(100, (g.hecho / g.meta) * 100) : null
-      }))
-      .sort((a, b) => String(a.oc).localeCompare(String(b.oc), 'es', { numeric: true }))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtradas, ubicaciones])
-
   const abiertas = useMemo(() => filtradas.filter((t) => t.estado === 'abierta'), [filtradas])
   const cerradas = useMemo(() => filtradas.filter((t) => t.estado !== 'abierta'), [filtradas])
+
+  const SIN_OC = '__sin_oc__'
+  const SIN_OT = '__sin_ot__'
+
+  /**
+   * EL ARBOL DE LAS TAREAS: orden de compra -> orden de trabajo -> tareas.
+   *
+   * Es la misma forma que ya tiene el Historial (picas una OT y se abren sus
+   * folios) porque Lindbergh no deberia aprender dos navegaciones distintas
+   * para la misma jerarquia. Con 123 tarjetas sueltas se confundia igual que
+   * antes de la app, que es justo lo que la junta pidio quitarle.
+   *
+   * Lo que no cuadra NO se esconde: las tareas que el plan todavia no ubica
+   * caen en su propio grupo al final, contadas, en vez de desaparecer.
+   */
+  const arbolTareas = useMemo(() => {
+    const porOc = new Map()
+    abiertas.forEach((t) => {
+      const u = enElPlan(t)
+      const claveOc = u?.oc || SIN_OC
+      const claveOt =
+        u?.ot || (t.objetivoTipo === 'ot' ? normalizarOt(t.objetivoValor) : '') || SIN_OT
+      if (!porOc.has(claveOc)) {
+        porOc.set(claveOc, { oc: claveOc, destino: u?.destino || '', ots: new Map(), tareas: 0 })
+      }
+      const g = porOc.get(claveOc)
+      g.tareas += 1
+      if (!g.destino && u?.destino) g.destino = u.destino
+      if (!g.ots.has(claveOt)) g.ots.set(claveOt, { ot: claveOt, lista: [] })
+      g.ots.get(claveOt).lista.push(t)
+    })
+
+    // Avance de un grupo: ponderado por meta y topando cada tarea en la suya,
+    // igual que el arbol de ordenes. Sin ese tope una tarea sobrecumplida tapa
+    // a otra que no arranco y el grupo se ve listo sin estarlo.
+    const avance = (tareas) => {
+      const meta = tareas.reduce((a, t) => a + (Number(t.metaDocenas) || 0), 0)
+      const hecho = tareas.reduce(
+        (a, t) => a + Math.min(t.avance?.docenas || 0, Number(t.metaDocenas) || 0),
+        0
+      )
+      return { meta, hecho, porcentaje: meta > 0 ? Math.min(100, (hecho / meta) * 100) : null }
+    }
+
+    return [...porOc.values()]
+      .map((g) => ({
+        ...g,
+        ...avance([...g.ots.values()].flatMap((o) => o.lista)),
+        ots: [...g.ots.values()]
+          .map((o) => ({ ...o, ...avance(o.lista) }))
+          .sort((a, b) => {
+            if (a.ot === SIN_OT) return 1
+            if (b.ot === SIN_OT) return -1
+            return String(a.ot).localeCompare(String(b.ot), 'es', { numeric: true })
+          })
+      }))
+      .sort((a, b) => {
+        // Lo que el plan no ubica va al final: es lo que hay que arreglar, no
+        // lo primero que Lindbergh tiene que ver cada manana.
+        if (a.oc === SIN_OC) return 1
+        if (b.oc === SIN_OC) return -1
+        return String(a.oc).localeCompare(String(b.oc), 'es', { numeric: true })
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abiertas, ubicaciones])
+
   const listas = useMemo(
     () => abiertas.filter((t) => t.avance.docenas >= t.metaDocenas),
     [abiertas]
@@ -354,6 +395,38 @@ export default function PanelTareas() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listas, puedeCrearTareas, authUser?.uid])
+
+  const alternar = (conjunto, poner, clave) => {
+    const copia = new Set(conjunto)
+    if (copia.has(clave)) copia.delete(clave)
+    else copia.add(clave)
+    poner(copia)
+  }
+
+  /** Barra + porcentaje, con '—' cuando no hay meta contra que medir. */
+  const barraAvance = (porcentaje) => (
+    <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+      <div style={{ background: '#e5e7eb', borderRadius: 999, height: 8, width: 110, overflow: 'hidden' }}>
+        <div
+          style={{
+            width: `${porcentaje === null ? 0 : Math.max(2, porcentaje)}%`,
+            height: '100%',
+            background:
+              porcentaje === null
+                ? '#94a3b8'
+                : porcentaje >= 99
+                  ? '#16a34a'
+                  : porcentaje >= 50
+                    ? '#d97706'
+                    : '#dc2626'
+          }}
+        />
+      </div>
+      <strong style={{ minWidth: 44, textAlign: 'right' }}>
+        {porcentaje === null ? '—' : `${porcentaje.toFixed(0)}%`}
+      </strong>
+    </span>
+  )
 
   const usuarioActual = () => ({
     uid: authUser?.uid,
@@ -1263,88 +1336,116 @@ export default function PanelTareas() {
           </p>
         )}
 
-        {/* COMO VA CADA ORDEN DE COMPRA. Lindbergh encarga por orden de
-            trabajo, pero lo que le exigen es la orden de compra: aqui la ve
-            sin salirse de sus tareas ni sabersela de memoria. */}
-        {porOrdenDeCompra.length > 0 && (
-          <div style={{ margin: '10px 0 14px' }}>
-            <span style={{ fontSize: 13, fontWeight: 700 }}>
-              Como van las ordenes de compra de estas tareas
-            </span>
-            {porOrdenDeCompra.map((o) => (
-              <div
-                key={o.oc}
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 10,
-                  alignItems: 'center',
-                  padding: '6px 0',
-                  borderTop: '1px solid #eef2f7',
-                  fontSize: 13
-                }}
-              >
-                <strong style={{ minWidth: 90 }}>{o.oc}</strong>
-                {o.destino && (
-                  <span
-                    style={{
-                      fontSize: 12,
-                      background: '#ecfdf5',
-                      color: '#065f46',
-                      borderRadius: 999,
-                      padding: '2px 10px'
-                    }}
-                  >
-                    {o.destino}
-                  </span>
-                )}
-                <span className="texto-suave">
-                  {o.tareas} {o.tareas === 1 ? 'tarea' : 'tareas'} · {o.ots.length}{' '}
-                  {o.ots.length === 1 ? 'orden de trabajo' : 'ordenes de trabajo'}
-                </span>
-                <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <div
-                    style={{
-                      background: '#e5e7eb',
-                      borderRadius: 999,
-                      height: 8,
-                      width: 120,
-                      overflow: 'hidden'
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${o.porcentaje === null ? 0 : Math.max(2, o.porcentaje)}%`,
-                        height: '100%',
-                        background:
-                          o.porcentaje === null
-                            ? '#94a3b8'
-                            : o.porcentaje >= 99
-                              ? '#16a34a'
-                              : o.porcentaje >= 50
-                                ? '#d97706'
-                                : '#dc2626'
-                      }}
-                    />
-                  </div>
-                  <strong style={{ minWidth: 44, textAlign: 'right' }}>
-                    {/* Sin meta no hay porcentaje: un 0% diria "no han hecho
-                        nada", que no es lo mismo que "no se contra que
-                        medirlo". */}
-                    {o.porcentaje === null ? '—' : `${o.porcentaje.toFixed(0)}%`}
-                  </strong>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
+        {/* EL ARBOL: orden de compra -> orden de trabajo -> tareas.
+            Misma navegacion que el Historial (picas y se abre), porque es la
+            misma jerarquia y Lindbergh no tiene por que aprenderse dos. */}
         {abiertas.length === 0 ? (
           <p className="texto-suave">
             {busqueda.trim() ? 'Ninguna tarea abierta coincide con la busqueda.' : 'Sin tareas abiertas.'}
           </p>
         ) : (
-          abiertas.map(tarjetaTarea)
+          arbolTareas.map((g) => {
+            const sinOc = g.oc === SIN_OC
+            const abiertaOc = ocsAbiertas.has(g.oc)
+            return (
+              <div
+                key={g.oc}
+                style={{
+                  border: '1px solid #d8dee6',
+                  borderRadius: 8,
+                  marginBottom: 10,
+                  background: sinOc ? '#fffbeb' : '#fff'
+                }}
+              >
+                <button
+                  onClick={() => alternar(ocsAbiertas, setOcsAbiertas, g.oc)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    alignItems: 'center',
+                    padding: '10px 12px',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                >
+                  <strong style={{ fontSize: 15 }}>
+                    {sinOc ? 'Todavia sin orden de compra' : g.oc}
+                  </strong>
+                  {g.destino && (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        background: '#ecfdf5',
+                        color: '#065f46',
+                        borderRadius: 999,
+                        padding: '2px 10px'
+                      }}
+                    >
+                      {g.destino}
+                    </span>
+                  )}
+                  <span className="texto-suave" style={{ fontSize: 13 }}>
+                    {g.tareas} {g.tareas === 1 ? 'tarea' : 'tareas'} · {g.ots.length}{' '}
+                    {g.ots.length === 1 ? 'orden de trabajo' : 'ordenes de trabajo'}
+                  </span>
+                  {barraAvance(g.porcentaje)}
+                  <span className="texto-suave">{abiertaOc ? '▲' : '▼'}</span>
+                </button>
+
+                {sinOc && abiertaOc && (
+                  <p className="texto-suave" style={{ fontSize: 12, padding: '0 12px' }}>
+                    El plan maestro todavia no dice de que orden de compra cuelgan estas ordenes de
+                    trabajo. En cuanto Adrian suba una version que las incluya, se acomodan solas.
+                  </p>
+                )}
+
+                {abiertaOc &&
+                  g.ots.map((o) => {
+                    const claveOt = `${g.oc}||${o.ot}`
+                    const abiertaOt = otsAbiertas.has(claveOt)
+                    const sinOt = o.ot === SIN_OT
+                    return (
+                      <div key={claveOt} style={{ borderTop: '1px solid #eef2f7' }}>
+                        <button
+                          onClick={() => alternar(otsAbiertas, setOtsAbiertas, claveOt)}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: 10,
+                            alignItems: 'center',
+                            padding: '8px 12px 8px 26px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontSize: 14
+                          }}
+                        >
+                          <span style={{ minWidth: 90 }}>
+                            {sinOt ? 'Sin orden de trabajo' : `OT ${o.ot}`}
+                          </span>
+                          <span className="texto-suave" style={{ fontSize: 12 }}>
+                            {o.lista.length} {o.lista.length === 1 ? 'tarea' : 'tareas'}
+                          </span>
+                          {barraAvance(o.porcentaje)}
+                          <span className="texto-suave">{abiertaOt ? '▲' : '▼'}</span>
+                        </button>
+                        {abiertaOt && (
+                          <div style={{ padding: '0 12px 8px 26px' }}>
+                            {o.lista.map(tarjetaTarea)}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+              </div>
+            )
+          })
         )}
       </div>
 
