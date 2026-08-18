@@ -48,6 +48,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   query,
   serverTimestamp,
   setDoc,
@@ -78,6 +79,7 @@ import {
   idDeLinea,
   idDePedido,
   normalizarOc,
+  normalizarOt,
   normalizarPedido,
   resumirOcs
 } from './planMaestroNucleo.js'
@@ -154,6 +156,39 @@ export async function resumenDeOcs(versionId) {
   return resumirOcs(snap.docs.map((d) => d.data()))
 }
 
+/**
+ * El destino de una OT segun el plan vigente ('Modular Walmart Jun-Sep'), o ''
+ * si el plan no la conoce o no hay plan. NUNCA lanza: quien crea una tarea no
+ * se puede quedar bloqueado porque el plan no este subido.
+ */
+export async function destinoDeOt(ot) {
+  const otLimpia = normalizarOt(ot)
+  if (!otLimpia) return ''
+  try {
+    const versionId = await versionActiva()
+    if (!versionId) return ''
+    // ⚠️ Se piden VARIAS lineas, no una. Una OT tiene un renglon por codigo y
+    // la celda 'Nom ped' puede venir llena en unas y vacia en otras. Con
+    // limit(1) el resultado dependia de cual documento devolviera el indice
+    // primero: si caia en la vacia, la tarea se congelaba SIN destino aunque
+    // el plan si lo supiera. Un hueco de dato por casualidad de indice es
+    // justo lo que este proyecto no se permite.
+    const snap = await getDocs(
+      query(
+        collection(db, 'planMaestroLineas'),
+        where('versionId', '==', versionId),
+        where('ot', '==', otLimpia),
+        limit(5)
+      )
+    )
+    const conDestino = snap.docs.find((d) => d.data().destino)
+    return conDestino ? String(conDestino.data().destino).slice(0, 120) : ''
+  } catch (err) {
+    console.warn('[PlanMaestro] No se pudo buscar el destino de la OT', otLimpia, '-', err?.message)
+    return ''
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Escritura (la sube Adrian)
 // ---------------------------------------------------------------------------
@@ -212,7 +247,10 @@ export async function guardarPlanMaestro({
       versionId,
       pedidoClave: normalizarPedido(p.pedidoClave),
       pedidoTexto: String(p.pedidoTexto ?? p.pedidoClave).slice(0, 200),
-      ot: p.ot
+      ot: p.ot,
+      // A quien va, si el plan lo dice: es lo que la tarea de ensamble jala
+      // al crearse para quedar alineada con el arbol.
+      ...(p.destino ? { destino: String(p.destino).slice(0, 120) } : {})
     })
   }
   const entradasPedidos = [...porPedido.entries()]

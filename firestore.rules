@@ -842,7 +842,7 @@ service cloud.firestore {
       allow create: if puedeSubirPlanMaestro()
         && soloCuentaReal()
         && request.resource.data.keys().hasAll(['versionId', 'oc', 'ot', 'codigo', 'cantidadPlaneada', 'creadoEn', 'subidoPorUid'])
-        && request.resource.data.keys().hasOnly(['versionId', 'oc', 'ot', 'codigo', 'cantidadPlaneada', 'unidad', 'cliente', 'descripcion', 'hoja', 'creadoEn', 'subidoPorUid'])
+        && request.resource.data.keys().hasOnly(['versionId', 'oc', 'ot', 'codigo', 'cantidadPlaneada', 'unidad', 'cliente', 'descripcion', 'destino', 'hoja', 'creadoEn', 'subidoPorUid'])
         && request.resource.data.versionId is string
         && request.resource.data.versionId.size() > 0
         && request.resource.data.oc is string
@@ -864,6 +864,10 @@ service cloud.firestore {
                 && request.resource.data.cantidadPlaneada < 100000000))
         && (!('hoja' in request.resource.data)
             || (request.resource.data.hoja is string && request.resource.data.hoja.size() <= 60))
+        // A quien va la orden ('Modular Walmart Jun-Sep', 'Shasa RA Agosto'):
+        // la vision OT->cliente que pidio la junta del 17-08.
+        && (!('destino' in request.resource.data)
+            || (request.resource.data.destino is string && request.resource.data.destino.size() <= 120))
         && (!('unidad' in request.resource.data)
             || (request.resource.data.unidad is string && request.resource.data.unidad.size() <= 20))
         && (!('cliente' in request.resource.data)
@@ -901,7 +905,7 @@ service cloud.firestore {
       allow create: if puedeSubirPlanMaestro()
         && soloCuentaReal()
         && request.resource.data.keys().hasAll(['versionId', 'pedidoClave', 'ot', 'creadoEn', 'subidoPorUid'])
-        && request.resource.data.keys().hasOnly(['versionId', 'pedidoClave', 'pedidoTexto', 'ot', 'creadoEn', 'subidoPorUid'])
+        && request.resource.data.keys().hasOnly(['versionId', 'pedidoClave', 'pedidoTexto', 'ot', 'destino', 'creadoEn', 'subidoPorUid'])
         && request.resource.data.versionId is string
         && request.resource.data.versionId.size() > 0
         && request.resource.data.pedidoClave is string
@@ -910,6 +914,9 @@ service cloud.firestore {
         && (!('pedidoTexto' in request.resource.data)
             || (request.resource.data.pedidoTexto is string
                 && request.resource.data.pedidoTexto.size() <= 200))
+        && (!('destino' in request.resource.data)
+            || (request.resource.data.destino is string
+                && request.resource.data.destino.size() <= 120))
         && request.resource.data.ot is string
         && request.resource.data.ot.size() > 0
         && request.resource.data.ot.size() <= 40
@@ -1745,7 +1752,24 @@ service cloud.firestore {
       // habria obligado a migrar todos los documentos ANTES de poder tocar
       // ninguno.
       return d.keys().hasAll(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn'])
-        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion'])
+        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion', 'ot', 'destino'])
+        // El amarre con el plan maestro (2026-08-18): 'ot' es la orden de
+        // trabajo que esta tarea trabaja y 'destino' a quien va ('Modular
+        // Walmart Jun-Sep'). Opcionales y leidos con get(...,null): las tareas
+        // de antes no los traen y siguen validas sin migrar nada. Es el puente
+        // para que las remisiones descuenten tareas y para agrupar tareas por
+        // OT en el arbol — la fase que la junta dejo para despues.
+        // Las ramas de update de la maquila usan affectedKeys().hasOnly() con
+        // listas que NO incluyen estos campos: la maquila no puede tocarlos.
+        && (d.get('ot', null) == null
+            || (d.get('ot', '') is string && d.get('ot', '').size() > 0 && d.get('ot', '').size() <= 40))
+        && (d.get('destino', null) == null
+            || (d.get('destino', '') is string
+                && d.get('destino', '').size() > 0
+                && d.get('destino', '').size() <= 120))
+        // Sin OT no hay destino que amarrar: el destino sale del plan VIA la
+        // OT; suelto seria texto libre disfrazado de dato.
+        && (d.get('destino', null) == null || d.get('ot', null) != null)
         // Las tres firmas del ciclo, cada una entera o vacia.
         && firmaCoherente(d, 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre')
         && firmaCoherente(d, 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre')

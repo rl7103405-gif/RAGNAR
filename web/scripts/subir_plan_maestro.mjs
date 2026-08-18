@@ -177,7 +177,8 @@ for (const p of pedidos) {
     versionId,
     pedidoClave: p.pedidoClave,
     pedidoTexto: String(p.pedidoTexto ?? p.pedidoClave).slice(0, 200),
-    ot: p.ot
+    ot: p.ot,
+    ...(p.destino ? { destino: String(p.destino).slice(0, 120) } : {})
   })
 }
 const entradasPedidos = [...porPedido.entries()]

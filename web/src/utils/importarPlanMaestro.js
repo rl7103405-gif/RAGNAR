@@ -131,14 +131,23 @@ const SINONIMOS = {
   ],
   // El texto largo del pedido. NO es la OT: es la llave para cruzar con el
   // ruteo de America, que trae exactamente este mismo texto.
-  pedido: ['nopedido', 'no pedido', 'no. pedido', 'pedido', 'nombre del pedido'],
+  // OJO: 'nombre pedido' NO va aqui — en el archivo real esa columna trae el
+  // DESTINO ('CAT Julio', 'City club Reebok'), no el texto del pedido.
+  pedido: ['nopedido', 'no pedido', 'no. pedido', 'pedido'],
   codigo: ['codigo', 'codigo quini', 'clave', 'estilo', 'modelo cliente', 'modelo', 'articulo'],
   cantidad: [
     'docenas solicitadas', 'solicitadas', 'cantidad planeada', 'planeado',
     'cantidad', 'docenas', 'piezas', 'pares', 'packs', 'meta', 'solicita'
   ],
   cliente: ['cliente', 'nombre del cliente', 'razon social'],
-  descripcion: ['descripcion', 'producto', 'nombre', 'nom ped', 'nombre pedido'],
+  // A QUIEN VA la orden: 'Modular Walmart Jun-Sep', 'City club Reebok',
+  // 'Shasa RA Agosto'. En el archivo real es la columna 'Nom ped' y los 292
+  // renglones con OC valida la traen; ninguna OT la cambia entre renglones.
+  // Es el dato que la junta del 17-08 pidio ver por orden de trabajo
+  // ('Lindbergh tiene la vision OT-OC') y el que alinea el arbol con las
+  // tareas de ensamble. NO es una descripcion: tiene campo propio.
+  destino: ['nom ped', 'nombre pedido', 'nombre del pedido', 'destino'],
+  descripcion: ['descripcion', 'producto', 'nombre'],
   unidad: ['unidad', 'um', 'u.m.']
 }
 
@@ -315,7 +324,15 @@ export async function leerPlanMaestro(archivo) {
             pedidos.delete(clave)
             clavesEnConflicto.add(clave)
           } else if (!previa) {
-            pedidos.set(clave, { pedidoClave: clave, pedidoTexto: textoPedido.slice(0, 200), ot })
+            const destino = columnas.destino
+              ? String(identificadorDeCelda(val(columnas.destino)) ?? '').trim().slice(0, 120)
+              : ''
+            pedidos.set(clave, {
+              pedidoClave: clave,
+              pedidoTexto: textoPedido.slice(0, 200),
+              ot,
+              ...(destino ? { destino } : {})
+            })
             pedidosDeLaHoja += 1
           }
         }
@@ -383,6 +400,9 @@ export async function leerPlanMaestro(archivo) {
         // o sea como si ya estuviera lista.
         cantidadPlaneada: cantidad,
         hoja: hoja.name.slice(0, 60),
+        ...(columnas.destino
+          ? { destino: String(identificadorDeCelda(val(columnas.destino)) ?? '').trim().slice(0, 120) }
+          : {}),
         ...(columnas.unidad ? { unidad: String(textoDeCelda(val(columnas.unidad))).slice(0, 20) } : {}),
         ...(columnas.cliente ? { cliente: String(textoDeCelda(val(columnas.cliente))).slice(0, 120) } : {}),
         ...(columnas.descripcion

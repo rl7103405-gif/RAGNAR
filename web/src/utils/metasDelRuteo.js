@@ -28,7 +28,31 @@ function docenasDeFolio(f) {
 }
 
 // Folios que ya no aparecen en ningun Excel se retienen 15 dias, asi que la
-// suma podria INFLARSE con folios viejos. Solo cuentan los vistos hace poco.
+// suma podria INFLARSE con folios viejos. Solo cuentan los RECIENTES.
+//
+// Se mide por la `fecha` DEL FOLIO cuando la trae, y por `cargadoEn` (cuando se
+// vio por ultima vez) cuando no. Los dos criterios conviven a proposito porque
+// las dos fuentes del ruteo son distintas:
+//
+//  - El Excel de America casi nunca trae `fecha` (al 2026-08-18: 4,757 de 4,927
+//    folios no la tienen). Para esos, `cargadoEn` es la unica referencia que
+//    hay, y funciona bien: como la carga la hace una persona y solo refresca lo
+//    del dia, lo viejo se va quedando atras solo.
+//  - El sincronizador de Atalanta SIEMPRE trae `fecha`, pero reenvia la ventana
+//    COMPLETA de 30 dias todos los dias, asi que refresca `cargadoEn` de todo lo
+//    de ese mes. Medir esos por `cargadoEn` haria que el filtro dejara de
+//    filtrar y las metas saldrian con 30 dias de folios en vez de 10, infladas.
+//
+// Por eso NO se puede usar un solo criterio: solo `cargadoEn` infla las metas en
+// cuanto entra el sync, y solo `fecha` deja pasar todo el ruteo viejo de America
+// (que caeria en la rama "sin fecha se cuenta siempre"), que es lo contrario de
+// lo que este limite busca.
+//
+// Efecto lateral asumido: un folio con fecha propia y vieja que todavia se este
+// surtiendo deja de contar, y la meta puede salir CORTA (la tarea cerraria antes
+// de tiempo). Se prefiere a la meta inflada, que deja la tarea abierta para
+// siempre sin que nadie sepa por que — y para eso existe "Reabrir tarea".
+// Medido antes de desplegar: 0 de 126 tareas abiertas cambian de meta.
 const DIAS_RUTEO_VIGENTE = 10
 
 /**
@@ -82,9 +106,15 @@ export async function rellenarMetasDesdeRuteo(tareas) {
 
     const relevantes = delCodigo.filter((f) => {
       if (!ots.includes(otDePedido(f.pedido))) return false
-      const visto = f.cargadoEn?.toDate ? f.cargadoEn.toDate() : null
-      // Si no se sabe cuando se vio, se cuenta (dato viejo pero legitimo).
-      return visto === null || visto >= limite
+      // La fecha del folio si la trae; si no, cuando se vio por ultima vez.
+      // Ver el porque de los dos criterios en DIAS_RUTEO_VIGENTE.
+      const propia = f.fecha?.toDate ? f.fecha.toDate() : null
+      const vista = f.cargadoEn?.toDate ? f.cargadoEn.toDate() : null
+      const cuando = propia === null ? vista : propia
+      // Sin ninguna de las dos referencias se cuenta: es dato viejo pero
+      // legitimo, y descartarlo dejaria la tarea sin meta en vez de con una
+      // meta corta.
+      return cuando === null || cuando >= limite
     })
 
     if (relevantes.length === 0) {

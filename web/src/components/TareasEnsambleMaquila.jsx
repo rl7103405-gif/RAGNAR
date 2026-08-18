@@ -137,6 +137,16 @@ export default function TareasEnsambleMaquila() {
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'baseline' }}>
           <strong style={{ fontSize: 15 }}>{t.titulo}</strong>
+          {t.ot && (
+          <span
+            style={{ fontSize: 12, background: '#ecfdf5', color: '#065f46', borderRadius: 999, padding: '2px 10px' }}
+            title={t.destino ? `Orden de trabajo ${t.ot}, va a ${t.destino}` : `Orden de trabajo ${t.ot}`}
+          >
+            OT {t.ot}
+            {t.destino ? ` · ${t.destino}` : ''}
+          </span>
+          )}
+
           <span className="texto-suave" style={{ fontSize: 13 }}>
             {ESTADOS_TAREA_ENSAMBLE[t.estado] || t.estado} · encargada el {fechaHora(t.creadoEn)}
           </span>

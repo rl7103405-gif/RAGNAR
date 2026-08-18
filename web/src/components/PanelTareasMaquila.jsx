@@ -39,7 +39,7 @@ export default function PanelTareasMaquila() {
   const [visor, setVisor] = useState(null) // { maquilaId, tareaId, techPack }
   const [mostrarCerradas, setMostrarCerradas] = useState(false)
 
-  const [nueva, setNueva] = useState({ maquilaId: '', titulo: '', notas: '' })
+  const [nueva, setNueva] = useState({ maquilaId: '', titulo: '', ot: '', notas: '' })
   const [renglones, setRenglones] = useState([{ ...RENGLON_VACIO }])
   const [archivo, setArchivo] = useState(null)
 
@@ -73,13 +73,14 @@ export default function PanelTareasMaquila() {
       await crearTareaEnsamble({
         maquilaId: nueva.maquilaId,
         titulo: nueva.titulo,
+        ot: nueva.ot,
         renglones,
         notas: nueva.notas,
         archivo,
         usuario: usuario(),
         onProgreso: setProgreso
       })
-      setNueva({ maquilaId: '', titulo: '', notas: '' })
+      setNueva({ maquilaId: '', titulo: '', ot: '', notas: '' })
       setRenglones([{ ...RENGLON_VACIO }])
       setArchivo(null)
       setAviso(
@@ -255,6 +256,16 @@ export default function PanelTareasMaquila() {
         >
           {nombreMaquila(t.maquilaId)}
         </span>
+        {t.ot && (
+          <span
+            style={{ fontSize: 12, background: '#ecfdf5', color: '#065f46', borderRadius: 999, padding: '2px 10px' }}
+            title={t.destino ? `Orden de trabajo ${t.ot}, va a ${t.destino}` : `Orden de trabajo ${t.ot}`}
+          >
+            OT {t.ot}
+            {t.destino ? ` · ${t.destino}` : ''}
+          </span>
+        )}
+
         <span className="texto-suave" style={{ fontSize: 13 }}>
           {ESTADOS_TAREA_ENSAMBLE[t.estado] || t.estado} · pedida el {fechaDe(t.creadoEn)}
         </span>
@@ -489,6 +500,20 @@ export default function PanelTareasMaquila() {
               maxLength={120}
               value={nueva.titulo}
               onChange={(e) => setNueva({ ...nueva, titulo: e.target.value })}
+            />
+          </label>
+          {/* El amarre con el plan de Adrian. Opcional a proposito: una tarea
+              de una OT que el plan no trae (o sin OT) se crea igual. Si el
+              plan la conoce, la tarea queda con su "a quien va" congelado y
+              el arbol la puede agrupar. */}
+          <label className="campo" style={{ flex: '1 1 140px' }}>
+            <span>Orden de trabajo (opcional)</span>
+            <input
+              type="text"
+              placeholder="ej. 7887"
+              maxLength={40}
+              value={nueva.ot}
+              onChange={(e) => setNueva({ ...nueva, ot: e.target.value })}
             />
           </label>
         </div>

@@ -140,10 +140,13 @@ export function resumirOcs(lineas) {
   for (const l of lineas) {
     if (!l.oc) continue // una linea sin OC no forma una rama del arbol
     if (!porOc.has(l.oc)) {
-      porOc.set(l.oc, { oc: l.oc, ots: new Set(), lineas: 0, planeado: 0, sinMeta: 0 })
+      porOc.set(l.oc, { oc: l.oc, ots: new Set(), destinos: new Set(), lineas: 0, planeado: 0, sinMeta: 0 })
     }
     const g = porOc.get(l.oc)
     g.ots.add(l.ot)
+    // A quien va: 'Modular Walmart Jun-Sep', 'Shasa RA Agosto'. Una OC casi
+    // siempre trae uno solo, pero no se asume: se juntan los distintos.
+    if (l.destino) g.destinos.add(l.destino)
     g.lineas += 1
     // Se suma SOLO lo que de verdad tiene meta. Contar una linea sin cantidad
     // como si fuera cero haria que el denominador del avance mienta hacia
@@ -152,6 +155,14 @@ export function resumirOcs(lineas) {
     else g.sinMeta += 1
   }
   return [...porOc.values()]
-    .map((g) => ({ ...g, ots: [...g.ots].sort() }))
+    // Los dos arrays van topados: este resumen viaja dentro de UN documento de
+    // Firestore (tope 1 MB) y una OC con cientos de OT lo inflaria. Se guarda
+    // cuantas hubo en realidad para que la pantalla no mienta al truncar.
+    .map((g) => ({
+      ...g,
+      totalOts: g.ots.size,
+      ots: [...g.ots].sort().slice(0, 200),
+      destinos: [...g.destinos].sort().slice(0, 6)
+    }))
     .sort((a, b) => String(b.oc).localeCompare(String(a.oc), 'es', { numeric: true }))
 }

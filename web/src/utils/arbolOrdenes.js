@@ -250,6 +250,10 @@ export async function armarArbolDeOc({ lineasDelPlan }) {
       const avance = avanceDe(lineas)
       return {
         ot,
+        // A quien va esta orden de trabajo, segun el plan. Todas sus lineas
+        // dicen lo mismo (medido en el archivo real: ninguna OT cambia de
+        // destino entre renglones), asi que basta la primera que lo traiga.
+        destino: lineas.find((l) => l.destino)?.destino || '',
         lineas: lineas.sort((a, b) => String(a.codigo).localeCompare(String(b.codigo), 'es')),
         folios: conFolios,
         ...avance,

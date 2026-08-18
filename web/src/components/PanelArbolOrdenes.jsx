@@ -155,11 +155,25 @@ export default function PanelArbolOrdenes() {
                 }}
               >
                 <strong style={{ fontSize: 16 }}>{o.oc}</strong>
+                {/* A QUIEN VA. Lo pidio Roberto el 18-08: la orden sin cliente
+                    es un numero que no dice nada. Sale del plan de Adrian
+                    (columna 'Nom ped'); si una OC junta varios destinos se
+                    muestran todos. */}
+                {(o.destinos || []).map((d) => (
+                  <span
+                    key={d}
+                    style={{ fontSize: 12, background: '#ecfdf5', color: '#065f46', borderRadius: 999, padding: '2px 10px' }}
+                  >
+                    {d}
+                  </span>
+                ))}
                 {o.cliente && (
                   <span className="texto-suave" style={{ fontSize: 13 }}>{o.cliente}</span>
                 )}
                 <span className="texto-suave" style={{ fontSize: 13 }}>
-                  {o.ots.length} ordenes de trabajo
+                  {/* El total real, no el largo del array: 'ots' viene topado
+                      para que el resumen quepa en un documento de Firestore. */}
+                  {o.totalOts ?? o.ots.length} ordenes de trabajo
                 </span>
                 <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
                   {arbol && (
@@ -228,6 +242,9 @@ export default function PanelArbolOrdenes() {
                           }}
                         >
                           <span style={{ minWidth: 90 }}>OT {r.ot}</span>
+                          {r.destino && (
+                            <span className="texto-suave" style={{ fontSize: 12 }}>{r.destino}</span>
+                          )}
                           <span className="texto-suave" style={{ fontSize: 12 }}>
                             {r.folios} folios
                           </span>

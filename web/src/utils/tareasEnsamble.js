@@ -37,6 +37,7 @@ import {
   writeBatch
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { destinoDeOt, normalizarOt } from './planMaestro'
 import { ordenarPorFechaDesc } from './solicitudesAvios'
 
 export class ErrorTareaEnsamble extends Error {}
@@ -135,6 +136,7 @@ function limpiarRenglones(renglones) {
 export async function crearTareaEnsamble({
   maquilaId,
   titulo,
+  ot,
   renglones,
   notas,
   archivo,
@@ -143,6 +145,12 @@ export async function crearTareaEnsamble({
 }) {
   if (!maquilaId) throw new ErrorTareaEnsamble('Elige la maquila.')
   const tituloLimpio = String(titulo || '').trim().slice(0, 120)
+  // El amarre con el plan maestro: si Lindbergh dice de que ORDEN DE TRABAJO
+  // es la tarea, se congela normalizada y se le jala del plan A QUIEN VA
+  // ('Modular Walmart Jun-Sep'). Todo opcional y nada bloquea: una tarea de
+  // una OT que Adrian no ha subido se crea igual, solo que sin destino.
+  const otLimpia = normalizarOt(ot)
+  const destino = otLimpia ? await destinoDeOt(otLimpia) : ''
   if (!tituloLimpio) throw new ErrorTareaEnsamble('Ponle titulo a la tarea (ej. el pedido o el cliente).')
   if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado: avisale a Roberto.')
   const limpios = limpiarRenglones(renglones)
@@ -168,6 +176,10 @@ export async function crearTareaEnsamble({
   const base = {
     maquilaId,
     titulo: tituloLimpio,
+    // Solo se escriben si vienen: las reglas los validan con get(...,null) y
+    // 'destino' exige que haya 'ot' (el destino sale del plan VIA la OT).
+    ...(otLimpia ? { ot: otLimpia } : {}),
+    ...(otLimpia && destino ? { destino } : {}),
     renglones: limpios,
     notas: String(notas || '').trim().slice(0, 300),
     estado: contenido ? 'preparando' : 'abierta',
