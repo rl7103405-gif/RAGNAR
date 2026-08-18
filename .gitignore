@@ -26,3 +26,6 @@ CUENTAS-Y-CONTRASENAS.md
 # Viven en datos/ y NUNCA van al repo.
 datos/
 *.zip
+
+# Capturas y logs del navegador con el que se verifica antes de desplegar.
+.playwright-mcp/
