@@ -49,3 +49,27 @@ reales y `demo_almacen` los inventarios de todas las maquilas. Cerrarlo no
 cuesta lecturas extra (`esCuentaDePrueba()` reutiliza el perfil que la regla ya
 leyó), pero deja esas pantallas vacías en la demo y le quita realismo a la
 prueba.
+
+---
+
+## Inventario de las maquilas en la pestaña Maquilas (para Lindbergh)
+
+**Lo pidió Roberto el 2026-08-18, a media sesión del plan maestro. No se hizo
+ahí mismo (una tanda por sesión); es lo siguiente en la cola.**
+
+Lindbergh necesita ver el inventario de cada maquila desde la pestaña
+Maquilas: hoy esa pestaña solo da de alta y lista. La referencia de qué datos
+son es el corte semanal que hace Cielo a mano — está en
+`datos/maquilas/INVENTARIOS MAQUILAS.zip`: un Excel por maquilero con dos
+hojas (`producto` en docenas por código, `avíos` por clave con presentación) y
+un resumen de cajas que cruza quién tiene qué. Ocho cortes desde el 15 de
+junio; el del 17-08 ya incluye a Araceli.
+
+Decisiones de diseño pendientes (para el debate con Codex antes de codear):
+- ¿Quién lo alimenta? (a) Cielo sube el Excel semanal, (b) la maquila lo
+  reporta desde su portal, o (c) RAGNAR lo deriva de lo enviado menos lo
+  devuelto/remitido. La (c) es la buena a largo plazo pero necesita que las
+  remisiones descuenten tareas (pendiente 27 del vault); la (a) arranca hoy.
+- Si es (a): mismo patrón versionado del plan maestro (subida → borrador →
+  puntero), y el lector ya sabe leer ese formato (se analizó el 18-08).
+- Avíos y producto son dos inventarios distintos y no se mezclan.

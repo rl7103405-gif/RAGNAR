@@ -65,7 +65,9 @@ export function AuthProvider({ children }) {
   // Sin default permisivo, igual que las reglas: un perfil sin rol no entra.
   // Si algun dia se crea un perfil sin rol, la persona ve un mensaje claro en
   // vez de una app que se ve completa y truena en cada boton.
-  const ROLES_INTERNOS = ['captura', 'completo', 'consulta', 'almacen', 'admin']
+  //   produccion -> Adrian (jefe de produccion): sube el plan maestro que
+  //                 agrupa las OT bajo su orden de compra. No opera embarques.
+  const ROLES_INTERNOS = ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion']
   const rol = perfil?.rol || ''
   // Mismo criterio que las reglas: un perfil con maquilaId NUNCA es interno,
   // aunque traiga un rol interno. Sin esto, un perfil hibrido veria la UI
@@ -107,6 +109,12 @@ export function AuthProvider({ children }) {
     puedeOperar: esInterno && ['captura', 'completo', 'admin'].includes(rol),
     // Cielo: ve para llevar el control, pero no captura ni emite nada.
     soloConsulta: rol === 'consulta',
+    // Adrian (produccion): sube el PLAN MAESTRO que dice que ordenes de
+    // trabajo cuelgan de cada orden de compra del cliente. Es el dato que le
+    // falta a Lindbergh para ver su avance agrupado, y hoy Adrian lo lleva en
+    // un Excel aparte.
+    puedeSubirPlanMaestro: esInterno && ['produccion', 'admin'].includes(rol),
+    soloProduccion: rol === 'produccion',
     // Crear/asignar tareas: el admin siempre; los demas solo con el flag
     // puedeCrearTareas en su perfil (Lindbergh). America queda en false.
     puedeCrearTareas: esInterno && (rol === 'admin' || perfil?.puedeCrearTareas === true),

@@ -8,6 +8,8 @@
 // quien lo resolvio.
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { useMaquilas } from './Maquilas'
+import { soloDeMisMaquilas } from '../utils/mundoDatos'
 import {
   ESTADOS_SOLICITUD,
   escucharTodasLasSolicitudes,
@@ -17,6 +19,9 @@ import {
 
 export default function PanelSolicitudesAvios() {
   const { authUser, perfil } = useAuth()
+  // Ya viene acotado al mundo propio; sirve para filtrar lo que llega por
+  // collectionGroup, que no pasa por el catalogo.
+  const maquilas = useMaquilas()
   const [solicitudes, setSolicitudes] = useState([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
@@ -28,7 +33,7 @@ export default function PanelSolicitudesAvios() {
   useEffect(() => {
     const unsub = escucharTodasLasSolicitudes(
       (datos) => {
-        setSolicitudes(datos)
+        setSolicitudes(soloDeMisMaquilas(datos, maquilas))
         setCargando(false)
       },
       (err) => {
@@ -38,7 +43,8 @@ export default function PanelSolicitudesAvios() {
       }
     )
     return unsub
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maquilas.length])
 
   const pendientes = useMemo(() => solicitudes.filter((s) => s.estado === 'pendiente'), [solicitudes])
   const cerradas = useMemo(() => solicitudes.filter((s) => s.estado !== 'pendiente'), [solicitudes])

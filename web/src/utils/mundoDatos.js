@@ -43,6 +43,20 @@ export function documentoEsDePrueba(doc) {
 }
 
 /**
+ * Deja solo los documentos de las maquilas que este usuario puede ver.
+ *
+ * Hace falta para las vistas que leen con `collectionGroup` (inventario,
+ * solicitudes y envios de avios): esas NO pasan por el catalogo de maquilas,
+ * asi que traen tambien lo de la maquila ficticia aunque el selector de al
+ * lado ya este filtrado. Se les pasa la lista de maquilas del hook, que ya
+ * viene acotada al mundo propio.
+ */
+export function soloDeMisMaquilas(lista, maquilasVisibles) {
+  const ids = new Set((maquilasVisibles || []).map((m) => m.id))
+  return (lista || []).filter((d) => ids.has(d?.maquilaId))
+}
+
+/**
  * Deja solo lo del mundo de quien esta mirando.
  *
  * `esPrueba` es el del USUARIO: una cuenta real ve la operacion sin la basura

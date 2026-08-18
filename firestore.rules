@@ -45,7 +45,10 @@ service cloud.firestore {
     //   almacen  -> avios (Alvaro; reservado, aun sin usar)
     //   admin    -> Roberto
     function esInterno() {
-      return rol() in ['captura', 'completo', 'consulta', 'almacen', 'admin']
+      //   produccion -> Adrian, jefe de produccion: sube el PLAN MAESTRO que
+      //                 agrupa las ordenes de trabajo bajo su orden de compra.
+      //                 No opera embarques, ni avios, ni remisiones.
+      return rol() in ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion']
         // Defensa en profundidad: un perfil que trae 'maquilaId' es de una
         // empresa EXTERNA y jamas es interno, aunque su rol diga otra cosa.
         // Sin esto, una cuenta hibrida (rol interno + maquilaId) le abriria a
@@ -212,8 +215,33 @@ service cloud.firestore {
     // Se valida tipo/tamano de cada campo cuando no es null: nunca se confia
     // en que el cliente mande solo lo que cruceProducto.js arma hoy.
     function productoValido(p) {
+      // 'ot' va en hasOnly pero NO en hasAll: es la orden de trabajo congelada
+      // al capturar (2026-08-17), y los bultos de antes de esa fecha no la
+      // traen. Exigirla habria roto la captura con el bundle viejo y obligado
+      // a migrar todos los bultos historicos antes de poder tocar ninguno.
       return p.keys().hasAll(['codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'descripcion', 'modelo', 'talla', 'color', 'referencia', 'linea'])
-        && p.keys().hasOnly(['codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'descripcion', 'modelo', 'talla', 'color', 'referencia', 'linea'])
+        && p.keys().hasOnly(['codigo', 'docenas', 'pares', 'total', 'pedido', 'nombreGuia', 'descripcion', 'modelo', 'talla', 'color', 'referencia', 'linea', 'ot', 'otOrigen'])
+        // Si 'ot' viene, tiene que ser texto NO VACIO: una cadena vacia no es
+        // una OT y no deberia poder colarse como si lo fuera.
+        && (p.get('ot', null) == null
+            || (p.get('ot', '') is string && p.get('ot', '').size() > 0 && p.get('ot', '').size() <= 40))
+        // De donde salio la OT. Tres valores y nada mas: dejarlo como texto
+        // libre permitiria escribir 'plan' en un bulto cuya OT se adivino del
+        // texto, y entonces el campo dejaria de servir justo para lo unico que
+        // sirve, que es saber si el agrupado es confiable.
+        && (p.get('otOrigen', null) == null
+            || p.get('otOrigen', '') in ['plan', 'texto', 'ninguna'])
+        // Coherencia: si no hay OT no puede haber origen distinto de 'ninguna'.
+        && (p.get('ot', null) != null
+            || p.get('otOrigen', 'ninguna') == 'ninguna')
+        // Y al reves: si hay OT Y hay otOrigen (con valor), el origen no
+        // puede ser 'ninguna' -- ese valor dice "no se encontro OT" y no
+        // puede coexistir con una OT presente. Un bundle viejo que trae 'ot'
+        // SIN 'otOrigen' sigue pasando: p.get('otOrigen', null) da null
+        // cuando el campo no esta, y esa rama del OR ya lo cubre.
+        && (p.get('ot', null) == null
+            || p.get('otOrigen', null) == null
+            || p.get('otOrigen', '') != 'ninguna')
         && (p.codigo == null || (p.codigo is string && p.codigo.size() <= 60))
         && (p.docenas == null || (p.docenas is number && p.docenas >= 0 && p.docenas < 100000000))
         && (p.pares == null || (p.pares is number && p.pares >= 0 && p.pares < 100000000))
@@ -752,6 +780,178 @@ service cloud.firestore {
         allow read: if esInterno();
         allow write: if false;
       }
+    }
+
+    // ===================================================================
+    // PLAN MAESTRO DE PRODUCCION (Adrian) — el amarre OC -> OT
+    // ===================================================================
+    // El cliente compra una ORDEN DE COMPRA ('24-49') y la fabrica la parte en
+    // 27 o 28 ORDENES DE TRABAJO. La app ya sabe la OT de cada folio (los
+    // primeros 4 digitos del pedido), pero no de que OC cuelga: eso lo trae el
+    // plan maestro que hoy Adrian lleva en un Excel aparte, y es lo que le
+    // falta a Lindbergh para ver su avance agrupado en vez de saberselo de
+    // memoria (junta del 2026-08-17).
+    //
+    // Quien lo sube: SOLO produccion (Adrian) y el admin. Es una capacidad
+    // explicita, no algo que se herede por ser interno: quien captura o
+    // embarca no tiene por que redibujar el plan de la fabrica.
+    function puedeSubirPlanMaestro() {
+      return esInterno() && rol() in ['produccion', 'admin'];
+    }
+
+    // La subida entera. Nace en 'borrador' y solo se marca 'activa' cuando ya
+    // se escribieron todas sus lineas: asi nadie lee un plan a medio cargar.
+    match /planMaestroVersiones/{versionId} {
+      allow read: if esInterno();
+      allow create: if puedeSubirPlanMaestro()
+        && soloCuentaReal()
+        && request.resource.data.keys().hasAll(['archivo', 'totalLineas', 'estado', 'subidoPorUid', 'subidoPorNombre', 'creadoEn', 'activadaEn'])
+        && request.resource.data.keys().hasOnly(['archivo', 'totalLineas', 'totalPedidos', 'estado', 'subidoPorUid', 'subidoPorNombre', 'creadoEn', 'activadaEn'])
+        && request.resource.data.estado == 'borrador'
+        && request.resource.data.archivo is string
+        && request.resource.data.archivo.size() <= 120
+        && request.resource.data.totalLineas is int
+        && request.resource.data.totalLineas >= 0
+        && request.resource.data.totalLineas <= 100000
+        && (!('totalPedidos' in request.resource.data)
+            || (request.resource.data.totalPedidos is int
+                && request.resource.data.totalPedidos >= 0
+                && request.resource.data.totalPedidos <= 100000))
+        && request.resource.data.subidoPorUid == request.auth.uid
+        && request.resource.data.subidoPorNombre == perfil().get('nombreCompleto', '')
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.activadaEn == null;
+      // Lo unico que se puede cambiar despues es cerrarla (borrador -> activa),
+      // y solo quien la subio: una version ajena no se activa por accidente.
+      allow update: if puedeSubirPlanMaestro()
+        && soloCuentaReal()
+        && resource.data.subidoPorUid == request.auth.uid
+        && resource.data.estado == 'borrador'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'activadaEn'])
+        && request.resource.data.estado == 'activa'
+        && request.resource.data.activadaEn == request.time;
+      allow delete: if false;
+    }
+
+    // Una linea = un renglon planificado (OC + OT + codigo + cantidad).
+    // Un documento por linea y NO un array dentro de la OC: las reglas no
+    // pueden validar lo que va dentro de una lista, y con array no se podria
+    // consultar por OT.
+    match /planMaestroLineas/{lineaId} {
+      allow read: if esInterno();
+      allow create: if puedeSubirPlanMaestro()
+        && soloCuentaReal()
+        && request.resource.data.keys().hasAll(['versionId', 'oc', 'ot', 'codigo', 'cantidadPlaneada', 'creadoEn', 'subidoPorUid'])
+        && request.resource.data.keys().hasOnly(['versionId', 'oc', 'ot', 'codigo', 'cantidadPlaneada', 'unidad', 'cliente', 'descripcion', 'hoja', 'creadoEn', 'subidoPorUid'])
+        && request.resource.data.versionId is string
+        && request.resource.data.versionId.size() > 0
+        && request.resource.data.oc is string
+        && request.resource.data.oc.size() > 0
+        && request.resource.data.oc.size() <= 40
+        && request.resource.data.ot is string
+        && request.resource.data.ot.size() > 0
+        && request.resource.data.ot.size() <= 40
+        && request.resource.data.codigo is string
+        && request.resource.data.codigo.size() <= 60
+        // ⚠️ cantidadPlaneada admite null A PROPOSITO: "no se cuanto" NO es
+        // "cero". Una linea sin meta sigue sirviendo (amarra la OT a su OC),
+        // solo que no se le puede medir avance — y guardar un 0 ahi la pintaria
+        // como "falta 0", o sea como terminada. Cero real y dato ausente tienen
+        // que poder distinguirse hasta la pantalla.
+        && (request.resource.data.cantidadPlaneada == null
+            || (request.resource.data.cantidadPlaneada is number
+                && request.resource.data.cantidadPlaneada >= 0
+                && request.resource.data.cantidadPlaneada < 100000000))
+        && (!('hoja' in request.resource.data)
+            || (request.resource.data.hoja is string && request.resource.data.hoja.size() <= 60))
+        && (!('unidad' in request.resource.data)
+            || (request.resource.data.unidad is string && request.resource.data.unidad.size() <= 20))
+        && (!('cliente' in request.resource.data)
+            || (request.resource.data.cliente is string && request.resource.data.cliente.size() <= 120))
+        && (!('descripcion' in request.resource.data)
+            || (request.resource.data.descripcion is string && request.resource.data.descripcion.size() <= 200))
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.subidoPorUid == request.auth.uid;
+      // Una linea del plan no se edita ni se borra: si el plan cambia, se sube
+      // una version nueva. Asi lo que se prometio en la semana N sigue siendo
+      // consultable en la semana N+1, que es justo lo que hoy no existe.
+      allow update, delete: if false;
+    }
+
+    // EL DICCIONARIO pedido -> orden de trabajo.
+    //
+    // Va aparte de las lineas por dos razones. La primera es de costo: esto se
+    // consulta AL CAPTURAR un bulto, con el operador esperando en la bascula, y
+    // tiene que costar UNA lectura por id determinista — no una consulta que
+    // traiga los veinte renglones del mismo pedido. La segunda es de alcance:
+    // el diccionario existe aunque la linea no tenga orden de compra, y en el
+    // archivo real eso es la mayoria (1214 pedidos conocidos contra 87 ordenes
+    // de trabajo amarradas a una OC).
+    //
+    // Lo que arregla: la OT se venia adivinando de los primeros 4 digitos del
+    // texto del pedido, y eso falla en 863 de 3419 renglones del plan real.
+    // Los 25 del tipo '7512_REPOSICION_7551' son los graves: contestan 7512,
+    // que es una OT que SI existe, y el folio se cuelga de la orden equivocada
+    // sin que salte ningun error.
+    //
+    // Lo lee CUALQUIER interno porque la captura corre en la estacion de
+    // pesaje; escribirlo sigue siendo solo de produccion y admin.
+    match /planMaestroPedidos/{pedidoId} {
+      allow read: if esInterno();
+      allow create: if puedeSubirPlanMaestro()
+        && soloCuentaReal()
+        && request.resource.data.keys().hasAll(['versionId', 'pedidoClave', 'ot', 'creadoEn', 'subidoPorUid'])
+        && request.resource.data.keys().hasOnly(['versionId', 'pedidoClave', 'pedidoTexto', 'ot', 'creadoEn', 'subidoPorUid'])
+        && request.resource.data.versionId is string
+        && request.resource.data.versionId.size() > 0
+        && request.resource.data.pedidoClave is string
+        && request.resource.data.pedidoClave.size() > 0
+        && request.resource.data.pedidoClave.size() <= 200
+        && (!('pedidoTexto' in request.resource.data)
+            || (request.resource.data.pedidoTexto is string
+                && request.resource.data.pedidoTexto.size() <= 200))
+        && request.resource.data.ot is string
+        && request.resource.data.ot.size() > 0
+        && request.resource.data.ot.size() <= 40
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.subidoPorUid == request.auth.uid;
+      // Igual que las lineas: una entrada no se corrige en caliente. Si el
+      // plan cambia se sube otra version, y lo ya capturado conserva la OT que
+      // se le resolvio en su momento.
+      allow update, delete: if false;
+    }
+
+    // El puntero a la version vigente. Se mueve al terminar de subir.
+    match /config/planMaestroActivo {
+      allow read: if esInterno();
+      allow write: if puedeSubirPlanMaestro()
+        && soloCuentaReal()
+        && request.resource.data.keys().hasAll(['versionId', 'activadaEn', 'activadaPorUid'])
+        && request.resource.data.keys().hasOnly(['versionId', 'archivo', 'totalLineas', 'totalPedidos', 'ocs', 'activadaEn', 'activadaPorUid', 'activadaPorNombre'])
+        && request.resource.data.versionId is string
+        && request.resource.data.versionId.size() > 0
+        && (!('archivo' in request.resource.data)
+            || (request.resource.data.archivo is string && request.resource.data.archivo.size() <= 120))
+        && (!('totalLineas' in request.resource.data)
+            || (request.resource.data.totalLineas is int && request.resource.data.totalLineas >= 0))
+        && (!('totalPedidos' in request.resource.data)
+            || (request.resource.data.totalPedidos is int && request.resource.data.totalPedidos >= 0))
+        // El resumen por orden de compra viaja aqui para que abrir la pestana
+        // cueste UNA lectura en vez de las 3419 lineas del plan. Las reglas no
+        // pueden mirar dentro de una lista, asi que lo unico que se puede
+        // exigir es que sea lista y que no crezca sin control: un documento de
+        // Firestore tiene tope de 1 MB y pasarse tumbaria la subida entera.
+        && (!('ocs' in request.resource.data)
+            || (request.resource.data.ocs is list && request.resource.data.ocs.size() <= 500))
+        // Anclado al perfil, igual que subidoPorNombre en planMaestroVersiones:
+        // el cliente siempre manda el nombre de quien esta activando, asi que
+        // nada legitimo se rompe con exigir que coincida con el perfil.
+        && (!('activadaPorNombre' in request.resource.data)
+            || (request.resource.data.activadaPorNombre is string
+                && request.resource.data.activadaPorNombre.size() <= 120
+                && request.resource.data.activadaPorNombre == perfil().get('nombreCompleto', '')))
+        && request.resource.data.activadaEn == request.time
+        && request.resource.data.activadaPorUid == request.auth.uid;
     }
 
     // Estado del ruteo (maximo folio visto + marca de la ultima limpieza):

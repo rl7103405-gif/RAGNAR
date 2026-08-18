@@ -21,3 +21,8 @@ build_tmp/
 
 # Cuentas de acceso: NUNCA al repo ni al vault (patron de captura-mecanicos)
 CUENTAS-Y-CONTRASENAS.md
+
+# Archivos de la fabrica (Exceles, tech packs, inventarios): son datos, no codigo.
+# Viven en datos/ y NUNCA van al repo.
+datos/
+*.zip

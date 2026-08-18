@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
+import { soloDeMisMaquilas } from '../utils/mundoDatos'
 import { useAvios } from './Avios'
 import SelectorAvio from './SelectorAvio'
 import {
@@ -38,7 +39,7 @@ export default function PanelEnviarAvios() {
   const [verHistorial, setVerHistorial] = useState(false)
 
   useEffect(() => {
-    const unsubEnvios = escucharTodosLosEnvios(setEnvios, (err) => {
+    const unsubEnvios = escucharTodosLosEnvios((datos) => setEnvios(soloDeMisMaquilas(datos, maquilas)), (err) => {
       console.error('[EnviarAvios] Error leyendo envios:', err)
       setError('No se pudieron cargar los envios: ' + (err.message || err))
     })
@@ -49,7 +50,8 @@ export default function PanelEnviarAvios() {
       unsubEnvios()
       unsubAcuses()
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maquilas.length])
 
   const usuario = { uid: authUser?.uid, nombre: perfil?.nombreCompleto || '' }
 

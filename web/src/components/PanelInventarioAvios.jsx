@@ -10,6 +10,7 @@ import { collectionGroup, doc, onSnapshot, serverTimestamp, updateDoc } from 'fi
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
+import { soloDeMisMaquilas } from '../utils/mundoDatos'
 import { compararAscendente } from '../utils/texto'
 
 export default function PanelInventarioAvios() {
@@ -27,7 +28,9 @@ export default function PanelInventarioAvios() {
   useEffect(() => {
     const unsubSaldos = onSnapshot(
       collectionGroup(db, 'saldosAvios'),
-      (snap) => setSaldos(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      // collectionGroup NO pasa por el catalogo: sin este filtro, el
+      // inventario de la maquila ficticia se suma al de las reales.
+      (snap) => setSaldos(soloDeMisMaquilas(snap.docs.map((d) => ({ id: d.id, ...d.data() })), maquilas)),
       (err) => {
         console.error('[InventarioAvios] Error leyendo saldos:', err)
         setError('No se pudo cargar el inventario: ' + (err.message || err))
@@ -35,14 +38,15 @@ export default function PanelInventarioAvios() {
     )
     const unsubDisc = onSnapshot(
       collectionGroup(db, 'discrepanciasAvios'),
-      (snap) => setDiscrepancias(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (snap) => setDiscrepancias(soloDeMisMaquilas(snap.docs.map((d) => ({ id: d.id, ...d.data() })), maquilas)),
       (err) => console.error('[InventarioAvios] Error leyendo discrepancias:', err)
     )
     return () => {
       unsubSaldos()
       unsubDisc()
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maquilas.length])
 
   const nombreMaquila = (mid) => maquilas.find((m) => m.id === mid)?.nombre || mid
 

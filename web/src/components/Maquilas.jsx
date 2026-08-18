@@ -57,26 +57,37 @@ function idDeMaquila(nombre) {
 }
 
 /** Hook: lista reactiva de maquilas (todas; filtra activo quien la use). */
+/**
+ * El catalogo de maquilas del MUNDO de quien mira: una cuenta real no ve la
+ * maquila ficticia y una de prueba solo ve la suya.
+ *
+ * El filtro va AQUI, en la fuente, y no en cada pantalla: de este hook cuelgan
+ * nueve vistas, y basta que una lo olvide para que los datos de prueba se
+ * cuelen en la operacion real. Paso exactamente eso -- las tareas de ensamble
+ * de la maquila ficticia aparecian en el panel de Roberto, porque el selector
+ * si estaba filtrado pero la SUSCRIPCION a las tareas usaba la lista completa.
+ */
 export function useMaquilas() {
+  const { esPrueba } = useAuth()
   const [maquilas, setMaquilas] = useState([])
   useEffect(() => {
     const q = query(collection(db, 'maquilas'), orderBy('nombre'))
     const unsub = onSnapshot(q, (snap) => {
-      setMaquilas(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      setMaquilas(
+        snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((m) => (m.esPrueba === true) === !!esPrueba)
+      )
     }, (err) => console.error('[Maquilas] Error escuchando maquilas:', err))
     return unsub
-  }, [])
+  }, [esPrueba])
   return maquilas
 }
 
 export default function Maquilas() {
-  const { authUser, esPrueba } = useAuth()
-  const todasLasMaquilas = useMaquilas()
-  // El catalogo tambien se separa por mundo: a la gente de la fabrica no le
-  // aparece la maquila ficticia (no tiene nada que hacer ahi y darla de baja
-  // por error cerraria el portal de pruebas), y la cuenta de prueba solo ve la
-  // suya. Las reglas ya impiden que cualquiera de los dos toque la del otro.
-  const maquilas = todasLasMaquilas.filter((m) => (m.esPrueba === true) === esPrueba)
+  const { authUser } = useAuth()
+  // Ya viene filtrado por mundo desde el hook (ver arriba).
+  const maquilas = useMaquilas()
   const [nombre, setNombre] = useState('')
   const [direccion, setDireccion] = useState('')
   const [mensaje, setMensaje] = useState('')

@@ -21,6 +21,8 @@ import PanelIndicadores from '../components/PanelIndicadores'
 import PanelAutorizaciones from '../components/PanelAutorizaciones'
 import PanelTareas from '../components/PanelTareas'
 import PanelTareasMaquila from '../components/PanelTareasMaquila'
+import PanelPlanMaestro from '../components/PanelPlanMaestro'
+import PanelArbolOrdenes from '../components/PanelArbolOrdenes'
 import Maquilas from '../components/Maquilas'
 import PortalMaquila from '../components/PortalMaquila'
 import Avios from '../components/Avios'
@@ -45,6 +47,11 @@ const TABS = [
   { id: 'pedidos-avios', label: 'Piden material' },
   { id: 'enviar-avios', label: 'Mandar material' },
   { id: 'inventario-avios', label: 'Inventario maquilas' },
+  // El arbol OC -> OT -> codigo que pidio Lindbergh (junta 17-08). Va con
+  // nombre de negocio, no tecnico: el vocabulario en pantalla es parte del
+  // sistema.
+  { id: 'ordenes', label: 'Ordenes de compra' },
+  { id: 'plan-maestro', label: 'Plan maestro' },
   { id: 'registros', label: 'Registros' }
 ]
 
@@ -56,12 +63,16 @@ const TABS_CAPTURA = ['captura']
 // desde el 2026-08-13 ADMINISTRA EL CATALOGO DE AVIOS (pestana Avios; el alta
 // se gatea con su flag administraCatalogoAvios). Sigue sin capturar, sin
 // cargar el Excel del dia y sin crear tareas.
-const TABS_CONSULTA = ['historial', 'reportes', 'indicadores', 'registros', 'avios']
+const TABS_CONSULTA = ['ordenes', 'historial', 'reportes', 'indicadores', 'registros', 'avios']
 
 // Alvaro (rol 'almacen') maneja los AVIOS que se mandan: solicitudes, envios
 // e inventario de las maquilas (SOLO avios: bultos y embarques no son suyos).
 // El catalogo lo consulta pero ya no lo administra (es de Cielo).
 const TABS_ALMACEN = ['pedidos-avios', 'enviar-avios', 'inventario-avios', 'avios', 'tareas']
+
+// Adrian (rol 'produccion'): sube el plan maestro y comprueba en el arbol que
+// quedo bien amarrado. No captura, no embarca, no toca avios.
+const TABS_PRODUCCION = ['plan-maestro', 'ordenes']
 
 // 'completo' (America, Diana, Lindbergh, estacion): todo lo de embarques,
 // SIN avios (recorte de Roberto 2026-08-13: inventario de maquilas, mandar
@@ -71,6 +82,7 @@ const TABS_COMPLETO = [
   'captura',
   'tareas',
   'folios',
+  'ordenes',
   'historial',
   'reportes',
   'indicadores',
@@ -87,6 +99,8 @@ export default function Estacion() {
     esInterno,
     esMaquila,
     puedeCrearTareas,
+    puedeSubirPlanMaestro,
+    soloProduccion,
     rol,
     perfil
   } = useAuth()
@@ -151,6 +165,8 @@ export default function Estacion() {
   // el rol.
   const base = soloCaptura
     ? TABS_CAPTURA
+    : soloProduccion
+      ? TABS_PRODUCCION
     : soloConsulta
       ? TABS_CONSULTA
       : soloAlmacen
@@ -158,9 +174,10 @@ export default function Estacion() {
         : esAdmin
           ? TABS.map((t) => t.id)
           : TABS_COMPLETO
-  const permitidas = puedeCrearTareas && !base.includes('tareas-maquila')
-    ? [...base, 'tareas-maquila']
-    : base
+  const conTareas = puedeCrearTareas && !base.includes('tareas-maquila') ? [...base, 'tareas-maquila'] : base
+  // El plan maestro solo lo ve quien lo sube: es de produccion, no de
+  // embarques.
+  const permitidas = puedeSubirPlanMaestro ? conTareas : conTareas.filter((t) => t !== 'plan-maestro')
   const visibles = TABS.filter((t) => permitidas.includes(t.id))
   // La pestana inicial no puede ser 'captura' para quien no la tiene.
   const tabActiva = visibles.some((t) => t.id === tab) ? tab : visibles[0]?.id
@@ -193,6 +210,8 @@ export default function Estacion() {
       {tabActiva === 'pedidos-avios' && <PanelSolicitudesAvios />}
       {tabActiva === 'enviar-avios' && <PanelEnviarAvios />}
       {tabActiva === 'inventario-avios' && <PanelInventarioAvios />}
+      {tabActiva === 'ordenes' && <PanelArbolOrdenes />}
+      {tabActiva === 'plan-maestro' && <PanelPlanMaestro />}
       {tabActiva === 'registros' && <PanelAutorizaciones />}
     </Layout>
   )
