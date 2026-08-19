@@ -74,6 +74,17 @@ export function AuthProvider({ children }) {
   // interna mientras las reglas le rechazan todo (o peor: pasaria los gates
   // del cliente que las reglas si validan).
   const esInterno = ROLES_INTERNOS.includes(rol) && !perfil?.maquilaId
+
+  // EL NIVEL EN QUE TRABAJA CADA QUIEN. De la junta del 17-08, palabras del
+  // dueno: America trabaja en folio y orden de trabajo; Lindbergh en orden de
+  // trabajo y orden de compra — "le da igual el folio", pero TIENE QUE CUMPLIR
+  // ordenes de compra; y el dueno solo orden de compra: "su labor no debe
+  // estar en los folios".
+  //
+  // No restringe lo que se PUEDE ver (todos pueden abrir hasta el folio si
+  // quieren): decide en que nivel ARRANCA la pantalla, para que cada quien
+  // encuentre lo suyo sin desplegar tres niveles cada vez.
+  const nivelDeVista = rol === 'admin' ? 'oc' : rol === 'completo' ? 'ot' : 'folio'
   // ¿Es una cuenta de PRUEBA? (web/scripts/crear_usuarios_prueba.mjs)
   // No es un permiso, es un MUNDO: decide en que consecutivo de folio interno
   // escribe y con que marca nacen sus documentos. Las reglas de Firestore lo
@@ -89,6 +100,7 @@ export function AuthProvider({ children }) {
     perfil,
     activo: perfil?.activo === true,
     rol,
+    nivelDeVista,
     esInterno,
     esPrueba,
     modoDatos,

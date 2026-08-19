@@ -4,12 +4,15 @@
 //  - PDFs generados: bitacora INMUTABLE con quien lo genero, maquila, folios
 //    y el contenido congelado -- "Reimprimir original" reproduce exactamente
 //    el papel emitido aunque las capturas hayan cambiado despues.
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useDatosPeriodo } from '../hooks/useDatosPeriodo'
 import FiltroPeriodo from './FiltroPeriodo'
 import { compararAscendente, coincide } from '../utils/texto'
 import { reimprimirRegistro, ErrorReimpresion, docenasDeCaptura } from '../utils/reimprimir'
 import { agruparPorOt, etiquetaOt } from '../utils/agruparOt'
+import { ordenDeCaptura } from '../utils/pdf'
+import { ubicarOts } from '../utils/ubicacionEnPlan'
+import { normalizarOt } from '../utils/planMaestro'
 import { useMaquilas } from './Maquilas'
 import { useAuth } from '../context/AuthContext'
 import CorregirPdfModal from './CorregirPdfModal'
@@ -17,7 +20,7 @@ import CorregirPdfModal from './CorregirPdfModal'
 export default function PanelHistorial() {
   // Corregir una remision es operacion de embarque: un rol de consulta
   // (Cielo) no debe ver el boton, porque las reglas se lo niegan.
-  const { puedeEmbarcar } = useAuth()
+  const { puedeEmbarcar, nivelDeVista } = useAuth()
   const [tipo, setTipo] = useState('dia')
   const [offset, setOffset] = useState(0)
   const [pdfAbierto, setPdfAbierto] = useState(null)
@@ -25,7 +28,10 @@ export default function PanelHistorial() {
   const [corrigiendo, setCorrigiendo] = useState(null)
   const [aviso, setAviso] = useState('')
   const [errorLocal, setErrorLocal] = useState('')
-  const [busqueda, setBusqueda] = useState({ folio: '', producto: '', capturo: '' })
+  const [busqueda, setBusqueda] = useState({ folio: '', producto: '', capturo: '', orden: '' })
+  // De que orden de compra cuelga cada OT, segun el plan maestro.
+  const [ubicaciones, setUbicaciones] = useState(new Map())
+  const [ocsAbiertas, setOcsAbiertas] = useState(new Set())
   const [busquedaPdf, setBusquedaPdf] = useState({ maquila: '', folio: '', genero: '', numero: '' })
   // Con cientos de folios por periodo, las OT arrancan CERRADAS: se ve el
   // resumen de cada una y se abre solo la que interesa, sin scrollear todo.
@@ -47,7 +53,7 @@ export default function PanelHistorial() {
       return nueva
     })
 
-  const hayBusqueda = busqueda.folio || busqueda.producto || busqueda.capturo
+  const hayBusqueda = busqueda.folio || busqueda.producto || busqueda.capturo || busqueda.orden
   // Filtrado y agrupado memoizados: con periodos grandes (miles de capturas)
   // agrupar + ordenar en cada tecleo del buscador se sentiria lento.
   const capturasFiltradas = useMemo(
@@ -58,11 +64,83 @@ export default function PanelHistorial() {
           (!busqueda.producto ||
             coincide(c.producto?.codigo, busqueda.producto) ||
             coincide(c.producto?.descripcion, busqueda.producto)) &&
-          (!busqueda.capturo || coincide(c.operadorNombre, busqueda.capturo))
+          (!busqueda.capturo || coincide(c.operadorNombre, busqueda.capturo)) &&
+          // Por orden: sirve tanto la de TRABAJO como la de COMPRA. Lindbergh
+          // teclea una OT, el dueno una OC, y ninguno tiene que saber en cual
+          // de los dos campos va lo suyo.
+          (!busqueda.orden ||
+            coincide(ordenDeCaptura(c), busqueda.orden) ||
+            coincide(ubicaciones.get(normalizarOt(ordenDeCaptura(c)))?.oc || '', busqueda.orden) ||
+            coincide(ubicaciones.get(normalizarOt(ordenDeCaptura(c)))?.destino || '', busqueda.orden))
       ),
-    [datos.capturas, busqueda]
+    [datos.capturas, busqueda, ubicaciones]
   )
   const gruposCapturas = useMemo(() => agruparPorOt(capturasFiltradas), [capturasFiltradas])
+
+  // Se ubican las OT del periodo en el plan, en una sola tanda.
+  useEffect(() => {
+    const ots = gruposCapturas.map((g) => g.ot).filter(Boolean)
+    if (!ots.length) return
+    let cancelado = false
+    ubicarOts(ots).then((m) => !cancelado && setUbicaciones(m))
+    return () => {
+      cancelado = true
+    }
+  }, [gruposCapturas.map((g) => g.ot).join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const SIN_OC = '__sin_oc__'
+
+  /**
+   * EL HISTORIAL EN TRES NIVELES: orden de compra -> orden de trabajo -> folios.
+   *
+   * De la junta: el dueno solo mira ordenes de compra ("su labor no debe estar
+   * en los folios"), Lindbergh OT y OC, America folio y OT. Antes esta pantalla
+   * arrancaba SIEMPRE en OT, asi que el dueno tenia que saberse de memoria que
+   * ordenes de trabajo eran de cual orden de compra — justo lo que la app venia
+   * a quitarle.
+   */
+  const arbolCapturas = useMemo(() => {
+    const porOc = new Map()
+    gruposCapturas.forEach((g) => {
+      const u = ubicaciones.get(normalizarOt(g.ot))
+      const clave = u?.oc || SIN_OC
+      if (!porOc.has(clave)) {
+        porOc.set(clave, { oc: clave, destino: u?.destino || '', ots: [], folios: 0, docenas: 0, kg: 0, pendientes: 0 })
+      }
+      const grupo = porOc.get(clave)
+      if (!grupo.destino && u?.destino) grupo.destino = u.destino
+      grupo.ots.push(g)
+      grupo.folios += g.folios
+      grupo.docenas += g.filas.reduce((a, f) => a + docenasDeCaptura(f), 0)
+      grupo.kg += g.kg
+      grupo.pendientes += g.filas.filter((f) => !f.pdfGeneradoEn).length
+    })
+    return [...porOc.values()].sort((a, b) => {
+      // Lo que el plan no ubica, al final: es lo que hay que arreglar.
+      if (a.oc === SIN_OC) return 1
+      if (b.oc === SIN_OC) return -1
+      return String(a.oc).localeCompare(String(b.oc), 'es', { numeric: true })
+    })
+  }, [gruposCapturas, ubicaciones])
+
+  const toggleOc = (oc) =>
+    setOcsAbiertas((prev) => {
+      const nueva = new Set(prev)
+      if (nueva.has(oc)) nueva.delete(oc)
+      else nueva.add(oc)
+      return nueva
+    })
+
+  // Con que nivel arranca cada perfil (ver nivelDeVista en AuthContext): el
+  // dueno ve solo ordenes de compra cerradas; los demas ya con sus OT a la
+  // vista. Buscar SIEMPRE abre todo, o no se veria lo que se busco.
+  useEffect(() => {
+    if (hayBusqueda) {
+      setOcsAbiertas(new Set(arbolCapturas.map((g) => g.oc)))
+      return
+    }
+    if (nivelDeVista !== 'oc') setOcsAbiertas(new Set(arbolCapturas.map((g) => g.oc)))
+  }, [nivelDeVista, hayBusqueda, arbolCapturas.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hayBusquedaPdf =
     busquedaPdf.maquila || busquedaPdf.folio || busquedaPdf.genero || busquedaPdf.numero
@@ -162,6 +240,18 @@ export default function PanelHistorial() {
                 onChange={(e) => setBusqueda({ ...busqueda, folio: e.target.value })}
               />
             </label>
+            {/* Un solo campo para las dos ordenes: el dueno teclea una de
+                compra, Lindbergh una de trabajo, y ninguno tiene que saber en
+                cual de los dos campos va lo suyo. Tambien acepta el cliente. */}
+            <label className="campo" style={{ flex: '1 1 190px' }}>
+              <span>Orden de compra o de trabajo</span>
+              <input
+                type="text"
+                placeholder="ej. 2449, 7887 o Chedraui"
+                value={busqueda.orden}
+                onChange={(e) => setBusqueda({ ...busqueda, orden: e.target.value })}
+              />
+            </label>
             <label className="campo" style={{ flex: '1 1 170px' }}>
               <span>Codigo o producto</span>
               <input
@@ -229,7 +319,57 @@ export default function PanelHistorial() {
               </tr>
             </thead>
             <tbody>
-              {gruposCapturas.map((grupo) => {
+              {/* NIVEL 1: la orden de compra. Dentro van sus ordenes de trabajo,
+                  y dentro de esas los folios. El dueno se queda en este
+                  renglon; Lindbergh abre una OT; America llega al folio. */}
+              {arbolCapturas.map((grupoOc) => {
+                const ocAbierta = hayBusqueda || ocsAbiertas.has(grupoOc.oc)
+                const sinOc = grupoOc.oc === SIN_OC
+                return (
+                  <Fragment key={grupoOc.oc}>
+                    <tr
+                      onClick={() => toggleOc(grupoOc.oc)}
+                      style={{
+                        background: sinOc ? '#fffbeb' : '#dde6f2',
+                        borderTop: '3px solid #9db4cd',
+                        cursor: 'pointer'
+                      }}
+                      title={ocAbierta ? 'Cerrar esta orden de compra' : 'Abrir esta orden de compra'}
+                    >
+                      <td colSpan={8} style={{ fontWeight: 700, padding: '9px 4px', fontSize: 15 }}>
+                        <span style={{ display: 'inline-block', width: 18 }}>
+                          {ocAbierta ? '▾' : '▸'}
+                        </span>
+                        {sinOc ? 'Sin orden de compra en el plan' : `Orden de compra ${grupoOc.oc}`}
+                        {grupoOc.destino && (
+                          <span
+                            style={{
+                              fontWeight: 400,
+                              marginLeft: 10,
+                              fontSize: 12,
+                              background: '#ecfdf5',
+                              color: '#065f46',
+                              borderRadius: 999,
+                              padding: '2px 10px'
+                            }}
+                          >
+                            {grupoOc.destino}
+                          </span>
+                        )}
+                        <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
+                          {grupoOc.ots.length} OT - {grupoOc.folios} folio
+                          {grupoOc.folios === 1 ? '' : 's'} - {grupoOc.docenas} docenas -{' '}
+                          {grupoOc.kg.toFixed(2)} kg
+                        </span>
+                        {grupoOc.pendientes > 0 && (
+                          <span style={{ fontWeight: 400, color: '#8a5300', marginLeft: 10, fontSize: 13 }}>
+                            {grupoOc.pendientes} sin mandar a PDF
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                    {ocAbierta &&
+                      grupoOc.ots.map((grupo) => {
                 // Con una busqueda activa se abren todas: el operador ya
                 // acoto que quiere ver, no tiene sentido esconderselo.
                 const abierta = hayBusqueda || otsAbiertas.has(grupo.ot)
@@ -292,6 +432,9 @@ export default function PanelHistorial() {
                           </td>
                         </tr>
                       ))}
+                  </Fragment>
+                )
+              })}
                   </Fragment>
                 )
               })}
