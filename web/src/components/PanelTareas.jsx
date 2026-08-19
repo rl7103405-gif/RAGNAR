@@ -787,7 +787,9 @@ export default function PanelTareas() {
       await updateDoc(doc(db, 'tareas', tarea.id), {
         estado,
         cumplidaEn: serverTimestamp(),
-        avanceAlCumplir: Number(tarea.avance.docenas.toFixed(2))
+        // Lo REMISIONADO: es el criterio con el que la tarea se da por
+        // cumplida, asi que es lo que hay que dejar grabado.
+        avanceAlCumplir: Number(tarea.avance.docenasRemisionadas.toFixed(2))
       })
       setAviso(
         estado === 'cumplida'
@@ -837,10 +839,23 @@ export default function PanelTareas() {
     t?.toDate ? `${t.toDate().toLocaleDateString('es-MX')} ${t.toDate().toLocaleTimeString('es-MX')}` : '-'
 
   const tarjetaTarea = (t) => {
-    const cumplida = t.avance.docenas >= t.metaDocenas
+    // ⚠️ Una tarea CERRADA no se recalcula. Su avance se congelo el dia que se
+    // cumplio (avanceAlCumplir); recalcularlo hoy contra la ventana movil de
+    // los ultimos 60 dias da numeros absurdos — se vieron en produccion cosas
+    // como "0.00 / 12 docenas (0%)" en una tarea que abajo decia "cumplida con
+    // 84 docenas", y "21.00 / 1 (100%)". Lo cerrado se lee como quedo.
+    const cerrada = t.estado !== 'abierta'
+    // En una tarea cerrada manda lo que quedo grabado al cumplirla; en una
+    // abierta, lo remisionado de hoy.
+    const hecho = cerrada && t.avanceAlCumplir != null
+      ? t.avanceAlCumplir
+      : t.avance.docenasRemisionadas
+    const pctHecho =
+      t.metaDocenas > 0 ? Math.min(100, (hecho / t.metaDocenas) * 100) : 0
+    const cumplida = hecho >= t.metaDocenas
     // Contra lo REMISIONADO: es lo que falta para cerrar la tarea de verdad,
     // no lo que falta por capturar.
-    const faltan = Math.max(0, t.metaDocenas - t.avance.docenasRemisionadas)
+    const faltan = Math.max(0, t.metaDocenas - hecho)
     return (
       <div
         key={t.id}
@@ -915,7 +930,7 @@ export default function PanelTareas() {
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  width: `${t.avance.porcentajeCapturado}%`,
+                  width: `${cerrada ? pctHecho : t.avance.porcentajeCapturado}%`,
                   background: '#bfdbfe',
                   transition: 'width .3s'
                 }}
@@ -924,7 +939,7 @@ export default function PanelTareas() {
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  width: `${t.avance.porcentaje}%`,
+                  width: `${pctHecho}%`,
                   background: cumplida ? '#2e7d4f' : '#2563eb',
                   transition: 'width .3s'
                 }}
@@ -933,10 +948,18 @@ export default function PanelTareas() {
           </div>
           <div style={{ marginTop: 4, fontSize: 14 }}>
             <strong>
-              {t.avance.docenasRemisionadas.toFixed(2)} / {t.metaDocenas} docenas remisionadas
+              {hecho.toFixed(2)} / {t.metaDocenas} docenas remisionadas
             </strong>{' '}
-            ({t.avance.porcentaje.toFixed(0)}%) · {t.avance.bultosRemisionados} de{' '}
-            {t.avance.bultos} bulto{t.avance.bultos === 1 ? '' : 's'}
+            ({pctHecho.toFixed(0)}%)
+            {/* El detalle de bultos solo tiene sentido en una tarea viva: en
+                una cerrada esos bultos ya salieron del periodo que se consulta. */}
+            {!cerrada && (
+              <>
+                {' '}
+                · {t.avance.bultosRemisionados} de {t.avance.bultos} bulto
+                {t.avance.bultos === 1 ? '' : 's'}
+              </>
+            )}
             {!cumplida && faltan > 0 && (
               <span className="texto-suave"> · faltan {faltan.toFixed(2)} docenas</span>
             )}
@@ -944,7 +967,7 @@ export default function PanelTareas() {
           {/* Lo capturado que todavia no sale. No es un error ni un pendiente
               de captura: es material HECHO esperando su remision, y quien lee
               la tarjeta necesita distinguirlo de "no se ha trabajado". */}
-          {t.avance.enPlanta > 0.001 && (
+          {!cerrada && t.avance.enPlanta > 0.001 && (
             <div style={{ marginTop: 2, fontSize: 13, color: '#1d4ed8' }}>
               {t.avance.enPlanta.toFixed(2)} docenas capturadas <strong>esperando remision</strong>{' '}
               ({t.avance.bultos - t.avance.bultosRemisionados} bultos en planta) ·{' '}
