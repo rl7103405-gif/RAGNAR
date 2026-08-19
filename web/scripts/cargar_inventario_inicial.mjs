@@ -191,10 +191,15 @@ for (const f of archivos) {
 
   const lineas = []
   const rechazos = []
+  const convertidos = []
+  const faltanEnCatalogo = []
+  const repetidos = []
   for (let n = mejor.fila + 1; n <= mejor.hoja.rowCount; n++) {
     const fila = mejor.hoja.getRow(n)
     const codigo = normalizarCodigo(texto(fila.getCell(mejor.colCodigo).value))
     if (!codigo) continue
+    // Las hojas traen su propia fila de totales: no es un codigo de avio.
+    if (/^(TOTAL|TOTALES|SUMA)$/.test(codigo)) continue
     const cantidad = numeroDe(fila.getCell(mejor.colCantidad).value)
     if (cantidad === null) {
       rechazos.push(`${codigo}: la celda de cantidad es una formula que Excel no guardo calculada`)
@@ -203,18 +208,56 @@ for (const f of archivos) {
     // El saldo inicial exige cantidad > 0 (regla de Firestore). Un cero no es
     // un saldo: es "no tiene", y no hace falta registrarlo.
     if (cantidad <= 0) continue
-    if (!Number.isInteger(cantidad)) {
-      rechazos.push(`${codigo}: cantidad ${cantidad} no es entera (el libro solo admite enteros)`)
-      continue
-    }
     const enCatalogo = catalogo.get(codigo)
-    if (!enCatalogo) {
-      rechazos.push(`${codigo}: no existe en el catalogo de avios`)
+    // La unidad sale del catalogo si el codigo esta; si no, de la PRESENTACION
+    // que trae el propio conteo.
+    const presentacion = mejor.colUnidad
+      ? texto(fila.getCell(mejor.colUnidad).value).trim().toUpperCase()
+      : ''
+    const unidadConteo = /MILLAR/.test(presentacion)
+      ? 'millares'
+      : /KG|KILO/.test(presentacion)
+        ? 'kg'
+        : 'piezas'
+    let unidad = enCatalogo?.unidad || unidadConteo
+    let cantidadFinal = cantidad
+
+    // ⚠️ MILLARES CON DECIMALES. La plastiflecha se cuenta asi (3.6 millares,
+    // 8.45 millares) y el libro de inventario solo admite enteros. En vez de
+    // redondear —que perderia material de verdad— se convierte a piezas, que
+    // es exacto: 1 millar = 1000 piezas. Queda dicho en el motivo del
+    // movimiento para que dentro de un año se entienda de donde salio.
+    if (unidad === 'millares' && !Number.isInteger(cantidadFinal)) {
+      cantidadFinal = Math.round(cantidadFinal * 1000)
+      unidad = 'piezas'
+      convertidos.push(`${codigo}: ${cantidad} millares -> ${cantidadFinal} piezas`)
+    }
+    if (!Number.isInteger(cantidadFinal)) {
+      rechazos.push(`${codigo}: cantidad ${cantidad} no es entera y su unidad (${unidad}) no se puede convertir`)
       continue
     }
-    lineas.push({ codigo, cantidad, unidad: enCatalogo.unidad, descripcion: enCatalogo.descripcion })
+    // Un codigo que no esta en el catalogo SI se carga: el material esta
+    // fisicamente en la maquila y no registrarlo seria mentir sobre lo que
+    // hay. Se anota aparte para que Cielo lo de de alta.
+    if (!enCatalogo) faltanEnCatalogo.push(codigo)
+
+    // Un codigo repetido en la misma hoja pisaria al anterior (el id del
+    // movimiento es determinista: ini_{codigo}). Se avisa en vez de perderlo
+    // en silencio.
+    const yaEstaba = lineas.find((x) => x.codigo === codigo)
+    if (yaEstaba) {
+      repetidos.push(`${codigo}: aparece dos veces (${yaEstaba.cantidad} y ${cantidadFinal}); se conserva el ultimo`)
+      lineas.splice(lineas.indexOf(yaEstaba), 1)
+    }
+
+    lineas.push({
+      codigo,
+      cantidad: cantidadFinal,
+      unidad,
+      descripcion: enCatalogo?.descripcion || '(falta en el catalogo de avios)'
+    })
   }
-  porMaquila.push({ maquila, archivo: f, hoja: mejor.hoja.name.trim(), lineas, rechazos })
+  porMaquila.push({ maquila, archivo: f, hoja: mejor.hoja.name.trim(), lineas, rechazos, convertidos, faltanEnCatalogo, repetidos })
 }
 
 // --- 4. reporte ---
@@ -223,6 +266,18 @@ for (const m of porMaquila) {
   console.log(`\n${m.maquila.nombre}  (${m.maquila.id})`)
   console.log(`  archivo: ${m.archivo} · hoja "${m.hoja}"`)
   console.log(`  ${m.lineas.length} codigos con saldo · total ${suma}`)
+  if (m.repetidos.length) {
+    console.log(`  ${m.repetidos.length} codigos REPETIDOS en la hoja:`)
+    m.repetidos.forEach((r) => console.log(`     - ${r}`))
+  }
+  if (m.convertidos.length) {
+    console.log(`  ${m.convertidos.length} convertidos de millares a piezas:`)
+    m.convertidos.forEach((c) => console.log(`     - ${c}`))
+  }
+  if (m.faltanEnCatalogo.length) {
+    console.log(`  ${m.faltanEnCatalogo.length} codigos NO estan en el catalogo de avios (se cargan igual):`)
+    console.log(`     ${m.faltanEnCatalogo.join(' ')}`)
+  }
   if (m.rechazos.length) {
     console.log(`  ${m.rechazos.length} renglones NO se pueden cargar:`)
     m.rechazos.slice(0, 8).forEach((r) => console.log(`     - ${r}`))
