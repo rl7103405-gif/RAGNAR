@@ -26,6 +26,8 @@ import RecibirAviosMaquila from '../components/RecibirAviosMaquila'
 import TareasEnsambleMaquila from '../components/TareasEnsambleMaquila'
 import PanelMaquilasTodo from '../components/PanelMaquilasTodo'
 import PanelOrdenesYPlan from '../components/PanelOrdenesYPlan'
+import PanelMiEquipo from '../components/PanelMiEquipo'
+import PanelMiPerfil from '../components/PanelMiPerfil'
 import { useAuth } from '../context/AuthContext'
 
 const TABS = [
@@ -45,7 +47,11 @@ const TABS = [
   // nombre de negocio, no tecnico: el vocabulario en pantalla es parte del
   // sistema.
   { id: 'ordenes', label: 'Ordenes de compra' },
-  { id: 'registros', label: 'Registros' }
+  { id: 'registros', label: 'Registros' },
+  // Copiadas de captura-mecanicos, que ya las tenia (Roberto, 19-08). Van al
+  // final: se consultan de vez en cuando, no son trabajo diario.
+  { id: 'miequipo', label: 'Mi equipo' },
+  { id: 'miperfil', label: 'Mi perfil' }
 ]
 
 // Un pesador (Angel, Juan) SOLO captura: no ve tareas, maquilas, Excel ni
@@ -68,6 +74,11 @@ const TABS_ALMACEN = ['maquilas', 'tareas']
 // Adrian entra a 'Ordenes de compra': ahi sube el plan y comprueba en el
 // mismo lugar que quedo bien amarrado.
 const TABS_PRODUCCION = ['ordenes']
+
+// 'Mi equipo' y 'Mi perfil' las pidio Roberto SOLO para su papa, Lindbergh y
+// America (19-08), o sea para admin y completo. Los demas perfiles siguen con
+// el engrane del encabezado para su cuenta.
+const TABS_PERFIL = ['miequipo', 'miperfil']
 
 // 'completo' (America, Diana, Lindbergh, estacion): todo lo de embarques,
 // SIN avios (recorte de Roberto 2026-08-13: inventario de maquilas, mandar
@@ -172,9 +183,10 @@ export default function Estacion() {
   // Quien puede encargar tareas a maquilas entra por la pestana de Maquilas,
   // donde 'Tareas' es la primera seccion.
   const conTareas = puedeCrearTareas && !base.includes('maquilas') ? [...base, 'maquilas'] : base
-  // El plan maestro solo lo ve quien lo sube: es de produccion, no de
-  // embarques.
-  const permitidas = conTareas
+  // 'Mi equipo' y 'Mi perfil' solo para admin y completo (el papa, Lindbergh y
+  // America). esAdmin ya las trae por TABS.map, asi que solo hay que
+  // agregarselas a 'completo'.
+  const permitidas = rol === 'completo' ? [...conTareas, ...TABS_PERFIL] : conTareas
   const visibles = TABS.filter((t) => permitidas.includes(t.id))
   // La pestana inicial no puede ser 'captura' para quien no la tiene.
   const tabActiva = visibles.some((t) => t.id === tab) ? tab : visibles[0]?.id
@@ -203,6 +215,8 @@ export default function Estacion() {
       {tabActiva === 'indicadores' && <PanelIndicadores />}
       {tabActiva === 'maquilas' && <PanelMaquilasTodo />}
       {tabActiva === 'ordenes' && <PanelOrdenesYPlan />}
+      {tabActiva === 'miequipo' && <PanelMiEquipo />}
+      {tabActiva === 'miperfil' && <PanelMiPerfil />}
       {tabActiva === 'registros' && <PanelAutorizaciones />}
     </Layout>
   )

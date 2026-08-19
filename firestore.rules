@@ -204,10 +204,14 @@ service cloud.firestore {
     // crear_usuario_interno.mjs para la gente de Quini y
     // crear_todas_las_maquilas.mjs para las maquilas.
     match /usuarios/{uid} {
-      // Cada quien lee su propio perfil; ademas, quien puede asignar tareas
-      // lee los demas perfiles para elegir destinatario (nombre y rol, no hay
-      // datos sensibles: la nomina vive en otra base).
-      allow read: if request.auth.uid == uid || puedeCrearTareas();
+      // Cada quien lee su propio perfil; ademas, CUALQUIER INTERNO lee los
+      // demas para elegir destinatario de una tarea y para la pestana "Mi
+      // equipo" (2026-08-19). Lo que hay aqui es nombre, rol y si esta activo:
+      // no hay datos sensibles — la nomina vive en otra base.
+      //
+      // Las MAQUILAS (externas, con maquilaId) NO entran: esInterno() las
+      // excluye, y no tienen por que ver la plantilla de la fabrica.
+      allow read: if request.auth.uid == uid || puedeVerElEquipo();
       allow write: if false;
     }
 
@@ -795,6 +799,17 @@ service cloud.firestore {
     // Quien lo sube: SOLO produccion (Adrian) y el admin. Es una capacidad
     // explicita, no algo que se herede por ser interno: quien captura o
     // embarca no tiene por que redibujar el plan de la fabrica.
+    // Quien ve la PLANTILLA completa (pestaña "Mi equipo" y elegir
+    // destinatario de una tarea): direccion y embarques, nadie mas.
+    //
+    // ⚠️ Se llego aqui acotando: primero se puso esInterno(), y eso le regalaba
+    // el roster con roles y flags de permiso a los pesadores, al almacen, a
+    // consulta y a produccion — ninguno de los cuales ve siquiera esa pestaña.
+    // Minimo privilegio: la regla se hace tan angosta como el uso real.
+    function puedeVerElEquipo() {
+      return esInterno() && (esAdmin() || rol() == 'completo');
+    }
+
     function puedeSubirPlanMaestro() {
       return esInterno() && rol() in ['produccion', 'admin'];
     }
