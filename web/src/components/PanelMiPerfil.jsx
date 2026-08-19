@@ -2,14 +2,19 @@
 // contraseña.
 //
 // Lo pidió Roberto el 19-08 copiando lo que ya existe en captura-mecanicos. El
-// cambio de contraseña ya vivía en el engrane del encabezado (AjustesCuenta) y
-// ahí SIGUE: esta pestaña no lo duplica, lo señala. Duplicar un formulario que
-// cambia credenciales es pedir que uno de los dos se quede sin actualizar.
+// La ve TODO el mundo, incluidos los pesadores: Roberto fue explicito el 19-08
+// — "Juan, Angel, todos, todos pueden tener lo de mi perfil". Aqui cada quien
+// cambia su contraseña sin tener que descubrir el engrane del encabezado.
+//
+// El formulario de contraseña es el MISMO componente que usa ese engrane
+// (CambiarContrasena.jsx), no una copia: dos formularios que cambian
+// credenciales es garantizar que un dia se arregle uno y el otro no.
 //
 // ⚠️ SIN FOTO todavía: RAGNAR no tiene Firebase Storage montado (ver el
 // comentario de PanelMiEquipo.jsx). Va en su propia tanda.
 import { useAuth } from '../context/AuthContext'
 import { auth } from '../firebase/config'
+import CambiarContrasena from './CambiarContrasena'
 
 // Qué hace cada rol, en las palabras del negocio y no en las del código. Es la
 // misma explicación que da el Excel de cuentas.
@@ -29,9 +34,7 @@ const NIVEL = {
 }
 
 export default function PanelMiPerfil() {
-  const { perfil, esInterno, nivelDeVista, puedeCrearTareas, puedeSubirPlanMaestro } = useAuth()
-
-  if (!esInterno) return null
+  const { perfil, nivelDeVista, puedeCrearTareas, puedeSubirPlanMaestro } = useAuth()
 
   const usuario = perfil?.empleadoId || auth.currentUser?.email?.split('@')[0] || '-'
   const inicial = String(perfil?.nombreCompleto || '?').trim().charAt(0).toUpperCase()
@@ -76,16 +79,26 @@ export default function PanelMiPerfil() {
       <div style={{ marginTop: 12, fontSize: 14 }}>
         <strong>Lo que puedes hacer</strong>
         <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-          {puedeCrearTareas && <li>Encargar tareas y ver las de todos</li>}
+          {puedeCrearTareas && <li>Encargar tareas a las maquilas y ver las de todos</li>}
           {puedeSubirPlanMaestro && <li>Subir el plan maestro de produccion</li>}
-          <li>Consultar el historial y los indicadores</li>
+          {/* Un pesador NO ve historial ni indicadores: prometerselo aqui seria
+              mandarlo a buscar una pestaña que no tiene. */}
+          {perfil?.rol !== 'captura' && <li>Consultar el historial y los indicadores</li>}
+          {perfil?.rol === 'captura' && <li>Capturar folios y generar sus etiquetas</li>}
+          <li>Cambiar tu contrasena aqui mismo</li>
         </ul>
       </div>
 
-      <p className="texto-suave" style={{ fontSize: 13, marginTop: 14 }}>
-        Para cambiar tu contrasena usa el engrane <strong>⚙</strong> de arriba a la derecha. No se
-        pone aqui para no tener dos formularios distintos que cambien lo mismo.
-      </p>
+      <div style={{ marginTop: 18, borderTop: '1px solid #e5e7eb', paddingTop: 14 }}>
+        <strong style={{ fontSize: 15 }}>Cambiar mi contrasena</strong>
+        <p className="texto-suave" style={{ fontSize: 13, marginTop: 2 }}>
+          Por seguridad la actual no se puede mostrar (no se guarda legible), pero aqui la puedes
+          cambiar. Es el mismo formulario del engrane <strong>⚙</strong> de arriba.
+        </p>
+        <div style={{ maxWidth: 420 }}>
+          <CambiarContrasena />
+        </div>
+      </div>
     </div>
   )
 }

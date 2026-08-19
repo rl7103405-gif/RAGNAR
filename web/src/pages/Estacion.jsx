@@ -75,10 +75,11 @@ const TABS_ALMACEN = ['maquilas', 'tareas']
 // mismo lugar que quedo bien amarrado.
 const TABS_PRODUCCION = ['ordenes']
 
-// 'Mi equipo' y 'Mi perfil' las pidio Roberto SOLO para su papa, Lindbergh y
-// America (19-08), o sea para admin y completo. Los demas perfiles siguen con
-// el engrane del encabezado para su cuenta.
-const TABS_PERFIL = ['miequipo', 'miperfil']
+// 'Mi equipo' (la plantilla) es para direccion y embarques. 'Mi perfil' lo ve
+// TODO el mundo — Roberto fue explicito el 19-08: "Juan, Angel, todos, todos
+// pueden tener lo de mi perfil". Ahi cada quien cambia su contrasena sin
+// depender del engrane.
+const TABS_EQUIPO = ['miequipo']
 
 // 'completo' (America, Diana, Lindbergh, estacion): todo lo de embarques,
 // SIN avios (recorte de Roberto 2026-08-13: inventario de maquilas, mandar
@@ -186,7 +187,10 @@ export default function Estacion() {
   // 'Mi equipo' y 'Mi perfil' solo para admin y completo (el papa, Lindbergh y
   // America). esAdmin ya las trae por TABS.map, asi que solo hay que
   // agregarselas a 'completo'.
-  const permitidas = rol === 'completo' ? [...conTareas, ...TABS_PERFIL] : conTareas
+  // 'Mi equipo' solo para embarques (admin ya la trae por TABS.map);
+  // 'Mi perfil' para cualquiera que haya entrado.
+  const conEquipo = rol === 'completo' ? [...conTareas, ...TABS_EQUIPO] : conTareas
+  const permitidas = conEquipo.includes('miperfil') ? conEquipo : [...conEquipo, 'miperfil']
   const visibles = TABS.filter((t) => permitidas.includes(t.id))
   // La pestana inicial no puede ser 'captura' para quien no la tiene.
   const tabActiva = visibles.some((t) => t.id === tab) ? tab : visibles[0]?.id
