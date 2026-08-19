@@ -177,11 +177,39 @@ export default function PanelTareas() {
       return ots.length === 0 || ots.includes(ordenDeCaptura(c))
     })
     const docenas = propias.reduce((acc, c) => acc + docenasDeCaptura(c), 0)
+
+    // ⚠️ LA TAREA SE COMPLETA EN DOS ETAPAS, y esto es lo que la cierra.
+    //
+    // Capturar el folio es la PRIMERA mitad: el bulto ya existe y se peso.
+    // Pero la finalidad de la tarea es la REMISION — que el material salga
+    // hacia donde tiene que ir. Textual del dueno en la junta del 17-08: "el
+    // avance tiene que estar determinado por las notas de remision... como le
+    // voy restando esa tarea con las notas de remision que ellos hagan hacia
+    // aca". Un bulto capturado que nunca se remisiono no completo nada: sigue
+    // en la planta.
+    //
+    // Un bulto trae `pdfGeneradoEn` en cuanto sale en una remision, asi que la
+    // segunda etapa se mide sin consultar nada mas.
+    const remisionadas = propias.filter((c) => c.pdfGeneradoEn)
+    const docenasRemisionadas = remisionadas.reduce((acc, c) => acc + docenasDeCaptura(c), 0)
+
     return {
+      // Lo capturado: la primera mitad, util para ver que si se esta
+      // trabajando aunque todavia no salga.
       docenas,
       bultos: propias.length,
       kg: propias.reduce((acc, c) => acc + (c.pesoGramos || 0), 0) / 1000,
-      porcentaje: tarea.metaDocenas > 0 ? Math.min(100, (docenas / tarea.metaDocenas) * 100) : 0
+      porcentajeCapturado:
+        tarea.metaDocenas > 0 ? Math.min(100, (docenas / tarea.metaDocenas) * 100) : 0,
+
+      // Lo REMISIONADO: es lo que de verdad cumple la tarea y lo que la cierra.
+      docenasRemisionadas,
+      bultosRemisionados: remisionadas.length,
+      enPlanta: Math.max(0, docenas - docenasRemisionadas),
+      porcentaje:
+        tarea.metaDocenas > 0
+          ? Math.min(100, (docenasRemisionadas / tarea.metaDocenas) * 100)
+          : 0
     }
   }
 
@@ -314,11 +342,22 @@ export default function PanelTareas() {
     // a otra que no arranco y el grupo se ve listo sin estarlo.
     const avance = (tareas) => {
       const meta = tareas.reduce((a, t) => a + (Number(t.metaDocenas) || 0), 0)
+      // Lo REMISIONADO, igual que en cada tarjeta: el grupo no puede ir mas
+      // adelantado que las tareas que lo componen.
       const hecho = tareas.reduce(
+        (a, t) => a + Math.min(t.avance?.docenasRemisionadas || 0, Number(t.metaDocenas) || 0),
+        0
+      )
+      const capturado = tareas.reduce(
         (a, t) => a + Math.min(t.avance?.docenas || 0, Number(t.metaDocenas) || 0),
         0
       )
-      return { meta, hecho, porcentaje: meta > 0 ? Math.min(100, (hecho / meta) * 100) : null }
+      return {
+        meta,
+        hecho,
+        enPlanta: Math.max(0, capturado - hecho),
+        porcentaje: meta > 0 ? Math.min(100, (hecho / meta) * 100) : null
+      }
     }
 
     return [...porOc.values()]
@@ -366,7 +405,8 @@ export default function PanelTareas() {
       // El avance EXACTO decide si se cierra; el redondeo es solo para el dato
       // que se guarda. Comparar el redondeado adelantaria el cierre en casos
       // como 99.995 -> 100.00 contra una meta de 100.
-      const avanceExacto = t.avance.docenas
+      // Lo REMISIONADO, no lo capturado: la tarea la cierra la remision.
+      const avanceExacto = t.avance.docenasRemisionadas
       const avanceDocenas = Number(avanceExacto.toFixed(2))
       runTransaction(db, async (tx) => {
         const vivo = await tx.get(doc(db, 'tareas', t.id))
@@ -798,7 +838,9 @@ export default function PanelTareas() {
 
   const tarjetaTarea = (t) => {
     const cumplida = t.avance.docenas >= t.metaDocenas
-    const faltan = Math.max(0, t.metaDocenas - t.avance.docenas)
+    // Contra lo REMISIONADO: es lo que falta para cerrar la tarea de verdad,
+    // no lo que falta por capturar.
+    const faltan = Math.max(0, t.metaDocenas - t.avance.docenasRemisionadas)
     return (
       <div
         key={t.id}
@@ -863,30 +905,57 @@ export default function PanelTareas() {
               overflow: 'hidden'
             }}
           >
-            <div
-              style={{
-                width: `${t.avance.porcentaje}%`,
-                height: '100%',
-                background: cumplida ? '#2e7d4f' : '#2563eb',
-                transition: 'width .3s'
-              }}
-            />
+            {/* DOS ETAPAS EN UNA BARRA. El tono claro es lo capturado (ya se
+                peso, sigue en planta) y el fuerte lo REMISIONADO, que es lo
+                que de verdad cumple la tarea. Verlas juntas contesta de un
+                vistazo la pregunta real: "¿esta parado, o esta hecho y solo
+                falta sacarlo?". */}
+            <div style={{ position: 'relative', height: '100%' }}>
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: `${t.avance.porcentajeCapturado}%`,
+                  background: '#bfdbfe',
+                  transition: 'width .3s'
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: `${t.avance.porcentaje}%`,
+                  background: cumplida ? '#2e7d4f' : '#2563eb',
+                  transition: 'width .3s'
+                }}
+              />
+            </div>
           </div>
           <div style={{ marginTop: 4, fontSize: 14 }}>
             <strong>
-              {t.avance.docenas.toFixed(2)} / {t.metaDocenas} docenas
+              {t.avance.docenasRemisionadas.toFixed(2)} / {t.metaDocenas} docenas remisionadas
             </strong>{' '}
-            ({t.avance.porcentaje.toFixed(0)}%) · {t.avance.bultos} bulto
-            {t.avance.bultos === 1 ? '' : 's'} · {t.avance.kg.toFixed(2)} kg
+            ({t.avance.porcentaje.toFixed(0)}%) · {t.avance.bultosRemisionados} de{' '}
+            {t.avance.bultos} bulto{t.avance.bultos === 1 ? '' : 's'}
             {!cumplida && faltan > 0 && (
               <span className="texto-suave"> · faltan {faltan.toFixed(2)} docenas</span>
             )}
           </div>
+          {/* Lo capturado que todavia no sale. No es un error ni un pendiente
+              de captura: es material HECHO esperando su remision, y quien lee
+              la tarjeta necesita distinguirlo de "no se ha trabajado". */}
+          {t.avance.enPlanta > 0.001 && (
+            <div style={{ marginTop: 2, fontSize: 13, color: '#1d4ed8' }}>
+              {t.avance.enPlanta.toFixed(2)} docenas capturadas <strong>esperando remision</strong>{' '}
+              ({t.avance.bultos - t.avance.bultosRemisionados} bultos en planta) ·{' '}
+              {t.avance.kg.toFixed(2)} kg capturados
+            </div>
+          )}
         </div>
 
         {cumplida && t.estado === 'abierta' && (
           <div className="alerta-exito" style={{ marginTop: 6 }}>
-            <strong>¡META ALCANZADA!</strong> Ya hay {t.avance.docenas.toFixed(2)} docenas de{' '}
+            <strong>¡META ALCANZADA!</strong> Ya se remisionaron {t.avance.docenasRemisionadas.toFixed(2)} docenas de{' '}
             {t.objetivoTipo === 'ot' ? `la OT ${t.objetivoValor}` : `el codigo ${t.objetivoValor}`}.
             La tarea se marca cumplida sola: no hay que hacer nada.
           </div>
