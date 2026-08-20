@@ -4,11 +4,14 @@
 // Lo pidió Roberto el 19-08 copiando lo que ya existe en captura-mecanicos. El
 // La ve TODO el mundo, incluidos los pesadores: Roberto fue explicito el 19-08
 // — "Juan, Angel, todos, todos pueden tener lo de mi perfil". Aqui cada quien
-// cambia su contraseña sin tener que descubrir el engrane del encabezado.
+// cambia su contraseña sin tener que descubrir un icono en el encabezado.
 //
-// El formulario de contraseña es el MISMO componente que usa ese engrane
+// El formulario es el MISMO componente que usa el portal de las maquilas
 // (CambiarContrasena.jsx), no una copia: dos formularios que cambian
 // credenciales es garantizar que un dia se arregle uno y el otro no.
+//
+// Desde el 2026-08-20 esta es la UNICA via para un interno: el engrane del
+// encabezado quedo solo para las maquilas, que no tienen esta pestaña.
 //
 // ⚠️ SIN FOTO todavía: RAGNAR no tiene Firebase Storage montado (ver el
 // comentario de PanelMiEquipo.jsx). Va en su propia tanda.
@@ -93,7 +96,7 @@ export default function PanelMiPerfil() {
         <strong style={{ fontSize: 15 }}>Cambiar mi contrasena</strong>
         <p className="texto-suave" style={{ fontSize: 13, marginTop: 2 }}>
           Por seguridad la actual no se puede mostrar (no se guarda legible), pero aqui la puedes
-          cambiar. Es el mismo formulario del engrane <strong>⚙</strong> de arriba.
+          cambiar.
         </p>
         <div style={{ maxWidth: 420 }}>
           <CambiarContrasena />

@@ -1,11 +1,19 @@
-// Marco comun: barra superior con titulo, usuario, ajustes y salir. Mismo
-// patron que el Layout de captura-mecanicos para que las dos apps se sientan
-// iguales.
+// Marco comun: barra superior con titulo, usuario y salir. Mismo patron que el
+// Layout de captura-mecanicos para que las dos apps se sientan iguales.
+//
+// ⚠️ EL ENGRANE SOLO LO VEN LAS MAQUILAS. Los internos lo perdieron el
+// 2026-08-20, cuando "Mi perfil" ya traia el mismo formulario de contraseña
+// dentro y el icono se volvio un duplicado (Roberto: "quitalo porque ya lo
+// tenemos en las pestañas").
+//
+// Para las maquilas SIGUE, y no es un olvido: sus cuatro pestañas son recibir,
+// ensamble, material y pedir — NINGUNA es "Mi perfil". Quitarselo a ellas
+// tambien las dejaria sin ninguna forma de cambiar su contraseña.
 import { useAuth } from '../context/AuthContext'
 import AjustesCuenta from './AjustesCuenta'
 
 export default function Layout({ titulo, children }) {
-  const { perfil, cerrarSesion, esPrueba } = useAuth()
+  const { perfil, cerrarSesion, esPrueba, esInterno } = useAuth()
 
   return (
     <div className="layout">
@@ -35,7 +43,7 @@ export default function Layout({ titulo, children }) {
             {perfil?.nombreCompleto || 'Estacion'}
             <span className="usuario-rol">Embarques</span>
           </span>
-          <AjustesCuenta />
+          {!esInterno && <AjustesCuenta />}
           <button className="btn-salir" onClick={cerrarSesion}>
             Salir
           </button>

@@ -1,9 +1,12 @@
 // EL FORMULARIO DE CAMBIO DE CONTRASEÑA, en un solo lugar.
 //
-// Lo usan los DOS sitios donde se puede cambiar: el engrane del encabezado
-// (AjustesCuenta) y la pestaña "Mi perfil". Vive aparte a proposito: tener dos
-// copias de un formulario que cambia credenciales es garantizar que un dia se
-// arregle una y la otra se quede con el fallo.
+// Lo usan los DOS sitios donde se puede cambiar, segun quien seas:
+//   - los INTERNOS, en su pestaña "Mi perfil"
+//   - las MAQUILAS, en el engrane del encabezado (AjustesCuenta), porque ellas
+//     no tienen esa pestaña
+// Vive aparte a proposito: tener dos copias de un formulario que cambia
+// credenciales es garantizar que un dia se arregle una y la otra se quede con
+// el fallo.
 //
 // La contrasena actual no se puede "ver": Firebase Auth no la guarda legible
 // (solo un hash irreversible), asi que lo unico posible — y lo mas sano — es
