@@ -53,7 +53,23 @@ if (!rutaZip || !carpetaCorte) {
 // --- normalizacion, la misma que usa la app para el id de maquila ---
 const sinAcentos = (s) =>
   String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
-const normalizarCodigo = (v) => sinAcentos(v).trim().toUpperCase().replace(/\s+/g, '')
+// ⚠️ EXACTAMENTE la misma normalizacion que usa el catalogo de avios
+// (scripts/importar_catalogo_avios.mjs y web/src/components/Avios.jsx): los
+// espacios se vuelven GUION, no se borran.
+//
+// La primera version borraba los espacios y por eso los 15 codigos SRFID
+// salieron como "no estan en el catalogo": el catalogo los guarda
+// 'SRFID-7506097255888' y aqui se buscaba 'SRFID7506097255888'. Se cargaron
+// como codigos nuevos sin descripcion, duplicando la identidad del mismo
+// material. Los dos lados de un cruce se derivan con LA MISMA FUNCION o el
+// cruce miente sin avisar.
+const normalizarCodigo = (v) =>
+  sinAcentos(v)
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^A-Z0-9._-]/g, '')
+    .slice(0, 60)
 
 /** Numero de una celda, incluidas las de formula. null si no hay numero. */
 function numeroDe(v) {
@@ -147,8 +163,21 @@ const maquilas = (await db.collection('maquilas').get()).docs
   .map((d) => ({ id: d.id, ...d.data() }))
   .filter((m) => !m.esPrueba)
 
+// Alias de los archivos de conteo: el nombre del archivo no siempre es el de
+// la maquila. Cielo lo confirmo el 2026-08-20: RODA es Roda Textil, que en la
+// app esta como Rober Lopez; y Eduardo es el encargado del empaque de
+// Preferida. Sin esto sus inventarios se quedaban fuera en silencio.
+const ALIAS = { RODA: 'rober_lopez', EDUARDO: 'eduardo_rodriguez' }
+
 /** Del nombre del archivo a la maquila. Se compara contra el NOMBRE real. */
 function maquilaDe(archivo) {
+  const clave = sinAcentos(archivo).toUpperCase()
+  for (const [pista, id] of Object.entries(ALIAS)) {
+    if (clave.includes(pista)) {
+      const m = maquilas.find((x) => x.id === id)
+      if (m) return m
+    }
+  }
   const pista = sinAcentos(archivo).toUpperCase().replace(/MAQUILA|\.XLSX|-\d+/g, '').trim()
   return maquilas.find((m) => {
     const partes = sinAcentos(m.nombre).toUpperCase().split(/\s+/)
@@ -246,8 +275,22 @@ for (const f of archivos) {
     // en silencio.
     const yaEstaba = lineas.find((x) => x.codigo === codigo)
     if (yaEstaba) {
-      repetidos.push(`${codigo}: aparece dos veces (${yaEstaba.cantidad} y ${cantidadFinal}); se conserva el ultimo`)
-      lineas.splice(lineas.indexOf(yaEstaba), 1)
+      // ⚠️ SE SUMAN, no se pisa una con otra. Esto es un CONTEO FISICO: si
+      // alguien escribio el mismo codigo en dos renglones, lo normal es que
+      // haya contado dos partidas o dos ubicaciones, y quedarse con la ultima
+      // perderia material real.
+      //
+      // La excepcion conocida es el renglon copiado, que se reconoce porque
+      // las dos cantidades son IGUALES (Cielo confirmo uno asi de Javier el
+      // 2026-08-20: 500 y 500 era el mismo). Ese caso no se suma.
+      const duplicadoExacto = yaEstaba.cantidad === cantidadFinal
+      repetidos.push(
+        duplicadoExacto
+          ? `${codigo}: dos renglones iguales (${cantidadFinal}); se cuenta UNA vez`
+          : `${codigo}: dos renglones (${yaEstaba.cantidad} + ${cantidadFinal}); se SUMAN = ${yaEstaba.cantidad + cantidadFinal}`
+      )
+      if (!duplicadoExacto) yaEstaba.cantidad += cantidadFinal
+      continue
     }
 
     lineas.push({
