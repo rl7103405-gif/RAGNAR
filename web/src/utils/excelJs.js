@@ -21,6 +21,10 @@
 // DATO del usuario. Son cosas distintas y llevan a acciones distintas —
 // recargar la pagina contra arreglar el archivo.
 
+// ⚠️ Quien importe este archivo debe hacerlo CON la extension .js:
+// los lectores tambien los corre Node desde web/scripts/, y Node exige la
+// extension aunque Vite no. Mismo caso que planMaestroNucleo.js.
+
 /** Se lanza cuando no se pudo traer la libreria (no cuando el archivo esta mal). */
 export class ErrorLibreriaExcel extends Error {
   constructor() {

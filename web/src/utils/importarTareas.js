@@ -1,4 +1,4 @@
-import { cargarWorkbook } from './excelJs'
+import { cargarWorkbook } from './excelJs.js'
 // Importacion de TAREAS desde Excel. Acepta los dos formatos que manda el
 // papa de Beto (ejemplos del 2026-08-10) y detecta solo el formato por los
 // encabezados de cada hoja, en cualquier hoja del archivo:
@@ -125,6 +125,12 @@ function detectarFormato(hoja) {
     // solicitada, y con startsWith se colaba.
     const colSolicita = buscar((t) => t === 'solicita' || t === 'solicitadas')
     const colOt = buscar((t) => t === 'numpedido' || t === 'num pedido')
+    // La ORDEN DE COMPRA, si el archivo la trae. No es obligatoria — hoy casi
+    // ningun archivo de tareas la incluye — pero cuando viene hay que mirarla:
+    // sirve para avisar si esa orden todavia no esta en el plan maestro.
+    const colOc = buscar(
+      (t) => t === 'oc' || t === 'o.c.' || t === 'orden de compra' || t === 'ordendecompra'
+    )
     const colPedido = buscar((t) => t === 'nopedido' || t === 'no pedido')
     // Cantidad explicita con otros nombres posibles, por si el archivo la trae
     // con encabezado propio en vez de reusar SOLICITA.
@@ -146,6 +152,7 @@ function detectarFormato(hoja) {
           // (que en el archivo real de Lindbergh traia una FECHA).
           meta: colCantidad || colSolicita || null,
           ot: colOt,
+          oc: colOc,
           pedido: colPedido,
           fecha: buscar((t) => t.startsWith('fechaentrega') || t.startsWith('fecha entrega')),
           articulo: buscar((t) => t === 'articulo'),
@@ -265,6 +272,11 @@ export async function leerExcelTareas(buffer) {
         motivosSinMeta.set(razon, (motivosSinMeta.get(razon) || 0) + 1)
       }
       renglones += 1
+      // La orden de compra que trae el archivo, si la trae. Se guarda tal cual
+      // para poder cruzarla despues contra el plan maestro y avisar.
+      const ocFila = columnas.oc
+        ? String(textoDeCelda(valores[columnas.oc]) ?? '').trim().toUpperCase().replace(/\s+/g, '')
+        : ''
       const fecha = columnas.fecha ? fechaDeCelda(valores[columnas.fecha]) : null
       const ot = formato.tipo === 'especial' ? otFila : null
       const detalle =
@@ -286,6 +298,7 @@ export async function leerExcelTareas(buffer) {
           metaDelExcel: false,
           renglonesSinMeta: 0,
           ots: new Set(),
+          ocs: new Set(),
           renglonesSinOt: 0,
           fechas: new Set(),
           detalles: new Set(),
@@ -302,6 +315,7 @@ export async function leerExcelTareas(buffer) {
       acumulado.tipos.add(formato.tipo)
       if (ot) acumulado.ots.add(ot)
       else if (formato.tipo === 'especial') acumulado.renglonesSinOt += 1
+      if (ocFila) acumulado.ocs.add(ocFila)
       const fechaTexto = fechaCorta(fecha)
       if (fechaTexto) acumulado.fechas.add(fechaTexto)
       if (detalle) acumulado.detalles.add(detalle)
@@ -357,6 +371,9 @@ export async function leerExcelTareas(buffer) {
       tipo: [...t.tipos].sort().join('+'),
       ots: acotaPorOt ? otsVistas : [],
       otsInfo: otsVistas,
+      // Las ordenes de compra que venian en el archivo para este codigo.
+      // Vacio en la mayoria de los archivos: casi ninguno la trae.
+      ocsDelArchivo: [...t.ocs],
       // Si el codigo trae MAS de 30 OTs, 'ots' queda vacio (tope de las
       // reglas) y el avance contaria el codigo completo: hay que avisarlo en
       // vez de dejarlo pasar en silencio.

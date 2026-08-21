@@ -12,7 +12,7 @@
 //     hoja debajo). NO es una copia fiel del Excel -- celdas combinadas,
 //     posiciones de imagen y formatos se pierden -- y el visor lo advierte.
 //     Por eso la UI de subida recomienda PDF.
-import { cargarWorkbook } from '../utils/excelJs'
+import { cargarWorkbook } from '../utils/excelJs.js'
 import { useEffect, useRef, useState } from 'react'
 import { descargarTechPack, ErrorTareaEnsamble } from '../utils/tareasEnsamble'
 

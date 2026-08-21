@@ -22,7 +22,7 @@
 //
 // Nota .xlsm: el navegador solo lee los VALORES ya guardados, nunca ejecuta
 // macros -- America debe correr su proceso en Excel y GUARDAR antes de subir.
-import { cargarWorkbook } from './excelJs'
+import { cargarWorkbook } from './excelJs.js'
 import { normalizarFolio, canonizarFolio } from './validacion'
 import { CELDA_INVALIDA, textoCelda, escalarCelda, numeroCeldaONull, fechaCeldaONull } from './celdasExcel'
 

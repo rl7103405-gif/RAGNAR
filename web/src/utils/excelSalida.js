@@ -2,7 +2,7 @@
 // que se sube al sistema para que todo quede resguardado en el mismo lugar:
 // SOLO cuatro columnas (Folio, Codigo, Docenas, Pares), sin encabezados
 // decorativos ni totales, para que entre limpio.
-import { cargarWorkbook } from './excelJs'
+import { cargarWorkbook } from './excelJs.js'
 import { compararAscendente } from './texto'
 
 const ENCABEZADOS = ['Folio', 'Codigo', 'Docenas', 'Pares']

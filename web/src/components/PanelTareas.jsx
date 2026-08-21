@@ -587,7 +587,46 @@ export default function PanelTareas() {
       )
       const duplicadas = resultado.tareas.filter((t) => abiertosAhora.has(t.codigo))
       const nuevas = resultado.tareas.filter((t) => !abiertosAhora.has(t.codigo))
+
+      // ⚠️ AVISAR ANTES DE CREAR, no despues. Una tarea cuya orden de trabajo
+      // no esta en el plan maestro se crea igual, pero cae en el grupo
+      // "Todavia sin orden de compra" y no suma al avance de ninguna orden.
+      // Lindbergh lo pidio el 21-08: que no se ignore en silencio, que salga
+      // una leyenda de aguas mientras todavia se puede cancelar.
+      let avisoPlan = null
+      try {
+        const todasLasOts = [...new Set(nuevas.flatMap((t) => t.otsInfo || []))]
+        const ubic = await ubicarOts(todasLasOts)
+        const sinPlan = todasLasOts.filter((o) => !ubic.get(normalizarOt(o)))
+        // Las ordenes de compra que venia en el ARCHIVO (casi ningun archivo
+        // las trae, pero si vienen hay que contrastarlas).
+        const ocsArchivo = [...new Set(nuevas.flatMap((t) => t.ocsDelArchivo || []))]
+        const ocsDelPlan = new Set([...ubic.values()].map((u) => u.oc).filter(Boolean))
+        const ocsSinPlan = ocsArchivo.filter((oc) => !ocsDelPlan.has(oc))
+        // Lo mas delicado: el archivo dice una orden de compra y el plan dice
+        // OTRA para esa misma orden de trabajo. Alguno de los dos esta mal.
+        const contradicciones = []
+        nuevas.forEach((t) => {
+          ;(t.ocsDelArchivo || []).forEach((ocArchivo) => {
+            ;(t.otsInfo || []).forEach((ot) => {
+              const u = ubic.get(normalizarOt(ot))
+              if (u?.oc && u.oc !== ocArchivo) {
+                contradicciones.push(`OT ${ot}: el archivo dice ${ocArchivo}, el plan dice ${u.oc}`)
+              }
+            })
+          })
+        })
+        if (sinPlan.length || ocsSinPlan.length || contradicciones.length) {
+          avisoPlan = { sinPlan, ocsSinPlan, contradicciones: [...new Set(contradicciones)] }
+        }
+      } catch (err) {
+        // Si no se puede consultar el plan, el archivo SI se leyo: se sigue sin
+        // el aviso en vez de bloquear la importacion.
+        console.error('[PanelTareas] No se pudo contrastar contra el plan maestro:', err)
+      }
+
       setImportacion({
+        avisoPlan,
         nombreArchivo: archivo.name,
         tareas: nuevas,
         duplicadas,
@@ -1173,6 +1212,60 @@ export default function PanelTareas() {
                 {importacion.renglonesDescartados > 0 &&
                   ` · ${importacion.renglonesDescartados} renglon(es) sin codigo se descartaron`}
               </p>
+              {/* AGUAS: lo que este archivo NO va a poder amarrar al plan.
+                  Va arriba de todo y en ambar porque todavia se puede
+                  cancelar; enterarse despues de crear 18 tareas no sirve. */}
+              {importacion.avisoPlan && (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 6,
+                    background: '#fffbeb',
+                    border: '1px solid #fde68a',
+                    fontSize: 13,
+                    marginBottom: 10
+                  }}
+                >
+                  <strong>Aguas con el plan maestro:</strong>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                    {importacion.avisoPlan.sinPlan.length > 0 && (
+                      <li>
+                        <strong>
+                          {importacion.avisoPlan.sinPlan.length} orden
+                          {importacion.avisoPlan.sinPlan.length === 1 ? '' : 'es'} de trabajo no
+                          {importacion.avisoPlan.sinPlan.length === 1 ? ' esta' : ' estan'} en el
+                          plan
+                        </strong>{' '}
+                        ({importacion.avisoPlan.sinPlan.slice(0, 12).join(', ')}
+                        {importacion.avisoPlan.sinPlan.length > 12 &&
+                          ` y ${importacion.avisoPlan.sinPlan.length - 12} mas`}
+                        ). Sus tareas se crean igual, pero van a quedar en{' '}
+                        <strong>&quot;Todavia sin orden de compra&quot;</strong> hasta que Adrian
+                        suba un plan que las incluya.
+                      </li>
+                    )}
+                    {importacion.avisoPlan.ocsSinPlan.length > 0 && (
+                      <li>
+                        La orden de compra que trae el archivo (
+                        {importacion.avisoPlan.ocsSinPlan.join(', ')}){' '}
+                        <strong>no esta en el plan maestro</strong>.
+                      </li>
+                    )}
+                    {importacion.avisoPlan.contradicciones.length > 0 && (
+                      <li style={{ color: '#8a5300' }}>
+                        <strong>El archivo y el plan no coinciden:</strong>
+                        <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                          {importacion.avisoPlan.contradicciones.slice(0, 8).map((c) => (
+                            <li key={c}>{c}</li>
+                          ))}
+                        </ul>
+                        Revisa cual de los dos esta bien antes de crear las tareas.
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
+
               {importacion.sinMeta?.length > 0 && (
                 <div style={{ fontSize: 13, marginBottom: 8 }}>
                   El archivo no traia la cantidad en{' '}

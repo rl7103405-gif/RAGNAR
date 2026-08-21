@@ -1,4 +1,4 @@
-import { cargarWorkbook } from './excelJs'
+import { cargarWorkbook } from './excelJs.js'
 // Excel del panel de Reportes: NO es el Excel de migracion (ese vive en
 // excelSalida.js con sus 4 columnas exactas). Este es para consulta humana:
 // una hoja con el resumen por maquila y otra con el detalle de cada folio,
