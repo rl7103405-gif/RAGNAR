@@ -35,7 +35,7 @@ import { useAuth } from '../context/AuthContext'
 import { ordenDeCaptura } from '../utils/pdf'
 import { docenasDeCaptura } from '../utils/reimprimir'
 import { ubicarOts } from '../utils/ubicacionEnPlan'
-import { normalizarOt } from '../utils/planMaestro'
+import { normalizarOt, planVigente } from '../utils/planMaestro'
 import { coincide } from '../utils/texto'
 import { leerExcelTareas, tituloYNotas, ErrorImportacionTareas } from '../utils/importarTareas'
 import { rellenarMetasDesdeRuteo } from '../utils/metasDelRuteo'
@@ -617,7 +617,22 @@ export default function PanelTareas() {
           })
         })
         if (sinPlan.length || ocsSinPlan.length || contradicciones.length) {
-          avisoPlan = { sinPlan, ocsSinPlan, contradicciones: [...new Set(contradicciones)] }
+          // Que plan esta vigente AHORA. Es el dato que convierte el aviso en
+          // algo que se puede accionar: si el plan cargado es de hace un mes,
+          // ya se sabe a quien hay que buscar y para que.
+          let vigente = null
+          try {
+            vigente = await planVigente()
+          } catch {
+            // Si no se puede leer, el aviso sale igual pero sin esa linea.
+          }
+          avisoPlan = {
+            sinPlan,
+            ocsSinPlan,
+            contradicciones: [...new Set(contradicciones)],
+            planArchivo: vigente?.archivo || null,
+            planFecha: vigente?.activadaEn?.toDate ? vigente.activadaEn.toDate() : null
+          }
         }
       } catch (err) {
         // Si no se puede consultar el plan, el archivo SI se leyo: se sigue sin
@@ -1226,7 +1241,7 @@ export default function PanelTareas() {
                     marginBottom: 10
                   }}
                 >
-                  <strong>Aguas con el plan maestro:</strong>
+                  <strong>Revisa esto antes de crear las tareas</strong>
                   <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                     {importacion.avisoPlan.sinPlan.length > 0 && (
                       <li>
@@ -1263,6 +1278,25 @@ export default function PanelTareas() {
                       </li>
                     )}
                   </ul>
+                  {/* La accion concreta. Sin esto el aviso solo informa; con
+                      esto dice a quien buscar y con que dato en la mano. */}
+                  <p style={{ margin: '8px 0 0' }}>
+                    <strong>Confirmalo con Adrian:</strong> puede que todavia no haya subido el
+                    plan donde vienen estas ordenes.
+                    {importacion.avisoPlan.planArchivo ? (
+                      <>
+                        {' '}
+                        Ahora mismo el plan vigente es{' '}
+                        <strong>{importacion.avisoPlan.planArchivo}</strong>
+                        {importacion.avisoPlan.planFecha
+                          ? `, subido el ${importacion.avisoPlan.planFecha.toLocaleDateString('es-MX')}`
+                          : ''}
+                        .
+                      </>
+                    ) : (
+                      <> Ahora mismo no hay ningun plan maestro cargado.</>
+                    )}
+                  </p>
                 </div>
               )}
 
