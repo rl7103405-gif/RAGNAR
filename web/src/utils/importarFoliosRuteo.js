@@ -22,6 +22,7 @@
 //
 // Nota .xlsm: el navegador solo lee los VALORES ya guardados, nunca ejecuta
 // macros -- America debe correr su proceso en Excel y GUARDAR antes de subir.
+import { cargarWorkbook } from './excelJs'
 import { normalizarFolio, canonizarFolio } from './validacion'
 import { CELDA_INVALIDA, textoCelda, escalarCelda, numeroCeldaONull, fechaCeldaONull } from './celdasExcel'
 
@@ -154,7 +155,7 @@ async function leerConExcelJs(buffer) {
     // Tanto la carga del modulo como la apertura del archivo pueden fallar:
     // cualquier tropiezo de este motor cae al respaldo (SheetJS) en vez de
     // rechazar un archivo que si es valido.
-    const { Workbook } = await import('exceljs')
+    const Workbook = await cargarWorkbook()
     libro = new Workbook()
     await libro.xlsx.load(buffer)
   } catch (err) {

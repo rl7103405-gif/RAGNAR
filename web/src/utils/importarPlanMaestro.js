@@ -227,8 +227,9 @@ function numeroDeCelda(valor) {
  * que NO se reconocio es lo que dice si el plan entro completo o a medias.
  */
 export async function leerPlanMaestro(archivo) {
-  const ExcelJS = await import('exceljs')
-  const Workbook = ExcelJS.Workbook || ExcelJS.default?.Workbook
+  // Ver excelJs.js: el fallo de la libreria se reporta aparte del fallo del
+  // archivo, para no culpar al Excel del usuario cuando la app se actualizo.
+  const Workbook = await cargarWorkbook()
   const libro = new Workbook()
   await libro.xlsx.load(await archivo.arrayBuffer())
 

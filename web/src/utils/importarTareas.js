@@ -1,3 +1,4 @@
+import { cargarWorkbook } from './excelJs'
 // Importacion de TAREAS desde Excel. Acepta los dos formatos que manda el
 // papa de Beto (ejemplos del 2026-08-10) y detecta solo el formato por los
 // encabezados de cada hoja, en cualquier hoja del archivo:
@@ -197,12 +198,14 @@ function otDeFila(valores, columnas) {
  * Las tareas ya vienen COMBINADAS por codigo.
  */
 export async function leerExcelTareas(buffer) {
+  // ⚠️ La libreria se carga APARTE del archivo, y su fallo se reporta aparte.
+  // Antes los dos caian en el mismo catch: cuando la app se actualizaba con la
+  // pestaña abierta, el navegador no podia traer ExcelJS y la app respondia
+  // "debe ser un .xlsx sin contraseña" — culpando al archivo del usuario, que
+  // estaba perfecto. Ver el comentario de excelJs.js.
+  const Workbook = await cargarWorkbook()
   let libro
   try {
-    // En Vite, Workbook llega como export con nombre; en Node (los scripts de
-    // prueba) viene dentro de default. Se aceptan ambos.
-    const mod = await import('exceljs')
-    const Workbook = mod.Workbook || mod.default?.Workbook
     libro = new Workbook()
     await libro.xlsx.load(buffer)
   } catch (err) {

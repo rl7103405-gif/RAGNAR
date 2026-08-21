@@ -1,3 +1,4 @@
+import { cargarWorkbook } from './excelJs'
 // Excel del panel de Reportes: NO es el Excel de migracion (ese vive en
 // excelSalida.js con sus 4 columnas exactas). Este es para consulta humana:
 // una hoja con el resumen por maquila y otra con el detalle de cada folio,
@@ -5,7 +6,7 @@
 
 /** Arma el .xlsx del reporte y lo devuelve como Blob. */
 export async function generarExcelReporte({ resumenMaquilas, detalle, etiquetaRango, filtros, desde, hasta }) {
-  const { Workbook } = await import('exceljs')
+  const Workbook = await cargarWorkbook()
   const libro = new Workbook()
   libro.creator = 'RAGNAR - Deportivos Quini'
   libro.created = new Date()

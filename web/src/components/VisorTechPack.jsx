@@ -12,6 +12,7 @@
 //     hoja debajo). NO es una copia fiel del Excel -- celdas combinadas,
 //     posiciones de imagen y formatos se pierden -- y el visor lo advierte.
 //     Por eso la UI de subida recomienda PDF.
+import { cargarWorkbook } from '../utils/excelJs'
 import { useEffect, useRef, useState } from 'react'
 import { descargarTechPack, ErrorTareaEnsamble } from '../utils/tareasEnsamble'
 
@@ -106,8 +107,9 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar }
 
     const extraerXlsx = async (buffer) => {
       setMensaje('Leyendo las hojas del Excel...')
-      const mod = await import('exceljs')
-      const Workbook = mod.Workbook || mod.default?.Workbook
+      // Ver excelJs.js: si la app se actualizo con la pestaña abierta, el
+      // mensaje dice que hay que recargar, no que el tech pack este dañado.
+      const Workbook = await cargarWorkbook()
       const libro = new Workbook()
       await libro.xlsx.load(buffer)
       if (cancelado) return

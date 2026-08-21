@@ -2,6 +2,7 @@
 // que se sube al sistema para que todo quede resguardado en el mismo lugar:
 // SOLO cuatro columnas (Folio, Codigo, Docenas, Pares), sin encabezados
 // decorativos ni totales, para que entre limpio.
+import { cargarWorkbook } from './excelJs'
 import { compararAscendente } from './texto'
 
 const ENCABEZADOS = ['Folio', 'Codigo', 'Docenas', 'Pares']
@@ -9,7 +10,7 @@ const ENCABEZADOS = ['Folio', 'Codigo', 'Docenas', 'Pares']
 /** Arma el .xlsx y lo devuelve como Blob (quien llama decide cuando
  *  descargarlo, igual que con el PDF). */
 export async function generarExcelSalida({ capturas, fecha }) {
-  const { Workbook } = await import('exceljs')
+  const Workbook = await cargarWorkbook()
   const libro = new Workbook()
   libro.creator = 'RAGNAR - Deportivos Quini'
   libro.created = new Date()
