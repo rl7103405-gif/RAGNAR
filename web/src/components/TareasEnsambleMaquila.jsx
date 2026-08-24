@@ -6,6 +6,8 @@
 // el cierre lo que borra el tech pack. Asi un dedazo no le quita el documento
 // con el que esta armando, y alguien de Quini verifica lo entregado antes de
 // dar la tarea por buena.
+import { generarRemisionMaquila } from '../utils/remisionMaquila'
+import { descargarPdf } from '../utils/pdf'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import VisorTechPack from './VisorTechPack'
@@ -19,7 +21,7 @@ import {
 } from '../utils/tareasEnsamble'
 
 export default function TareasEnsambleMaquila() {
-  const { maquilaId, perfil, authUser } = useAuth()
+  const { maquilaId, perfil, authUser, esPrueba } = useAuth()
   const [tareas, setTareas] = useState([])
   const [error, setError] = useState('')
   const [aviso, setAviso] = useState('')
@@ -28,6 +30,12 @@ export default function TareasEnsambleMaquila() {
   // Tarea sobre la que se esta escribiendo la nota antes de declarar.
   const [declarando, setDeclarando] = useState(null)
   const [nota, setNota] = useState('')
+  // Lo que la maquila declara ENTREGAR, renglon por renglon. Arranca vacio a
+  // proposito: si se precargara con lo que se le pidio, el papel diria que
+  // entrego todo aunque haya entregado la mitad — y ese papel es con el que
+  // cobra. { [codigo]: { packs, docenas, caja, observaciones } }
+  const [entrega, setEntrega] = useState({})
+  const [bultos, setBultos] = useState('')
 
   useEffect(() => {
     if (!maquilaId) return
@@ -78,6 +86,54 @@ export default function TareasEnsambleMaquila() {
     }
   }
 
+  const ponEntrega = (codigo, campo, valor) =>
+    setEntrega((prev) => ({ ...prev, [codigo]: { ...(prev[codigo] || {}), [campo]: valor } }))
+
+  /** Los renglones listos para el PDF, con lo del catalogo ya resuelto. */
+  const renglonesParaRemision = (t) =>
+    (t.renglones || []).map((r) => {
+      const cap = entrega[r.codigo] || {}
+      return {
+        ot: t.ot || '',
+        subCliente: t.destino || '',
+        codigo: r.codigo,
+        // Descripcion, modelo y talla vienen DENTRO de la tarea: se
+        // resolvieron del catalogo cuando Quini la creo. La maquila no puede
+        // leer el catalogo (es externa) y no tiene por que hacerlo.
+        descripcion: r.descripcion || '',
+        modelo: r.modelo || '',
+        talla: r.talla || '',
+        packs: cap.packs,
+        docenas: cap.docenas,
+        // Sin tarifa todavia: la columna sale en blanco para escribirla a mano.
+        precioUnitario: 0,
+        observaciones: cap.observaciones || '',
+        caja: cap.caja || ''
+      }
+    })
+
+  const onDescargarRemision = (t) => {
+    try {
+      const blob = generarRemisionMaquila({
+        renglones: renglonesParaRemision(t),
+        enc: {
+          maquila: perfil?.nombreCompleto || 'Maquila',
+          recibe: 'DEPORTIVOS QUINI',
+          direccion: '',
+          folio: '',
+          fechaEntrega: new Date().toLocaleDateString('es-MX'),
+          entrega: perfil?.nombreCompleto || '',
+          bultos
+        },
+        esPrueba
+      })
+      descargarPdf(blob, `Entrega ${t.titulo}.pdf`)
+    } catch (err) {
+      console.error('[TareasEnsambleMaquila] No se pudo generar la remision:', err)
+      setError('No se pudo generar la remision: ' + (err.message || err))
+    }
+  }
+
   const onDeclarar = async () => {
     const t = declarando
     setError('')
@@ -85,9 +141,18 @@ export default function TareasEnsambleMaquila() {
     setTrabajando(t.id)
     try {
       await declararTareaEnsambleTerminada({ maquilaId, tarea: t, usuario: usuario(), nota })
-      setAviso(`Avisaste que terminaste "${t.titulo}". Quini lo va a confirmar.`)
+      // La remision sale JUNTO con el aviso: es el papel que viaja con la
+      // mercancia. Si falla el PDF, la tarea YA quedo declarada — se avisa y
+      // se puede volver a descargar desde la tarjeta.
+      onDescargarRemision(t)
+      setAviso(
+        `Avisaste que terminaste "${t.titulo}" y se descargo tu remision. ` +
+          'Imprimela y mandala con la mercancia.'
+      )
       setDeclarando(null)
       setNota('')
+      setEntrega({})
+      setBultos('')
     } catch (err) {
       reportar(err)
     } finally {
@@ -228,6 +293,18 @@ export default function TareasEnsambleMaquila() {
             </button>
           )}
           {t.estado === 'declarada' && (
+            <button
+              className="btn-secundario"
+              onClick={() => {
+                setDeclarando(t)
+                setAviso('Vuelve a anotar lo que entregaste y descarga la remision otra vez.')
+              }}
+              style={{ marginRight: 8 }}
+            >
+              Volver a generar mi remision
+            </button>
+          )}
+          {t.estado === 'declarada' && (
             <>
               <span style={{ fontSize: 13, color: '#16a34a', alignSelf: 'center' }}>
                 Avisaste que terminaste. Falta que Quini lo confirme.
@@ -308,9 +385,84 @@ export default function TareasEnsambleMaquila() {
           >
             <h3 style={{ marginTop: 0 }}>Ya termine: {declarando.titulo}</h3>
             <p className="texto-suave" style={{ fontSize: 13 }}>
-              Quini lo va a confirmar de su lado. Si quieres, dejale una nota (cuantos salieron, si hubo
-              algun detalle).
+              Anota <strong>lo que de verdad vas a entregar</strong>. Con esto se genera tu remision
+              (el papel que va con la mercancia y con el que cobras), y Quini la confirma al recibir.
             </p>
+
+            {/* Se captura lo ENTREGADO, no lo pedido: la maquila puede entregar
+                menos de lo que se le encargo, y el papel tiene que decir lo que
+                va en la caja. Arriba de cada campo se ve lo que se pidio, para
+                comparar sin tener que recordarlo. */}
+            <div style={{ maxHeight: 260, overflowY: 'auto', marginBottom: 10 }}>
+              {(declarando.renglones || []).map((r) => (
+                <div
+                  key={r.codigo}
+                  style={{ borderTop: '1px solid #eef2f7', padding: '8px 0', fontSize: 13 }}
+                >
+                  <div>
+                    <strong>{r.codigo}</strong>
+                    {r.descripcion ? ' · ' + r.descripcion : ''}
+                    <span className="texto-suave">
+                      {' '}
+                      · te pidieron {r.cantidad} {r.unidad}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                    <label className="campo" style={{ flex: '1 1 90px', margin: 0 }}>
+                      <span style={{ fontSize: 11 }}>Packs armados</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={entrega[r.codigo]?.packs ?? ''}
+                        onChange={(e) => ponEntrega(r.codigo, 'packs', e.target.value)}
+                      />
+                    </label>
+                    <label className="campo" style={{ flex: '1 1 90px', margin: 0 }}>
+                      <span style={{ fontSize: 11 }}>Docenas</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={entrega[r.codigo]?.docenas ?? ''}
+                        onChange={(e) => ponEntrega(r.codigo, 'docenas', e.target.value)}
+                      />
+                    </label>
+                    <label className="campo" style={{ flex: '1 1 70px', margin: 0 }}>
+                      <span style={{ fontSize: 11 }}>Caja</span>
+                      <input
+                        type="text"
+                        maxLength={10}
+                        value={entrega[r.codigo]?.caja ?? ''}
+                        onChange={(e) => ponEntrega(r.codigo, 'caja', e.target.value)}
+                      />
+                    </label>
+                    <label className="campo" style={{ flex: '2 1 140px', margin: 0 }}>
+                      <span style={{ fontSize: 11 }}>Observaciones</span>
+                      <input
+                        type="text"
+                        maxLength={60}
+                        placeholder="ej. pareado sencillo"
+                        value={entrega[r.codigo]?.observaciones ?? ''}
+                        onChange={(e) => ponEntrega(r.codigo, 'observaciones', e.target.value)}
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <label className="campo">
+              <span>Total de bultos / cajas que mandas</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={bultos}
+                onChange={(e) => setBultos(e.target.value)}
+                style={{ maxWidth: 140 }}
+              />
+            </label>
             <textarea
               value={nota}
               onChange={(e) => setNota(e.target.value)}
@@ -329,7 +481,7 @@ export default function TareasEnsambleMaquila() {
                 onClick={onDeclarar}
                 style={{ background: '#16a34a' }}
               >
-                {trabajando === declarando.id ? 'Guardando...' : 'Si, ya termine'}
+                {trabajando === declarando.id ? 'Guardando...' : 'Ya termine y generar remision'}
               </button>
             </div>
           </div>

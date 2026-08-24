@@ -38,6 +38,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { destinoDeOt, normalizarOt } from './planMaestro'
+import { datosDeCodigos } from './datosDelCatalogo'
 import { ordenarPorFechaDesc } from './solicitudesAvios'
 
 export class ErrorTareaEnsamble extends Error {}
@@ -155,6 +156,34 @@ export async function crearTareaEnsamble({
   if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado: avisale a Roberto.')
   const limpios = limpiarRenglones(renglones)
 
+  // ⚠️ MODELO Y TALLA SE CONGELAN AQUI, al crear la tarea.
+  //
+  // La remision que la maquila entrega pide esas columnas, y el catalogo de
+  // productos las tiene. Pero la maquila es un usuario EXTERNO y no puede leer
+  // el catalogo (comprobado: 'Missing or insufficient permissions', y esta
+  // bien que sea asi — son 38 mil productos de la fabrica). Quien SI puede es
+  // Lindbergh, que es quien crea la tarea: se resuelven ahora y viajan dentro
+  // de ella. Mismo patron que la OT congelada del bulto.
+  //
+  // Si el catalogo no responde, la tarea se crea igual sin esos datos: un
+  // adorno del papel no puede impedir que se encargue trabajo.
+  let conCatalogo = limpios
+  try {
+    const datos = await datosDeCodigos(limpios.map((r) => r.codigo))
+    conCatalogo = limpios.map((r) => {
+      const c = datos.get(r.codigo)
+      if (!c) return r
+      return {
+        ...r,
+        descripcion: r.descripcion || String(c.descripcion || '').slice(0, 200),
+        ...(c.modelo ? { modelo: String(c.modelo).slice(0, 60) } : {}),
+        ...(c.talla ? { talla: String(c.talla).slice(0, 60) } : {})
+      }
+    })
+  } catch (err) {
+    console.warn('[TareasEnsamble] No se pudo completar con el catalogo:', err?.message)
+  }
+
   let contenido = null
   let formato = null
   if (archivo) {
@@ -180,7 +209,7 @@ export async function crearTareaEnsamble({
     // 'destino' exige que haya 'ot' (el destino sale del plan VIA la OT).
     ...(otLimpia ? { ot: otLimpia } : {}),
     ...(otLimpia && destino ? { destino } : {}),
-    renglones: limpios,
+    renglones: conCatalogo,
     notas: String(notas || '').trim().slice(0, 300),
     estado: contenido ? 'preparando' : 'abierta',
     techPack: null,
