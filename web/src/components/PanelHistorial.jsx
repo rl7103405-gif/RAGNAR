@@ -15,12 +15,16 @@ import { ubicarOts } from '../utils/ubicacionEnPlan'
 import { normalizarOt } from '../utils/planMaestro'
 import { useMaquilas } from './Maquilas'
 import { useAuth } from '../context/AuthContext'
+import { armarArbolDeOc } from '../utils/arbolOrdenes'
+import { lineasDeOc, versionActiva } from '../utils/planMaestro'
+import { generarExcelOrdenCompra, nombreDelExcel } from '../utils/excelOrdenCompra'
+import { descargarArchivo } from '../utils/excelSalida'
 import CorregirPdfModal from './CorregirPdfModal'
 
 export default function PanelHistorial() {
   // Corregir una remision es operacion de embarque: un rol de consulta
   // (Cielo) no debe ver el boton, porque las reglas se lo niegan.
-  const { puedeEmbarcar, nivelDeVista } = useAuth()
+  const { puedeEmbarcar, nivelDeVista, esPrueba } = useAuth()
   const [tipo, setTipo] = useState('dia')
   const [offset, setOffset] = useState(0)
   const [pdfAbierto, setPdfAbierto] = useState(null)
@@ -32,6 +36,10 @@ export default function PanelHistorial() {
   // De que orden de compra cuelga cada OT, segun el plan maestro.
   const [ubicaciones, setUbicaciones] = useState(new Map())
   const [ocsAbiertas, setOcsAbiertas] = useState(new Set())
+  // OC marcadas para bajar a Excel. Lo pidio el papa de Roberto el 24-08:
+  // una orden, o varias marcadas, en un solo archivo.
+  const [ocsMarcadas, setOcsMarcadas] = useState(new Set())
+  const [bajando, setBajando] = useState('')
   const [busquedaPdf, setBusquedaPdf] = useState({ maquila: '', folio: '', genero: '', numero: '' })
   // Con cientos de folios por periodo, las OT arrancan CERRADAS: se ve el
   // resumen de cada una y se abre solo la que interesa, sin scrollear todo.
@@ -122,6 +130,68 @@ export default function PanelHistorial() {
       return String(a.oc).localeCompare(String(b.oc), 'es', { numeric: true })
     })
   }, [gruposCapturas, ubicaciones])
+
+  const marcarOc = (oc) =>
+    setOcsMarcadas((prev) => {
+      const nueva = new Set(prev)
+      if (nueva.has(oc)) nueva.delete(oc)
+      else nueva.add(oc)
+      return nueva
+    })
+
+  /**
+   * Baja el Excel de las ordenes marcadas (o de una sola).
+   *
+   * ⚠️ NO usa lo que hay en pantalla: el Historial esta filtrado por dia o
+   * semana, y el papel que lleva direccion es de la ORDEN COMPLETA. Se vuelve
+   * a consultar el plan y los folios de cada OC, igual que hace el arbol, o el
+   * archivo saldria con lo de hoy y pareceria que la orden apenas arranco.
+   */
+  const bajarExcel = async (ocs) => {
+    if (!ocs.length) return
+    setErrorLocal('')
+    setBajando(ocs.length === 1 ? ocs[0] : 'varias')
+    try {
+      const version = await versionActiva()
+      if (!version) throw new Error('No hay plan maestro cargado: sin el no se sabe que pide cada orden.')
+      // Si una orden falla, NO se tira el trabajo de las demas: se arma el
+      // archivo con las que si salieron y se dice cuales no. Con 14 ordenes
+      // seguidas un tropiezo de red es normal, y perder las 13 buenas por la
+      // decimocuarta es peor que entregar 13 con su aviso.
+      const ordenes = []
+      const fallaron = []
+      for (const oc of ocs) {
+        try {
+          const lineasDelPlan = await lineasDeOc(version, oc)
+          const arbol = await armarArbolDeOc({ lineasDelPlan, esPrueba })
+          ordenes.push({ oc, arbol })
+        } catch (err) {
+          console.error(`[Historial] Fallo la orden ${oc}:`, err)
+          fallaron.push(`${oc}: ${err.message || err}`)
+        }
+      }
+      if (!ordenes.length) {
+        throw new Error('Ninguna orden se pudo armar. ' + fallaron.join(' | '))
+      }
+      const blob = await generarExcelOrdenCompra(ordenes, fallaron)
+      // La MISMA utilidad que ya baja los otros Excel de la app, en vez de
+      // otra copia del truco del <a> (esa hace appendChild/remove, que es lo
+      // que aguanta en todos los navegadores).
+      descargarArchivo(blob, nombreDelExcel(ordenes))
+      setAviso(
+        fallaron.length
+          ? `Excel con ${ordenes.length} orden${ordenes.length === 1 ? '' : 'es'} descargado. NO se pudieron armar ${fallaron.length}: ${fallaron.join(' | ')}`
+          : ordenes.length === 1
+            ? `Excel de la orden ${ordenes[0].oc} descargado.`
+            : `Excel con ${ordenes.length} ordenes descargado.`
+      )
+    } catch (err) {
+      console.error('[Historial] No se pudo armar el Excel:', err)
+      setErrorLocal('No se pudo armar el Excel: ' + (err.message || err))
+    } finally {
+      setBajando('')
+    }
+  }
 
   const toggleOc = (oc) =>
     setOcsAbiertas((prev) => {
@@ -291,6 +361,26 @@ export default function PanelHistorial() {
               <button className="btn-secundario" onClick={() => setOtsAbiertas(new Set())}>
                 Cerrar todas
               </button>
+              {/* Solo aparece cuando hay algo marcado: un boton que casi
+                  siempre esta apagado es ruido en una pantalla que ya tiene
+                  mucho. */}
+              {ocsMarcadas.size > 0 && (
+                <>
+                  <button
+                    className="btn-primario"
+                    onClick={() => bajarExcel([...ocsMarcadas])}
+                    disabled={!!bajando}
+                    style={{ marginLeft: 'auto' }}
+                  >
+                    {bajando === 'varias'
+                      ? 'Armando el Excel...'
+                      : `Bajar Excel de ${ocsMarcadas.size} orden${ocsMarcadas.size === 1 ? '' : 'es'}`}
+                  </button>
+                  <button className="btn-secundario" onClick={() => setOcsMarcadas(new Set())}>
+                    Desmarcar
+                  </button>
+                </>
+              )}
             </div>
           )}
           {hayBusqueda && datos.capturasParcial && (
@@ -337,6 +427,18 @@ export default function PanelHistorial() {
                       title={ocAbierta ? 'Cerrar esta orden de compra' : 'Abrir esta orden de compra'}
                     >
                       <td colSpan={8} style={{ fontWeight: 700, padding: '9px 4px', fontSize: 15 }}>
+                        {/* La casilla NO abre la orden: se para el clic para
+                            que marcar no colapse lo que estabas viendo. */}
+                        {!sinOc && (
+                          <input
+                            type="checkbox"
+                            checked={ocsMarcadas.has(grupoOc.oc)}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => marcarOc(grupoOc.oc)}
+                            title="Marcar esta orden para bajarla a Excel"
+                            style={{ marginRight: 8, cursor: 'pointer' }}
+                          />
+                        )}
                         <span style={{ display: 'inline-block', width: 18 }}>
                           {ocAbierta ? '▾' : '▸'}
                         </span>
@@ -355,6 +457,25 @@ export default function PanelHistorial() {
                           >
                             {grupoOc.destino}
                           </span>
+                        )}
+                        {!sinOc && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); bajarExcel([grupoOc.oc]) }}
+                            disabled={!!bajando}
+                            title="Bajar el Excel de esta orden completa (no solo lo del periodo que estas viendo)"
+                            style={{
+                              marginLeft: 10,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              padding: '3px 10px',
+                              borderRadius: 6,
+                              border: '1px solid #94a3b8',
+                              background: '#fff',
+                              cursor: bajando ? 'wait' : 'pointer'
+                            }}
+                          >
+                            {bajando === grupoOc.oc ? 'Armando...' : 'Excel'}
+                          </button>
                         )}
                         <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
                           {grupoOc.ots.length} OT - {grupoOc.folios} folio

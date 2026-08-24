@@ -254,10 +254,19 @@ export function avanceDeEnvio(lineas) {
   }
 }
 
-async function enviosDeLasOts(ots, esPrueba) {
-  const salida = new Map()
-  const conjunto = new Set(ots.filter(Boolean))
-  if (!conjunto.size) return { envios: salida, maquilasNoLeidas: [], sinPermiso: false }
+// Las tareas de TODAS las maquilas, cacheadas por sesion igual que el ruteo.
+// Sin esto, bajar el Excel de 14 ordenes de compra releia la coleccion
+// completa de tareas de cada maquila 14 veces, aunque el contenido sea el
+// mismo: el uso real es abrir/bajar varias ordenes seguidas.
+let cacheTareas = null
+
+export function olvidarCacheDeTareas() {
+  cacheTareas = null
+}
+
+/** Trae (una sola vez) las tareas de las maquilas del mundo que toca. */
+async function tareasDeLasMaquilas(esPrueba) {
+  if (cacheTareas && cacheTareas.esPrueba === !!esPrueba) return cacheTareas.valor
 
   let maquilas = []
   try {
@@ -273,14 +282,12 @@ async function enviosDeLasOts(ots, esPrueba) {
   } catch (err) {
     console.warn('[Arbol] No se pudo listar las maquilas:', err?.message)
     return {
-      envios: salida,
+      porMaquila: [],
       maquilasNoLeidas: ['(no se pudo listar)'],
       sinPermiso: err?.code === 'permission-denied'
     }
   }
 
-  const maquilasNoLeidas = []
-  let sinPermiso = false
   // En paralelo: son N round-trips independientes y encadenarlos solo suma
   // espera. Cada maquila reporta su propio fallo sin tumbar a las demas.
   const resultados = await Promise.all(
@@ -295,12 +302,23 @@ async function enviosDeLasOts(ots, esPrueba) {
     })
   )
 
-  for (const r of resultados) {
-    if (r.error) {
-      maquilasNoLeidas.push(r.maquilaId)
-      if (r.error?.code === 'permission-denied') sinPermiso = true
-      continue
-    }
+  const valor = {
+    porMaquila: resultados.filter((r) => !r.error),
+    maquilasNoLeidas: resultados.filter((r) => r.error).map((r) => r.maquilaId),
+    sinPermiso: resultados.some((r) => r.error?.code === 'permission-denied')
+  }
+  cacheTareas = { esPrueba: !!esPrueba, valor }
+  return valor
+}
+
+async function enviosDeLasOts(ots, esPrueba) {
+  const salida = new Map()
+  const conjunto = new Set(ots.filter(Boolean))
+  if (!conjunto.size) return { envios: salida, maquilasNoLeidas: [], sinPermiso: false }
+
+  const { porMaquila, maquilasNoLeidas, sinPermiso } = await tareasDeLasMaquilas(esPrueba)
+
+  for (const r of porMaquila) {
     for (const t of r.docs) {
       // Una tarea CANCELADA no mando nada, y una en 'preparando' todavia no
       // la ve la maquila: contarlas diria que salio producto que no salio.
@@ -376,6 +394,11 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
       ? otsResueltas.get(normalizarPedido(b.producto?.pedido))
       : null
     const ot = resuelta?.ot ? normalizarOt(resuelta.ot) : otDeBulto(b)
+    // Se guarda LA MISMA OT con la que se agrupa aqui, para que el Excel no
+    // la vuelva a resolver por su cuenta: dos copias de esta decision es
+    // exactamente como un folio acaba en una rama distinta segun donde lo
+    // mires. Ya paso una vez en este archivo.
+    b.otResuelta = ot
     const codigo = normalizarCodigo(b.producto?.codigo)
     const clave = `${ot}||${codigo}`
     producido.set(clave, (producido.get(clave) || 0) + docenasDeCaptura(b))
@@ -480,6 +503,11 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
     // Si el fallo fue de PERMISO, la pantalla tiene que decir eso y no
     // "puede estar incompleta": lo segundo suena a algo pasajero cuando en
     // realidad esa cuenta no va a ver nunca esa columna.
-    enviosSinPermiso: sinPermiso
+    enviosSinPermiso: sinPermiso,
+    // Los bultos ya resueltos a su OT, para que el Excel de la orden de compra
+    // no tenga que repetir la resolucion (que es delicada: campo congelado
+    // primero, texto de respaldo despues) y acabe agrupando distinto que el
+    // arbol que se ve en pantalla.
+    bultos
   }
 }
