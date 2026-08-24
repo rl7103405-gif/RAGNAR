@@ -163,6 +163,12 @@ export default function PanelHistorial() {
       for (const oc of ocs) {
         try {
           const lineasDelPlan = await lineasDeOc(version, oc)
+          // Sin renglones en el plan vigente no hay que exportar: un archivo
+          // con las hojas vacias se lee como "no hay nada que reportar",
+          // cuando la verdad es que esta orden ya no esta en el plan.
+          if (!lineasDelPlan.length) {
+            throw new Error('no esta en el plan maestro vigente')
+          }
           const arbol = await armarArbolDeOc({ lineasDelPlan, esPrueba })
           ordenes.push({ oc, arbol })
         } catch (err) {

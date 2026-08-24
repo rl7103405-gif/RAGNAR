@@ -17,6 +17,7 @@
 // en la hoja de portada para que nadie las lea como un dato de la app.
 import { cargarWorkbook } from './excelJs.js'
 import { esEnDocenas } from './arbolOrdenes'
+import { datosDeCodigos } from './datosDelCatalogo'
 
 /** Las columnas del CONCENTRADO de Cielo, en su orden y con su ortografia. */
 const COLUMNAS_CONCENTRADO = [
@@ -70,6 +71,17 @@ function enviadoSinMedir(linea) {
  * hojas es peor que tener dos: nadie compara entre pestañas.
  */
 export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
+  // El plan maestro NO trae modelo, color ni talla (solo oc, ot, codigo,
+  // cantidad y destino): esas tres columnas salian SIEMPRE vacias y quien
+  // abriera el archivo las leeria como "este codigo no tiene modelo". El
+  // catalogo si las sabe, y es la misma fuente que ya usan las tareas de
+  // ensamble y la pantalla de precios. Nunca lanza: si el catalogo no
+  // responde, las columnas van vacias y la portada ya avisa.
+  const codigos = ordenes.flatMap((o) =>
+    o.arbol.ramas.flatMap((r) => r.lineas.map((l) => l.codigo).filter(Boolean))
+  )
+  const catalogo = await datosDeCodigos(codigos)
+
   const Workbook = await cargarWorkbook()
   const libro = new Workbook()
   libro.creator = 'RAGNAR - Deportivos Quini'
@@ -119,6 +131,11 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
   for (const orden of ordenes) {
     for (const rama of orden.arbol.ramas) {
       for (const l of rama.lineas) {
+        const cat = catalogo.get(String(l.codigo || '').trim()) || {}
+        const modelo = l.modelo || cat.modelo || ''
+        const color = l.color || cat.color || ''
+        const talla = l.talla || cat.talla || ''
+        const articulo = l.descripcion || cat.descripcion || ''
         const solicita = typeof l.cantidadPlaneada === 'number' ? l.cantidadPlaneada : null
         const tejido = num(l.producido || 0)
         const enviadas = num(docenasEnviadas(l))
@@ -126,20 +143,23 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
           // NoPedido: Cielo lo arma como OT_MODELO_TALLA_ARTICULO. Se replica
           // con lo que hay, saltando lo que falte en vez de dejar guiones
           // sueltos que ensucian el filtro.
-          [rama.ot, l.modelo, l.talla, l.descripcion].filter(Boolean).join('_'),
+          [rama.ot, modelo, talla, articulo].filter(Boolean).join('_'),
           l.codigo || '',
           rama.ot || '',
           (l.enviado || []).flatMap((e) => e.maquilas).join(', '),
-          l.descripcion || '',
-          l.modelo || '',
-          l.color || '',
-          l.talla || '',
+          articulo,
+          modelo,
+          color,
+          talla,
           solicita !== null ? Math.max(0, solicita - (l.producido || 0)) : null, // FALTA (por tejer)
           solicita,
           tejido,
           solicita !== null ? num(Math.max(0, (l.producido || 0) - solicita)) : null, // SOBRAN
           null, // DOC. A ENVIAR 1ER PARCIL: lo decide una persona
-          enviadas || null,
+          // 0 aqui SI es un dato: se sabe que no se ha mandado nada en
+          // docenas. Lo que va vacio es cuando lo unico enviado fue en packs
+          // (no se puede medir), y eso ya lo dice AVISO RAGNAR.
+          enviadoSinMedir(l) && !enviadas ? null : enviadas ?? 0,
           solicita !== null ? num(Math.max(0, solicita - (enviadas || 0))) : null, // DOC. X ENVIO
           // STATUS se queda VACIA siempre: es la que teclea Cielo a mano y la
           // portada lo promete. Escribir aqui un aviso de la app haria que ese

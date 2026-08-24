@@ -254,10 +254,13 @@ export function avanceDeEnvio(lineas) {
   }
 }
 
-// Las tareas de TODAS las maquilas, cacheadas por sesion igual que el ruteo.
-// Sin esto, bajar el Excel de 14 ordenes de compra releia la coleccion
-// completa de tareas de cada maquila 14 veces, aunque el contenido sea el
-// mismo: el uso real es abrir/bajar varias ordenes seguidas.
+// Las tareas de TODAS las maquilas, cacheadas con VIGENCIA CORTA. Sin cache,
+// bajar el Excel de 14 ordenes de compra releia la coleccion completa de
+// tareas de cada maquila 14 veces; con cache de sesion entera, una tarea
+// creada a las 3pm no aparecia en el arbol hasta recargar la pagina. Un
+// minuto cubre el uso real (abrir/bajar varias ordenes seguidas) sin
+// congelar la pantalla.
+const VIGENCIA_CACHE_TAREAS_MS = 60_000
 let cacheTareas = null
 
 export function olvidarCacheDeTareas() {
@@ -266,7 +269,13 @@ export function olvidarCacheDeTareas() {
 
 /** Trae (una sola vez) las tareas de las maquilas del mundo que toca. */
 async function tareasDeLasMaquilas(esPrueba) {
-  if (cacheTareas && cacheTareas.esPrueba === !!esPrueba) return cacheTareas.valor
+  if (
+    cacheTareas &&
+    cacheTareas.esPrueba === !!esPrueba &&
+    Date.now() - cacheTareas.cuando < VIGENCIA_CACHE_TAREAS_MS
+  ) {
+    return cacheTareas.valor
+  }
 
   let maquilas = []
   try {
@@ -307,7 +316,12 @@ async function tareasDeLasMaquilas(esPrueba) {
     maquilasNoLeidas: resultados.filter((r) => r.error).map((r) => r.maquilaId),
     sinPermiso: resultados.some((r) => r.error?.code === 'permission-denied')
   }
-  cacheTareas = { esPrueba: !!esPrueba, valor }
+  // Un resultado con maquilas fallidas NO se cachea: si se guardara, un
+  // tropiezo de red de un segundo dejaria esa maquila como "no leida" durante
+  // todo el minuto, sin reintento.
+  if (!valor.maquilasNoLeidas.length) {
+    cacheTareas = { esPrueba: !!esPrueba, cuando: Date.now(), valor }
+  }
   return valor
 }
 
