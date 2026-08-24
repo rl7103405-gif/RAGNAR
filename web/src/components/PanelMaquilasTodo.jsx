@@ -22,6 +22,7 @@
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import Maquilas from './Maquilas'
+import PanelPreciosMaquila from './PanelPreciosMaquila'
 import PanelTareasMaquila from './PanelTareasMaquila'
 import PanelSolicitudesAvios from './PanelSolicitudesAvios'
 import PanelEnviarAvios from './PanelEnviarAvios'
@@ -37,6 +38,9 @@ export default function PanelMaquilasTodo() {
   // una reorganizacion de la pantalla, no un cambio de permisos.
   const material = esAdmin || soloAlmacen
   const catalogo = esAdmin || soloAlmacen || soloConsulta
+  // Los precios los pone Cielo (consulta) y direccion, nadie mas: es lo que se
+  // le paga a la maquila (decision de Roberto, 24-08).
+  const precios = esAdmin || soloConsulta
   const tareas = puedeCrearTareas
   // El alta de maquilas la tenia la pestana 'Maquilas', que SOLO veian los
   // perfiles completos (America, Diana, Lindbergh, estacion) y el admin.
@@ -51,6 +55,7 @@ export default function PanelMaquilasTodo() {
     material && { id: 'mandar', label: 'Mandar material', render: () => <PanelEnviarAvios /> },
     material && { id: 'inventario', label: 'Inventario', render: () => <PanelInventarioAvios /> },
     catalogo && { id: 'catalogo', label: 'Catalogo de material', render: () => <Avios /> },
+    precios && { id: 'precios', label: 'Precios de ensamble', render: () => <PanelPreciosMaquila /> },
     // Hasta el final a proposito: dar de alta una maquila se hace una vez cada
     // varios meses, y arriba estorbaria a lo que se usa todos los dias.
     alta && { id: 'alta', label: 'Dar de alta una maquila', render: () => <Maquilas /> }

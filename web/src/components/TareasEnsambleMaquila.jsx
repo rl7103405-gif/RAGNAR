@@ -10,6 +10,8 @@ import { generarRemisionMaquila } from '../utils/remisionMaquila'
 import { descargarPdf } from '../utils/pdf'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../firebase/config'
 import VisorTechPack from './VisorTechPack'
 import {
   ESTADOS_TAREA_ENSAMBLE,
@@ -36,6 +38,10 @@ export default function TareasEnsambleMaquila() {
   // cobra. { [codigo]: { packs, docenas, caja, observaciones } }
   const [entrega, setEntrega] = useState({})
   const [bultos, setBultos] = useState('')
+  // Los precios que Cielo puso para ESTA maquila. Se leen al abrir el modal
+  // porque son lo que imprime la remision con la que se cobra. Si no hay, la
+  // columna sale en blanco para escribirla a mano, como hoy.
+  const [precios, setPrecios] = useState(new Map())
 
   useEffect(() => {
     if (!maquilaId) return
@@ -86,6 +92,20 @@ export default function TareasEnsambleMaquila() {
     }
   }
 
+  useEffect(() => {
+    if (!maquilaId) return
+    const unsub = onSnapshot(
+      collection(db, 'portalMaquila', maquilaId, 'preciosEnsamble'),
+      (snap) => {
+        const m = new Map()
+        snap.docs.forEach((d) => m.set(d.id, Number(d.data().precioPorPack) || 0))
+        setPrecios(m)
+      },
+      (err) => console.warn('[TareasEnsamble] No se pudieron leer los precios:', err?.message)
+    )
+    return unsub
+  }, [maquilaId])
+
   const ponEntrega = (codigo, campo, valor) =>
     setEntrega((prev) => ({ ...prev, [codigo]: { ...(prev[codigo] || {}), [campo]: valor } }))
 
@@ -105,8 +125,9 @@ export default function TareasEnsambleMaquila() {
         talla: r.talla || '',
         packs: cap.packs,
         docenas: cap.docenas,
-        // Sin tarifa todavia: la columna sale en blanco para escribirla a mano.
-        precioUnitario: 0,
+        // Si Cielo ya puso el precio de este codigo para esta maquila, va
+        // impreso y la remision suma sola. Si no, la columna sale en blanco.
+        precioUnitario: precios.get(r.codigo) || 0,
         observaciones: cap.observaciones || '',
         caja: cap.caja || ''
       }

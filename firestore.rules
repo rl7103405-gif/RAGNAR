@@ -1048,7 +1048,14 @@ service cloud.firestore {
       allow update: if puedeEmbarcar()
         && soloCuentaReal()
         && folioInternoValido()
-        && request.resource.data.ultimo >= resource.data.ultimo;
+        && request.resource.data.ultimo >= resource.data.ultimo
+        // Tope de salto: la emision legitima avanza +1 (folioInterno.js) y una
+        // resincronizacion manual con el papel salta pocas decenas. Sin este
+        // tope, un insider de embarque (o una tablet compartida) podia poner
+        // `ultimo` al techo (1e9-1) y bloquear IRREVERSIBLEMENTE la emision de
+        // remisiones de toda la fabrica (pentest 2026-08-20). Un salto mayor a
+        // 1000 se hace por script con service account, no desde la app.
+        && request.resource.data.ultimo <= resource.data.ultimo + 1000;
       allow delete: if false;
     }
 
@@ -1063,7 +1070,9 @@ service cloud.firestore {
       allow update: if puedeEmbarcar()
         && esCuentaDePrueba()
         && folioInternoValido()
-        && request.resource.data.ultimo >= resource.data.ultimo;
+        && request.resource.data.ultimo >= resource.data.ultimo
+        // Mismo tope de salto que el consecutivo oficial (ver arriba).
+        && request.resource.data.ultimo <= resource.data.ultimo + 1000;
       allow delete: if false;
     }
 
@@ -1235,6 +1244,36 @@ service cloud.firestore {
     // Quien manda material y maneja el inventario/solicitudes de avios:
     // Alvaro (rol 'almacen') y el admin. No es trabajo de embarques ni de
     // captura. OJO: el CATALOGO ya no es de el (ver abajo).
+    // Quien pone y edita los PRECIOS que se le pagan a cada maquila.
+    // Solo Cielo (consulta) y direccion (admin) — decision de Roberto el
+    // 2026-08-24. Es dinero: en la junta del 17-08 se conto que un error de
+    // tarifa costo ~50,000 pesos en una semana, asi que ni Lindbergh, que
+    // encarga las tareas, ni el almacen los tocan.
+    //
+    // esInterno() y no solo el rol: un perfil hibrido (rol interno +
+    // maquilaId) editaria los precios de TODAS las maquilas.
+    function puedeEditarPrecios() {
+      return esInterno() && rol() in ['consulta', 'admin'];
+    }
+
+    function precioEnsambleValido() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['codigo', 'maquilaId', 'precioPorPack', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && d.keys().hasOnly(['codigo', 'maquilaId', 'precioPorPack', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'descripcion', 'modelo', 'notas', 'creadoEn'])
+        && d.codigo is string && d.codigo.size() > 0 && d.codigo.size() <= 60
+        // El precio es un NUMERO y tiene tope: un cero por error deja sin
+        // pagar, y un tecleo de mas (1000 en vez de 10.00) infla la remision.
+        && d.precioPorPack is number
+        && d.precioPorPack > 0
+        && d.precioPorPack <= 10000
+        && d.actualizadoEn == request.time
+        && d.actualizadoPorUid == request.auth.uid
+        && d.actualizadoPorNombre == perfil().get('nombreCompleto', '')
+        && (!('descripcion' in d) || (d.descripcion is string && d.descripcion.size() <= 200))
+        && (!('modelo' in d) || (d.modelo is string && d.modelo.size() <= 60))
+        && (!('notas' in d) || (d.notas is string && d.notas.size() <= 200));
+    }
+
     function puedeManejarAvios() {
       // esInterno() y no solo el rol: un perfil hibrido (rol interno +
       // maquilaId) manejaria los envios de TODAS las maquilas.
@@ -1853,6 +1892,30 @@ service cloud.firestore {
               && d.techPack.sha256.matches('^[0-9a-f]{64}$')
               && d.techPack.subidoEn is timestamp
             ));
+    }
+
+    // PRECIOS DE ENSAMBLE por maquila y codigo.
+    //
+    // Es lo que se le paga a cada maquila por armar un pack de ese codigo, y
+    // es lo que va a imprimir su remision. Los pone Cielo.
+    //
+    // La MAQUILA lee los SUYOS —y solo los suyos, porque la ruta la aisla—:
+    // los necesita para su remision y es lo que va a cobrar. No puede
+    // escribirlos: el precio lo pone quien paga, no quien cobra.
+    match /portalMaquila/{maquilaId}/preciosEnsamble/{codigo} {
+      allow read: if esInterno() || esMaquilaDe(maquilaId);
+      // mismoMundoMaquila y NO soloCuentaReal: una cuenta de prueba SI debe
+      // poder ponerle precios a la maquila ficticia (es su corral), y una
+      // cuenta real NO debe tocarla. soloCuentaReal bloqueaba la prueba
+      // entera — se cazo probando con la cuenta de Cielo.
+      allow create, update: if puedeEditarPrecios()
+        && mismoMundoMaquila(maquilaId)
+        && precioEnsambleValido()
+        && request.resource.data.maquilaId == maquilaId
+        && request.resource.data.codigo == codigo;
+      // No se borran: un precio que existio explica una remision que ya se
+      // pago. Para dejar de usarlo se pone el nuevo encima.
+      allow delete: if false;
     }
 
     match /portalMaquila/{maquilaId}/tareasEnsamble/{tareaId} {
