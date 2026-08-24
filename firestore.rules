@@ -784,6 +784,14 @@ service cloud.firestore {
         allow read: if esInterno();
         allow write: if false;
       }
+      // Indice inverso codigo de barras -> codigo de Quini. Mismo alcance que
+      // el catalogo: lo escribe solo el script admin, y lo lee quien ya puede
+      // leer el catalogo. No es un dato mas sensible que el catalogo mismo,
+      // pero tampoco menos: NO se abre a las maquilas.
+      match /barras/{shard} {
+        allow read: if esInterno();
+        allow write: if false;
+      }
     }
 
     // ===================================================================
@@ -1259,7 +1267,7 @@ service cloud.firestore {
     function precioEnsambleValido() {
       let d = request.resource.data;
       return d.keys().hasAll(['codigo', 'maquilaId', 'precioPorPack', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
-        && d.keys().hasOnly(['codigo', 'maquilaId', 'precioPorPack', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'descripcion', 'modelo', 'notas', 'creadoEn'])
+        && d.keys().hasOnly(['codigo', 'maquilaId', 'precioPorPack', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'descripcion', 'modelo', 'notas', 'creadoEn', 'codigoBarras'])
         && d.codigo is string && d.codigo.size() > 0 && d.codigo.size() <= 60
         // El precio es un NUMERO y tiene tope: un cero por error deja sin
         // pagar, y un tecleo de mas (1000 en vez de 10.00) infla la remision.
@@ -1271,7 +1279,11 @@ service cloud.firestore {
         && d.actualizadoPorNombre == perfil().get('nombreCompleto', '')
         && (!('descripcion' in d) || (d.descripcion is string && d.descripcion.size() <= 200))
         && (!('modelo' in d) || (d.modelo is string && d.modelo.size() <= 60))
-        && (!('notas' in d) || (d.notas is string && d.notas.size() <= 200));
+        && (!('notas' in d) || (d.notas is string && d.notas.size() <= 200))
+        // Con que codigo de barras se encontro este producto. Se guarda para
+        // poder rastrear de donde salio el precio cuando el archivo de pagos
+        // de la maquila trae barras y la remision trae codigo de Quini.
+        && (!('codigoBarras' in d) || (d.codigoBarras is string && d.codigoBarras.size() >= 8 && d.codigoBarras.size() <= 30));
     }
 
     function puedeManejarAvios() {
@@ -1923,7 +1935,32 @@ service cloud.firestore {
       // alguna vez ('publicadaEn' fijado). Un borrador en 'preparando' -- o
       // uno que se preparo para la maquila equivocada y se cancelo antes de
       // publicarlo -- nunca fue suyo y no le aparece.
-      allow read: if puedeCrearTareas()
+      // AMPLIADO el 2026-08-24, de puedeCrearTareas() a los roles que abren el
+      // ARBOL DE ORDENES. Ese arbol estrena una columna "Ya en maquila" y con
+      // el permiso anterior solo Lindbergh y direccion leian las tareas, asi
+      // que a America (rol 'completo' SIN el flag) la columna le salia siempre
+      // vacia: un permiso negado disfrazado de cero.
+      //
+      // ⚠️ NO se abrio a esInterno() a secas, por dos razones medidas:
+      //
+      // 1. CAPTURA y ALMACEN no abren esa pantalla (TABS_CAPTURA es solo
+      //    'captura'; la pestaña 'tareas' del almacen pinta PanelTareas, que
+      //    lee la coleccion 'tareas', no esta). Darles lectura seria regalar
+      //    un dato que su app nunca les enseña -- el mismo error que este
+      //    archivo ya documento y corrigio en puedeVerElEquipo().
+      //
+      // 2. El documento NO es inocuo: 'titulo' se pide literalmente como "el
+      //    pedido o el cliente", y 'techPack.nombre' suele traer los dos.
+      //    Ademas hay tres campos de texto libre (notas, notaMaquila,
+      //    motivoDevolucion). Sin el candado del corral, las seis cuentas
+      //    demo internas leerian el nombre del cliente de CUALQUIER maquila
+      //    real, borradores en 'preparando' incluidos.
+      //
+      // El TECH PACK en si no viaja aqui: vive en techPackChunks, que sigue
+      // exigiendo puedeCrearTareas() y no hereda nada de esta regla.
+      allow read: if (esInterno()
+          && rol() in ['admin', 'completo', 'consulta', 'produccion']
+          && mismoMundoMaquila(maquilaId))
         || (esMaquilaDe(maquilaId) && resource.data.get('publicadaEn', null) != null);
       // Una tarea de ensamble lleva el Tech Pack del pedido adentro: mandarle
       // una de prueba a una maquila real seria filtrarle el documento de un

@@ -11,7 +11,11 @@
 // ordenado". Mismo criterio que el PDF de salida de Quini, que ya separa por
 // orden.
 //
-// ⚠️ EL PRECIO VA EN BLANCO POR AHORA. Las columnas existen y suman, pero sin
+// ⚠️ EL PRECIO ES POR DOCENA ENTREGADA, no por pack. Lo dice el resumen de
+// pagos de la fabrica en sus 2,229 renglones y lo confirma la remision de
+// papel de Munguia (131.5 docenas x $6.00 = $789.00, su total exacto).
+//
+// ⚠️ EL PRECIO VA EN BLANCO SI NO HAY TARIFA. Las columnas existen y suman, pero sin
 // tarifa: cada maquila cobra distinto SEGUN EL MODELO, y esos precios los va a
 // capturar Cielo en su propia pantalla. Hasta que existan, el papel sale con
 // el espacio para escribirlos a mano — que es exactamente como se llena hoy.
@@ -192,7 +196,11 @@ export function generarRemisionMaquila({ renglones, enc = {}, esPrueba = false }
       const packs = numero(r.packs)
       const docenas = numero(r.docenas)
       const precio = numero(r.precioUnitario)
-      const total = precio > 0 ? packs * precio : 0
+      // ⚠️ POR DOCENA, no por pack. Comprobado contra el resumen de pagos real
+      // (2,229 de 2,229 renglones: MONTO = PRECIO x DOCENAS) y contra la
+      // remision de Munguia: 131.5 doc x $6 = $789, que es su total. Multiplicar
+      // por packs daba $1,416 por ese mismo renglon — casi el doble.
+      const total = precio > 0 ? docenas * precio : 0
       totalPacks += packs
       totalDocenas += docenas
       totalPagar += total

@@ -37,7 +37,7 @@ import {
   writeBatch
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import { destinoDeOt, normalizarOt } from './planMaestro'
+import { destinoDeOt, normalizarCodigo, normalizarOt } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
 import { ordenarPorFechaDesc } from './solicitudesAvios'
 
@@ -105,7 +105,9 @@ export function formatoDeArchivo(nombre) {
 function limpiarRenglones(renglones) {
   const limpios = (renglones || [])
     .map((r) => ({
-      codigo: String(r.codigo || '').trim().toUpperCase(),
+      // La MISMA normalizacion que usa el plan y el arbol: sin esto un codigo
+      // con espacio interno ('AB 123') se guardaria distinto de como se busca.
+      codigo: normalizarCodigo(r.codigo),
       descripcion: String(r.descripcion || '').trim().slice(0, 200),
       cantidad: Number(r.cantidad),
       unidad: String(r.unidad || 'packs').trim().slice(0, 30)

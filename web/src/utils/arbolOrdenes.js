@@ -181,7 +181,152 @@ async function bultosDeFolios(folios) {
  * OT del plan sin un solo folio, y folios producidos que no estan en el plan.
  * Un arbol que esconde eso pasaria por completo estando incompleto.
  */
-export async function armarArbolDeOc({ lineasDelPlan }) {
+/**
+ * Lo que YA SE MANDO A LAS MAQUILAS de unas OT, por (OT, codigo).
+ *
+ * Es el tercer estado que pidio el papa de Roberto el 24-08: de un codigo hay
+ * lo que el cliente PIDE, lo que la fabrica ya TIENE capturado, y lo que ya
+ * SALIO a ensamblar. Los dos primeros ya los tenia el arbol; este faltaba.
+ *
+ * ⚠️ NO SE SUMA NI SE RESTA CON LO PRODUCIDO. Una tarea se encarga en PACKS
+ * ("300 packs de este modelo", tareasEnsamble.js) y el plan y los bultos van
+ * en DOCENAS. Cuantos pares trae un pack depende del producto (un 3 PACK y un
+ * 6 PACK no son lo mismo) y RAGNAR hoy no lo sabe, asi que restar packs de
+ * docenas daria un numero con cara de verdad y sin serlo. Se muestran lado a
+ * lado, cada uno con su unidad, y quien lee decide.
+ *
+ * Se consulta maquila por maquila y no con collectionGroup a proposito: la
+ * regla de tareasEnsamble se apoya en el maquilaId del path, y un
+ * collectionGroup exigiria abrir un match nuevo para todo el grupo.
+ *
+ * Nunca lanza: si una maquila falla, su parte se reporta como desconocida en
+ * vez de tumbar el arbol entero.
+ */
+// El plan y los bultos van en DOCENAS. Una tarea encargada en docenas se
+// puede comparar con el plan; una encargada en packs NO, porque cuantos pares
+// trae un pack depende del producto y RAGNAR no lo sabe.
+const UNIDADES_EN_DOCENAS = ['docena', 'docenas', 'doc', 'dz', 'dzs']
+export const esEnDocenas = (unidad) =>
+  UNIDADES_EN_DOCENAS.includes(String(unidad || '').trim().toLowerCase())
+
+/**
+ * Que tanto de lo planeado ya se mando a ensamblar, en PORCENTAJE.
+ *
+ * Lo pidio Roberto el 24-08: "que porcentaje has mandado de esa orden de
+ * trabajo, o cuanto te falta por mandar".
+ *
+ * ⚠️ Solo cuenta lo encargado en DOCENAS, que es la unidad del plan. Un
+ * renglon pedido en packs se reporta aparte (lineasNoComparables) en vez de
+ * colarse al porcentaje: mezclar packs con docenas daria un numero que se ve
+ * bien y miente. Si TODO lo enviado vino en packs, el porcentaje es null (no
+ * cero), igual que hace el resto de este archivo con los huecos de datos.
+ */
+export function avanceDeEnvio(lineas) {
+  let planeado = 0
+  let enviado = 0
+  let lineasNoComparables = 0
+  for (const l of lineas) {
+    const comparable = (l.enviado || []).filter((e) => esEnDocenas(e.unidad))
+    const otras = (l.enviado || []).filter((e) => !esEnDocenas(e.unidad))
+    // ⚠️ Un renglon que SOLO salio en packs se queda FUERA del denominador,
+    // no dentro con enviado 0. Metiendolo, una OT con un codigo despachado
+    // completo en packs (1000 docenas planeadas) y otro despachado completo
+    // en docenas (10) decia "mandado 1%" estando los dos completos: el
+    // numero mas enganoso posible, porque suena a que la maquila no ha hecho
+    // nada. Se cuenta aparte y la pantalla dice cuantos quedaron sin medir.
+    if (comparable.length === 0 && otras.length > 0) {
+      lineasNoComparables++
+      continue
+    }
+    if (typeof l.cantidadPlaneada === 'number') planeado += l.cantidadPlaneada
+    enviado += comparable.reduce((a, e) => a + e.cantidad, 0)
+  }
+  return {
+    planeado,
+    enviado,
+    // Sin meta medible no hay porcentaje. Ya no hace falta la condicion
+    // compuesta de antes: los renglones que no se pueden medir salieron del
+    // denominador arriba, asi que si 'planeado' quedo en 0 es que no habia
+    // nada medible que reportar.
+    porcentaje: planeado > 0 ? Math.min(100, (enviado / planeado) * 100) : null,
+    faltaPorMandar: planeado > 0 ? Math.max(0, planeado - enviado) : null,
+    lineasNoComparables
+  }
+}
+
+async function enviosDeLasOts(ots, esPrueba) {
+  const salida = new Map()
+  const conjunto = new Set(ots.filter(Boolean))
+  if (!conjunto.size) return { envios: salida, maquilasNoLeidas: [], sinPermiso: false }
+
+  let maquilas = []
+  try {
+    const snap = await getDocs(collection(db, 'maquilas'))
+    // Cada mundo ve el suyo, con el MISMO filtro simetrico que usa la regla
+    // (mismoMundoMaquila) y que ya aplica la lista de maquilas. Sin esto un
+    // usuario real preguntaria por la maquila ficticia, se llevaria un
+    // permission-denied garantizado, y la pantalla le gritaria "no tienes
+    // permiso" para siempre por una maquila que ni le toca.
+    maquilas = snap.docs
+      .filter((d) => (d.data().esPrueba === true) === !!esPrueba)
+      .map((d) => d.id)
+  } catch (err) {
+    console.warn('[Arbol] No se pudo listar las maquilas:', err?.message)
+    return {
+      envios: salida,
+      maquilasNoLeidas: ['(no se pudo listar)'],
+      sinPermiso: err?.code === 'permission-denied'
+    }
+  }
+
+  const maquilasNoLeidas = []
+  let sinPermiso = false
+  // En paralelo: son N round-trips independientes y encadenarlos solo suma
+  // espera. Cada maquila reporta su propio fallo sin tumbar a las demas.
+  const resultados = await Promise.all(
+    maquilas.map(async (maquilaId) => {
+      try {
+        const snap = await getDocs(collection(db, 'portalMaquila', maquilaId, 'tareasEnsamble'))
+        return { maquilaId, docs: snap.docs.map((d) => d.data()) }
+      } catch (err) {
+        console.warn(`[Arbol] No se pudieron leer las tareas de ${maquilaId}:`, err?.message)
+        return { maquilaId, error: err }
+      }
+    })
+  )
+
+  for (const r of resultados) {
+    if (r.error) {
+      maquilasNoLeidas.push(r.maquilaId)
+      if (r.error?.code === 'permission-denied') sinPermiso = true
+      continue
+    }
+    for (const t of r.docs) {
+      // Una tarea CANCELADA no mando nada, y una en 'preparando' todavia no
+      // la ve la maquila: contarlas diria que salio producto que no salio.
+      if (t.estado === 'cancelada' || t.estado === 'preparando') continue
+      const ot = normalizarOt(t.ot || '')
+      if (!conjunto.has(ot)) continue
+      for (const renglon of t.renglones || []) {
+        const clave = `${ot}||${normalizarCodigo(renglon.codigo)}`
+        if (!salida.has(clave)) salida.set(clave, new Map())
+        // ⚠️ Se acumula POR UNIDAD. 'unidad' es texto libre de quien crea la
+        // tarea: si una vino en packs y otra en docenas, sumarlas daria un
+        // solo numero que no significa nada. Se guardan aparte y la pantalla
+        // las muestra separadas.
+        const porUnidad = salida.get(clave)
+        const unidad = String(renglon.unidad || 'packs').trim() || 'packs'
+        const acc = porUnidad.get(unidad) || { cantidad: 0, maquilas: new Set() }
+        acc.cantidad += Number(renglon.cantidad) || 0
+        acc.maquilas.add(r.maquilaId)
+        porUnidad.set(unidad, acc)
+      }
+    }
+  }
+  return { envios: salida, maquilasNoLeidas, sinPermiso }
+}
+
+export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
   const ots = [...new Set(lineasDelPlan.map((l) => l.ot).filter(Boolean))]
 
   // DOS VIAS, y se usan las dos:
@@ -238,12 +383,29 @@ export async function armarArbolDeOc({ lineasDelPlan }) {
     bultosPorOt.get(ot).push(b)
   }
 
+  // El tercer estado: lo que ya salio a ensamblar. Se reusa la lista 'ots'
+  // que ya se armo arriba en vez de recalcularla.
+  const { envios, maquilasNoLeidas, sinPermiso } = await enviosDeLasOts(ots, esPrueba)
+
   const porOt = new Map()
   for (const l of lineasDelPlan) {
     if (!porOt.has(l.ot)) porOt.set(l.ot, [])
+    const clave = `${l.ot}||${normalizarCodigo(l.codigo)}`
+    const env = envios.get(clave)
     porOt.get(l.ot).push({
       ...l,
-      producido: producido.get(`${l.ot}||${normalizarCodigo(l.codigo)}`) || 0
+      producido: producido.get(clave) || 0,
+      // Lo enviado va con su unidad y NO entra en el porcentaje de avance:
+      // ese porcentaje compara docenas con docenas.
+      // Una entrada por unidad: [{ unidad, cantidad, maquilas }]. Vacio si
+      // este codigo todavia no se le encarga a nadie.
+      enviado: env
+        ? [...env.entries()].map(([unidad, v]) => ({
+            unidad,
+            cantidad: v.cantidad,
+            maquilas: [...v.maquilas]
+          }))
+        : []
     })
   }
 
@@ -253,6 +415,10 @@ export async function armarArbolDeOc({ lineasDelPlan }) {
       const avance = avanceDe(lineas)
       return {
         ot,
+        // Cuanto de esta OT ya salio a ensamblar, en %. Va aparte del avance
+        // de produccion: son dos preguntas distintas ("ya se hizo" vs "ya se
+        // mando") y juntarlas en un solo numero las vuelve indistinguibles.
+        envio: avanceDeEnvio(lineas),
         // A quien va esta orden de trabajo, segun el plan. Todas sus lineas
         // dicen lo mismo (medido en el archivo real: ninguna OT cambia de
         // destino entre renglones), asi que basta la primera que lo traiga.
@@ -293,6 +459,10 @@ export async function armarArbolDeOc({ lineasDelPlan }) {
   return {
     ramas,
     total: avanceDe(conDatos.flatMap((r) => r.lineas)),
+    // El total de ENVIO si sale sobre TODAS las ramas, no solo las que tienen
+    // folios: lo enviado no depende de que el ruteo conserve el rastro de la
+    // captura, se lee de las tareas, que no se purgan.
+    totalEnvio: avanceDeEnvio(ramas.flatMap((r) => r.lineas)),
     // Cuantas OT quedaron fuera del total de arriba por no tener ni un folio.
     otsExcluidasDelTotal: ramas.length - conDatos.length,
     // OT planeadas de las que no hay ni un folio: puede ser que no arrancaron
@@ -302,6 +472,14 @@ export async function armarArbolDeOc({ lineasDelPlan }) {
     // alcanza el ruteo (15 dias). Hay que decirlo o los numeros parecen
     // completos estando cortados.
     soloRuteo: porCampo === null,
-    fueraDelPlan: fueraDelPlan.sort((a, b) => b.docenas - a.docenas)
+    fueraDelPlan: fueraDelPlan.sort((a, b) => b.docenas - a.docenas),
+    // Maquilas cuyas tareas no se pudieron leer: sin esto la columna de
+    // "ya en maquila" se veria baja y pareceria que no se ha mandado nada,
+    // cuando lo que pasa es que no se pudo preguntar.
+    maquilasNoLeidas,
+    // Si el fallo fue de PERMISO, la pantalla tiene que decir eso y no
+    // "puede estar incompleta": lo segundo suena a algo pasajero cuando en
+    // realidad esa cuenta no va a ver nunca esa columna.
+    enviosSinPermiso: sinPermiso
   }
 }

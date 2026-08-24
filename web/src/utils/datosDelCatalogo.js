@@ -65,3 +65,43 @@ export async function datosDeCodigos(codigos) {
   }
   return salida
 }
+
+/**
+ * De un CODIGO DE BARRAS al codigo de producto de Quini.
+ *
+ * El resumen de pagos a maquilas identifica el producto por codigo de barras
+ * (asi lo confirmo Cielo el 24-08: "todos deberian ser codigos de barras"),
+ * mientras que las tareas y la remision lo identifican por el codigo de Quini.
+ * Este es el puente: sin el, amarrar un precio a un producto es trabajo manual
+ * renglon por renglon.
+ *
+ * El indice lo escribe cargar_catalogo.mjs en la MISMA version del catalogo,
+ * en catalogoVersiones/{version}/barras/{shard}. Si el archivo con el que se
+ * cargo el catalogo no traia columna de barras, esa coleccion no existe y aqui
+ * simplemente no se encuentra nada — no es un error.
+ *
+ * Devuelve el codigo de producto, o null si no hay puente.
+ */
+export async function codigoDeBarras(barras) {
+  const limpio = String(barras || '').replace(/\D/g, '')
+  if (limpio.length < 8) return null
+  try {
+    const cfg = await getDoc(doc(db, 'config', 'catalogoActual'))
+    if (!cfg.exists()) return null
+    const versionId = cfg.data().versionId
+    if (!versionId) return null
+    const numShards = cfg.data().numShards
+    if (numShards !== undefined && numShards !== NUM_SHARDS_CATALOGO) {
+      console.warn('[Catalogo] Particionado distinto del esperado; no se busca por barras.')
+      return null
+    }
+    const snap = await getDoc(
+      doc(db, 'catalogoVersiones', versionId, 'barras', shardDeCodigo(limpio))
+    )
+    if (!snap.exists()) return null
+    return (snap.data().codigos || {})[claveDeCodigo(limpio)] || null
+  } catch (err) {
+    console.warn('[Catalogo] No se pudo buscar el codigo de barras:', err?.message)
+    return null
+  }
+}

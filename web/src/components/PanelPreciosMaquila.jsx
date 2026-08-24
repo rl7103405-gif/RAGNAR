@@ -16,7 +16,7 @@ import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
 import { coincide } from '../utils/texto'
-import { datosDeCodigos } from '../utils/datosDelCatalogo'
+import { codigoDeBarras, datosDeCodigos } from '../utils/datosDelCatalogo'
 
 const TOPE_PRECIO = 10000
 
@@ -54,18 +54,38 @@ export default function PanelPreciosMaquila() {
     const lista = q
       ? precios.filter(
           (p) =>
-            coincide(p.codigo, q) || coincide(p.descripcion || '', q) || coincide(p.modelo || '', q)
+            coincide(p.codigo, q) ||
+            coincide(p.descripcion || '', q) ||
+            coincide(p.modelo || '', q) ||
+            coincide(p.codigoBarras || '', q)
         )
       : precios
     return [...lista].sort((a, b) => String(a.codigo).localeCompare(String(b.codigo), 'es'))
   }, [precios, busqueda])
 
   const guardar = async (codigo, precio, extra = {}) => {
-    const limpio = String(codigo || '').trim().toUpperCase()
+    let limpio = String(codigo || '').trim().toUpperCase()
     const valor = Number(precio)
+    let barras = ''
     if (!limpio) {
       setError('Escribe el codigo.')
       return false
+    }
+    // Cielo trabaja con el archivo de pagos, que identifica el producto por
+    // CODIGO DE BARRAS, no por el codigo de Quini. Si lo que tecleo parece un
+    // codigo de barras, la app lo traduce sola en vez de hacerla buscarlo.
+    // Solo se intenta cuando NO existe ya un precio con ese texto como codigo,
+    // ni el texto es ya un codigo valido del catalogo: hay codigos de Quini
+    // que son puro numero, y no hay que secuestrarlos.
+    if (/^\d{8,20}$/.test(limpio) && !precios.some((p) => p.codigo === limpio)) {
+      const cat = await datosDeCodigos([limpio])
+      if (!cat.has(limpio)) {
+        const traducido = await codigoDeBarras(limpio)
+        if (traducido) {
+          barras = limpio
+          limpio = traducido
+        }
+      }
     }
     // Las mismas cotas que exige el servidor, dichas aqui para que el error
     // llegue antes y con palabras, no como un permission-denied.
@@ -96,13 +116,20 @@ export default function PanelPreciosMaquila() {
           precioPorPack: valor,
           ...(datos.descripcion ? { descripcion: String(datos.descripcion).slice(0, 200) } : {}),
           ...(datos.modelo ? { modelo: String(datos.modelo).slice(0, 60) } : {}),
+          ...(barras || extra.codigoBarras
+            ? { codigoBarras: String(barras || extra.codigoBarras).slice(0, 30) }
+            : {}),
           actualizadoEn: serverTimestamp(),
           actualizadoPorUid: authUser.uid,
           actualizadoPorNombre: perfil?.nombreCompleto || ''
         },
         { merge: true }
       )
-      setAviso(`Precio de ${limpio}: $${valor.toFixed(2)} por pack.`)
+      setAviso(
+        barras
+          ? `El codigo de barras ${barras} es el codigo ${limpio}. Precio: $${valor.toFixed(2)} por pack.`
+          : `Precio de ${limpio}: $${valor.toFixed(2)} por pack.`
+      )
       return true
     } catch (err) {
       console.error('[Precios] No se pudo guardar:', err)
@@ -160,12 +187,12 @@ export default function PanelPreciosMaquila() {
               style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', margin: '12px 0' }}
             >
               <label className="campo" style={{ flex: '1 1 160px', margin: 0 }}>
-                <span>Codigo</span>
+                <span>Codigo o codigo de barras</span>
                 <input
                   type="text"
                   value={nuevo.codigo}
                   onChange={(e) => setNuevo({ ...nuevo, codigo: e.target.value })}
-                  placeholder="ej. 1066"
+                  placeholder="ej. 1066 o 7506097258490"
                 />
               </label>
               <label className="campo" style={{ flex: '1 1 130px', margin: 0 }}>
@@ -187,7 +214,7 @@ export default function PanelPreciosMaquila() {
 
           <input
             type="search"
-            placeholder="Buscar por codigo, descripcion o modelo..."
+            placeholder="Buscar por codigo, barras, descripcion o modelo..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             style={{ width: '100%', margin: '4px 0 8px', padding: '8px 10px' }}
@@ -204,6 +231,7 @@ export default function PanelPreciosMaquila() {
               <thead>
                 <tr>
                   <th>Codigo</th>
+                  <th>Codigo de barras</th>
                   <th>Descripcion</th>
                   <th>Modelo</th>
                   <th style={{ textAlign: 'right' }}>Precio por pack</th>
@@ -215,6 +243,9 @@ export default function PanelPreciosMaquila() {
                   <tr key={p.id}>
                     <td>
                       <strong>{p.codigo}</strong>
+                    </td>
+                    <td className="texto-suave" style={{ fontSize: 12 }}>
+                      {p.codigoBarras || '-'}
                     </td>
                     <td>{p.descripcion || <span className="texto-suave">-</span>}</td>
                     <td>{p.modelo || <span className="texto-suave">-</span>}</td>
@@ -229,7 +260,11 @@ export default function PanelPreciosMaquila() {
                           onBlur={(e) => {
                             const v = Number(e.target.value)
                             if (v !== p.precioPorPack) {
-                              guardar(p.codigo, v, { descripcion: p.descripcion, modelo: p.modelo })
+                              guardar(p.codigo, v, {
+                                descripcion: p.descripcion,
+                                modelo: p.modelo,
+                                codigoBarras: p.codigoBarras
+                              })
                             }
                           }}
                         />

@@ -73,3 +73,36 @@ Decisiones de diseño pendientes (para el debate con Codex antes de codear):
 - Si es (a): mismo patrón versionado del plan maestro (subida → borrador →
   puntero), y el lector ya sabe leer ese formato (se analizó el 18-08).
 - Avíos y producto son dos inventarios distintos y no se mezclan.
+
+---
+
+## Reporte por tarea: los tres estados de un codigo (para el papa de Roberto)
+
+**Lo pidio Roberto el 2026-08-24 a partir de una platica con su papa. No se
+hizo en esa sesion (estaba abierto el tema de precios de maquila).**
+
+Un codigo pasa por tres estados dentro de una orden de compra, y hoy no hay
+donde verlos juntos:
+
+1. **Lo que piden** — las docenas que el cliente pidio de ese codigo.
+2. **Lo que ya esta capturado y todavia NO se mando a la maquila** — es
+   producto que existe en la fabrica y que se puede armar con lo que hay.
+3. **Lo que ya se mando a la maquila.**
+
+El modelo a copiar es `OC_2249 Chedraui 13AGO26.xlsx`, que Cielo lleva a mano.
+Su hoja **CONCENTRADO** es exactamente ese reporte, un renglon por
+pedido+codigo+color+talla: `NoPedido` (7951_SFT419_4/6_3 PACK), `Codigo`
+(7934-J), `NumPedido` (= la OT), `MAQUILA`, `ARTICULO`, `No.` (= el MODELO),
+`COLOR2`, `TALLA2`, y luego los estados: `SOLICITA` (piden), `TEJIDS`
+(tejido), `SOBRAN`, `DOC. A ENVIAR 1ER PARC`, `DOC. ENVIADAS` (ya en maquila),
+`DOC. X ENVIO` (falta), `STATUS` ("OK MAQUILA").
+
+Su hoja **ENVIOS** es el detalle folio por folio de lo enviado: `FOLIO`,
+`PESO`, `Codigo`, `Descripcion`, `Modelo`, `Color`, `DOCENAS`, `OT`,
+`REMISION`, `MAQUILERO`, `FECHA`. RAGNAR ya tiene casi todo eso capturado
+(folio, peso, codigo, OT); lo que le falta es el amarre con la remision y el
+maquilero, que es justo lo que empezo a existir el 24-08.
+
+⚠️ Ojo antes de codear: el `SOLICITA` viene del pedido del cliente, que hoy
+RAGNAR **no tiene** — llega en el archivo de tarea que manda Lindbergh. Sin
+esa cifra el reporte solo puede contestar dos de los tres estados.

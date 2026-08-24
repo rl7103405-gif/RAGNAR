@@ -34,6 +34,22 @@ const COLUMNAS_REQUERIDAS = [
   'codigoproducto', 'articulo', 'descripcion', 'talla', 'color', 'referencia', 'linea_producto'
 ]
 
+// EL CODIGO DE BARRAS es OPCIONAL: los archivos que se han cargado hasta hoy
+// (2026-08-24) no lo traen, y el catalogo tiene que seguir cargandose sin el.
+//
+// ⚠️ PARA QUE SIRVE. El resumen de pagos a maquilas identifica el producto por
+// CODIGO DE BARRAS, y las tareas por CODIGO DE QUINI. Sin este puente la app
+// no puede saber que precio le toca a cada codigo, y alguien tiene que
+// amarrarlos a mano uno por uno (medido: de 286 modelos del archivo de pagos,
+// solo 14 coinciden con un codigo del catalogo).
+//
+// Se aceptan varios nombres porque el reporte de Microsip puede traerlo
+// escrito de distintas formas.
+const NOMBRES_BARRAS = [
+  'codigo_barras', 'codigobarras', 'codigo de barras', 'cod_barras',
+  'codbarras', 'upc', 'ean', 'barras'
+]
+
 const rutaArchivo = process.argv[2]
 if (!rutaArchivo) {
   console.error('Uso: node scripts/cargar_catalogo.mjs <ruta al Codigos_Productos_Quini_*.xlsx>')
@@ -67,6 +83,20 @@ for await (const hoja of lector) {
           process.exit(1)
         }
         indices[col] = i
+      }
+      // La de barras, si el archivo la trae.
+      for (const nombre of NOMBRES_BARRAS) {
+        const i = nombres.indexOf(nombre)
+        if (i !== -1) {
+          indices.codigo_barras = i
+          console.log(`Este archivo SI trae codigo de barras (columna '${nombre}').`)
+          break
+        }
+      }
+      if (indices.codigo_barras === undefined) {
+        console.log('AVISO: el archivo no trae columna de codigo de barras.')
+        console.log('       El catalogo se carga igual, pero los precios de maquila no se van a')
+        console.log('       poder amarrar solos. Ver el comentario de NOMBRES_BARRAS.')
       }
       continue
     }
@@ -108,17 +138,42 @@ for await (const hoja of lector) {
       talla: valoresTexto.talla || null,
       color: valoresTexto.color || null,
       referencia: valoresTexto.referencia || null,
-      linea: valoresTexto.linea_producto || null
+      linea: valoresTexto.linea_producto || null,
+      // Solo se guarda si el archivo lo trajo y parece un codigo de barras:
+      // un texto cualquiera en esa columna no sirve de puente y ensuciaria el
+      // indice inverso.
+      ...(indices.codigo_barras !== undefined
+        ? (() => {
+            const b = texto(valores[indices.codigo_barras])
+            const limpio = b && b !== CELDA_INVALIDA ? b.replace(/\D/g, '') : ''
+            return limpio.length >= 8 ? { codigoBarras: limpio } : {}
+          })()
+        : {})
     }
     const previa = productos.get(codigo)
     if (previa === undefined) {
       productos.set(codigo, entrada)
-      hashContenido.update(JSON.stringify(entrada))
     } else {
       // El archivo trae una fila por MATERIAL: todas las filas de un mismo
       // codigo deben repetir los datos de producto. Si algun dia difieren, el
       // archivo esta mal y se rechaza en vez de quedarse callado con una.
-      const difiere = Object.keys(entrada).some((k) => entrada[k] !== previa[k])
+      // El codigo de barras se trata aparte: si una fila lo trae y otra no,
+      // eso NO es una contradiccion (Microsip lo deja vacio en las filas de
+      // material). Se conserva el que exista; solo chocan dos barras distintos.
+      if (entrada.codigoBarras && !previa.codigoBarras) previa.codigoBarras = entrada.codigoBarras
+      const difiere = Object.keys(entrada).some(
+        (k) => k !== 'codigoBarras' && entrada[k] !== previa[k]
+      )
+      if (
+        entrada.codigoBarras &&
+        previa.codigoBarras &&
+        entrada.codigoBarras !== previa.codigoBarras &&
+        contradicciones.length < MAX_ERRORES_REPORTADOS
+      ) {
+        contradicciones.push(
+          `Codigo ${codigo}: dos codigos de barras distintos (${previa.codigoBarras} y ${entrada.codigoBarras})`
+        )
+      }
       if (difiere && contradicciones.length < MAX_ERRORES_REPORTADOS) {
         contradicciones.push(`Codigo ${codigo}: filas con datos de producto distintos entre si`)
       }
@@ -147,10 +202,50 @@ if (productos.size === 0) {
 }
 console.log(`Filas leidas: ${filasLeidas}; codigos unicos: ${productos.size}`)
 
+// El hash se calcula aqui, con el Map ya completo (incluye el codigoBarras que
+// pudo llegar en una fila posterior a la primera del codigo) y recorriendo las
+// claves ORDENADAS para que el hash no dependa del orden de las filas.
+for (const codigo of [...productos.keys()].sort()) {
+  hashContenido.update(JSON.stringify(productos.get(codigo)))
+}
+
 // ---- Armar shards ----
+//
+// Ademas del catalogo por codigo, se arma un INDICE INVERSO barras -> codigo.
+// Sin el, para saber que producto es el '7506097258537' del archivo de pagos
+// habria que recorrer los 64 shards enteros. Con el, es UNA lectura puntual.
+//
+// Se reparte con la misma funcion de shard, pero sobre el codigo de barras, no
+// sobre el codigo del producto.
+const barrasPorShard = Array.from({ length: NUM_SHARDS_CATALOGO }, () => ({}))
+let barrasVistos = 0
+
 const shards = Array.from({ length: NUM_SHARDS_CATALOGO }, () => ({}))
 for (const [codigo, entrada] of productos) {
   shards[Number(shardDeCodigo(codigo))][claveDeCodigo(codigo)] = entrada
+  if (entrada.codigoBarras) {
+    const sh = Number(shardDeCodigo(entrada.codigoBarras))
+    const clave = claveDeCodigo(entrada.codigoBarras)
+    // Un mismo codigo de barras en dos productos distintos: el archivo se
+    // rechaza igual que otras contradicciones. Elegir en silencio cual gana
+    // seria decidir a ciegas que precio se le paga a una maquila.
+    if (barrasPorShard[sh][clave] && barrasPorShard[sh][clave] !== codigo) {
+      if (contradicciones.length < MAX_ERRORES_REPORTADOS) {
+        contradicciones.push(
+          `Codigo de barras ${entrada.codigoBarras}: esta en ${barrasPorShard[sh][clave]} y en ${codigo}`
+        )
+      }
+    } else {
+      barrasPorShard[sh][clave] = codigo
+      barrasVistos++
+    }
+  }
+}
+
+if (contradicciones.length > 0) {
+  console.error('ARCHIVO RECHAZADO: codigos de barras repetidos en productos distintos:')
+  contradicciones.forEach((c) => console.error(' - ' + c))
+  process.exit(1)
 }
 
 // ---- Fecha del archivo (senal auxiliar para no reemplazar un catalogo mas
@@ -233,10 +328,19 @@ try {
 }
 for (let i = 0; i < NUM_SHARDS_CATALOGO; i++) {
   await refVersion.collection('shards').doc(String(i)).set({ productos: shards[i] })
+  // El indice inverso viaja en su propia coleccion, en la misma version: asi
+  // una version vieja nunca mezcla su catalogo con las barras de otra.
+  if (Object.keys(barrasPorShard[i]).length) {
+    await refVersion.collection('barras').doc(String(i)).set({ codigos: barrasPorShard[i] })
+  }
   if ((i + 1) % 16 === 0) console.log(`  shard ${i + 1}/${NUM_SHARDS_CATALOGO}`)
 }
 
 // ---- Verificar leyendo de vuelta antes de mover el puntero ----
+if (barrasVistos) {
+  console.log(`Indice de codigos de barras: ${barrasVistos} productos.`)
+}
+
 console.log('Verificando shards escritos ...')
 let totalVerificado = 0
 for (let i = 0; i < NUM_SHARDS_CATALOGO; i++) {
@@ -280,8 +384,10 @@ const aBorrar = versiones.docs.filter((docV) => !idsAConservar.has(docV.id))
 for (const docViejo of aBorrar) {
   console.log(`Borrando version vieja ${docViejo.id} ...`)
   const shardsViejos = await docViejo.ref.collection('shards').get()
+  const barrasViejas = await docViejo.ref.collection('barras').get()
   const lote = db.batch()
   shardsViejos.docs.forEach((s) => lote.delete(s.ref))
+  barrasViejas.docs.forEach((b) => lote.delete(b.ref))
   lote.delete(docViejo.ref)
   await lote.commit()
 }

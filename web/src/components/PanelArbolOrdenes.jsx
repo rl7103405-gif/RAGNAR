@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { lineasDeOc, resumenDeOcs, versionActiva } from '../utils/planMaestro'
-import { armarArbolDeOc } from '../utils/arbolOrdenes'
+import { armarArbolDeOc, esEnDocenas } from '../utils/arbolOrdenes'
 
 const pct = (v) => (v === null ? '—' : `${v.toFixed(0)}%`)
 
@@ -40,7 +40,7 @@ function Barra({ porcentaje }) {
 }
 
 export default function PanelArbolOrdenes() {
-  const { esInterno } = useAuth()
+  const { esInterno, esPrueba } = useAuth()
   const [version, setVersion] = useState(null)
   const [ocs, setOcs] = useState([])
   const [abierta, setAbierta] = useState(null) // { oc, arbol }
@@ -77,7 +77,7 @@ export default function PanelArbolOrdenes() {
     setOtAbierta(null)
     try {
       const lineasDelPlan = await lineasDeOc(version, oc)
-      const arbol = await armarArbolDeOc({ lineasDelPlan })
+      const arbol = await armarArbolDeOc({ lineasDelPlan, esPrueba })
       setAbierta({ oc, arbol })
     } catch (err) {
       console.error('[Arbol] Error armando la orden de compra:', err)
@@ -178,10 +178,21 @@ export default function PanelArbolOrdenes() {
                 <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
                   {arbol && (
                     <>
+                      <span className="texto-suave" style={{ fontSize: 11 }}>hecho</span>
                       <Barra porcentaje={arbol.total.porcentaje} />
                       <strong style={{ color: colorDe(arbol.total.porcentaje), minWidth: 44, textAlign: 'right' }}>
                         {pct(arbol.total.porcentaje)}
                       </strong>
+                      <span
+                        style={{ fontSize: 12, minWidth: 96, textAlign: 'right', color: '#1e40af' }}
+                        title={
+                          arbol.totalEnvio?.porcentaje === null
+                            ? 'No se puede sacar el % de lo mandado: las tareas se encargaron en packs y el plan va en docenas.'
+                            : `${(arbol.totalEnvio?.enviado || 0).toFixed(0)} de ${(arbol.totalEnvio?.planeado || 0).toFixed(0)} docenas mandadas a maquila`
+                        }
+                      >
+                        mandado {pct(arbol.totalEnvio?.porcentaje)}
+                      </span>
                     </>
                   )}
                   <span className="texto-suave">{activa ? '▲' : '▼'}</span>
@@ -217,9 +228,23 @@ export default function PanelArbolOrdenes() {
 
                   {arbol.otsExcluidasDelTotal > 0 && (
                     <p className="texto-suave" style={{ fontSize: 12 }}>
-                      % calculado sobre las OT con folios encontrados; {arbol.otsExcluidasDelTotal} orden
+                      El % de <strong>hecho</strong> se calculo sobre las OT con folios
+                      encontrados; {arbol.otsExcluidasDelTotal} orden
                       {arbol.otsExcluidasDelTotal === 1 ? '' : 'es'} sin datos no entra
-                      {arbol.otsExcluidasDelTotal === 1 ? '' : 'n'} al numero.
+                      {arbol.otsExcluidasDelTotal === 1 ? '' : 'n'} al numero. El de{' '}
+                      <strong>mandado</strong> si las incluye: lo que se encarga a una maquila no
+                      depende de que el rastro de la captura siga vivo.
+                    </p>
+                  )}
+
+                  {/* Si no se pudieron leer las tareas de una maquila, la
+                      columna "Ya en maquila" sale corta y parece que no se ha
+                      encargado nada. Se dice, en vez de dejar creer un cero. */}
+                  {arbol.maquilasNoLeidas?.length > 0 && (
+                    <p style={{ fontSize: 12, color: '#b45309' }}>
+                      {arbol.enviosSinPermiso
+                        ? 'Tu cuenta no tiene permiso para ver lo que se encargo a las maquilas, asi que la columna "Ya en maquila" sale vacia. No quiere decir que no se haya mandado nada.'
+                        : `No se pudieron leer las tareas de ${arbol.maquilasNoLeidas.join(', ')}: la columna "Ya en maquila" puede estar incompleta.`}
                     </p>
                   )}
 
@@ -249,10 +274,25 @@ export default function PanelArbolOrdenes() {
                             {r.folios} folios
                           </span>
                           <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+                            {/* Dos numeros distintos, etiquetados: "hecho" es
+                                produccion capturada, "mandado" es lo que ya
+                                salio a ensamblar. Sin etiqueta, dos
+                                porcentajes juntos se confunden. */}
+                            <span className="texto-suave" style={{ fontSize: 11 }}>hecho</span>
                             <Barra porcentaje={r.porcentaje} />
                             <strong style={{ color: colorDe(r.porcentaje), minWidth: 44, textAlign: 'right' }}>
                               {pct(r.porcentaje)}
                             </strong>
+                            <span
+                              style={{ fontSize: 12, minWidth: 96, textAlign: 'right', color: '#1e40af' }}
+                              title={
+                                r.envio?.porcentaje === null
+                                  ? 'No se puede sacar el % de lo mandado: las tareas se encargaron en packs y el plan va en docenas.'
+                                  : `${(r.envio?.enviado || 0).toFixed(0)} de ${(r.envio?.planeado || 0).toFixed(0)} docenas mandadas; faltan ${(r.envio?.faltaPorMandar ?? 0).toFixed(0)}`
+                              }
+                            >
+                              mandado {pct(r.envio?.porcentaje)}
+                            </span>
                             <span className="texto-suave">{abiertaOt ? '▲' : '▼'}</span>
                           </span>
                         </button>
@@ -262,9 +302,25 @@ export default function PanelArbolOrdenes() {
                             <thead>
                               <tr className="texto-suave">
                                 <th style={{ textAlign: 'left' }}>Codigo</th>
-                                <th style={{ textAlign: 'right' }}>Planeado</th>
+                                <th style={{ textAlign: 'right' }}>Piden</th>
                                 <th style={{ textAlign: 'right' }}>Hecho</th>
                                 <th style={{ textAlign: 'right' }}>Falta</th>
+                                {/* El tercer estado que pidio el papa de Roberto:
+                                    de lo hecho, cuanto ya salio a ensamblar. Va
+                                    en su propia unidad (packs) y separado por una
+                                    linea, porque NO se resta de las docenas. */}
+                                <th
+                                  style={{ textAlign: 'right', borderLeft: '1px solid #e5e7eb', paddingLeft: 8 }}
+                                  title="Lo que ya se encargo a una maquila, acumulado (incluye tareas ya terminadas). Va en la unidad con la que se pidio la tarea, casi siempre packs, y por eso NO se resta de las columnas de la izquierda, que van en docenas."
+                                >
+                                  Ya en maquila
+                                </th>
+                                <th
+                                  style={{ textAlign: 'right' }}
+                                  title="Cuanto de lo que piden falta por mandar a ensamblar. Solo sale cuando la tarea se encargo en docenas, la misma unidad del plan."
+                                >
+                                  Falta mandar
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
@@ -302,6 +358,70 @@ export default function PanelArbolOrdenes() {
                                         '✓'
                                       )}
                                     </td>
+                                    <td
+                                      style={{
+                                        textAlign: 'right',
+                                        borderLeft: '1px solid #e5e7eb',
+                                        paddingLeft: 8,
+                                        color: l.enviado?.length ? '#1e40af' : '#94a3b8'
+                                      }}
+                                      title={
+                                        l.enviado?.length
+                                          ? l.enviado
+                                              .map((e) => `${e.cantidad} ${e.unidad}: ${e.maquilas.join(', ')}`)
+                                              .join(' | ')
+                                          : 'Todavia no se encarga a ninguna maquila'
+                                      }
+                                    >
+                                      {/* Cada unidad en su propio renglon: packs
+                                          y docenas no se suman entre si. */}
+                                      {l.enviado?.length
+                                        ? l.enviado.map((e) => (
+                                            <div key={e.unidad}>
+                                              {e.cantidad.toFixed(0)} {e.unidad}
+                                            </div>
+                                          ))
+                                        : '—'}
+                                    </td>
+                                    {(() => {
+                                      // Solo lo encargado en DOCENAS resta del
+                                      // plan; lo pedido en packs no se puede
+                                      // restar y se dice, en vez de fingir que
+                                      // no se ha mandado nada.
+                                      // La MISMA funcion que usa el porcentaje
+                                      // de arriba: dos copias de esta lista se
+                                      // desincronizan y el detalle empieza a
+                                      // contradecir al encabezado sin avisar.
+                                      const enDoc = (l.enviado || []).filter((e) =>
+                                        esEnDocenas(e.unidad)
+                                      )
+                                      const otras = (l.enviado || []).length - enDoc.length
+                                      if (!conMeta) {
+                                        return <td style={{ textAlign: 'right', color: '#94a3b8' }}>—</td>
+                                      }
+                                      if (otras > 0 && !enDoc.length) {
+                                        return (
+                                          <td
+                                            style={{ textAlign: 'right', color: '#94a3b8' }}
+                                            title="Se encargo en packs: no se puede restar de las docenas del plan."
+                                          >
+                                            n/d
+                                          </td>
+                                        )
+                                      }
+                                      const mandado = enDoc.reduce((a, e) => a + e.cantidad, 0)
+                                      const faltaMandar = Math.max(0, l.cantidadPlaneada - mandado)
+                                      return (
+                                        <td
+                                          style={{
+                                            textAlign: 'right',
+                                            color: faltaMandar > 0 ? '#b45309' : '#16a34a'
+                                          }}
+                                        >
+                                          {faltaMandar > 0 ? faltaMandar.toFixed(0) : '✓'}
+                                        </td>
+                                      )
+                                    })()}
                                   </tr>
                                 )
                               })}
