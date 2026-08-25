@@ -29,11 +29,15 @@ import { datosDeCodigos } from './datosDelCatalogo'
 //    por lo que ES, para que nadie lea el piso como el total.
 //  - "DOC. ENVIADAS" aqui son docenas de folios que ya salieron en una
 //    REMISION (PDF generado): el mismo "mandado" del Historial.
+// El orden y las columnas son los del archivo corregido del papa de Roberto
+// (25-08): agrego SOBRANTE TEJIDO y quito "DOC. A ENVIAR 1ER PARCIL" y
+// "STATUS". SOBRANTE TEJIDO = tejido - solicitado; SOBRAN = capturado -
+// solicitado. Si esto cambia, revisar tambien COLS_SUMA mas abajo.
 const COLUMNAS_CONCENTRADO = [
   'NoPedido', 'Código', 'NumPedido', 'MAQUILA', 'ARTICULO', 'No.', 'COLOR2', 'TALLA2',
-  'FALTA', 'SOLICITA', 'TEJIDO (SEGUIMIENTO)', '% tejido', 'CAPTURADO (BASCULA)',
-  '% capturado', 'SOBRAN', 'DOC. A ENVIAR 1ER PARCIL', 'DOC. ENVIADAS',
-  'DOC. X ENVIO', 'STATUS', '% enviado a maquila'
+  'FALTA', 'SOLICITA', 'TEJIDO (SEGUIMIENTO)', 'SOBRANTE TEJIDO', '% tejido',
+  'CAPTURADO (BASCULA)', '% capturado', 'SOBRAN', 'DOC. ENVIADAS',
+  'DOC. X ENVIO', '% enviado a maquila'
 ]
 
 /**
@@ -113,8 +117,6 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
   portada.addRow(['Columnas que RAGNAR todavia NO puede llenar (salen vacias, no en cero):'])
   portada.getRow(portada.rowCount).font = { bold: true }
   ;[
-    ['DOC. A ENVIAR 1ER PARCIL', 'El reparto del primer parcial lo decide una persona; la app no lo sabe.'],
-    ['STATUS', 'Lo teclea Cielo a mano ("OK MAQUILA"). No hay campo equivalente.'],
     ['MAQUILA (en CONCENTRADO)', 'Sale de la tarea de ensamble cuando el codigo ya se encargo; si no, va vacia.'],
     ['REMISION y MAQUILERO (en ENVIOS)', 'Se llenan cuando el folio ya salio en una remision.'],
     ['SOBRAN', 'Lo capturado de mas contra lo que pide el plan, solo si el plan trae cantidad.'],
@@ -130,18 +132,41 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
   portada.addRow(['CAPTURADO (BASCULA): lo que ya paso por la bascula. FALTA y SOBRAN se calculan'])
   portada.addRow(['contra el TEJIDO, como el papel de Cielo.'])
   portada.addRow(['DOC. ENVIADAS: docenas de folios que ya salieron en una remision (PDF generado).'])
+  portada.addRow([])
+  portada.addRow(['Los SUBTOTALES por OT y el TOTAL son formulas de Excel: si editas un renglon se'])
+  portada.addRow(['recalculan solos. Los % de subtotal dividen totales (no suman porcentajes).'])
   portada.getColumn(1).width = 34
   portada.getColumn(2).width = 78
 
   // ---- CONCENTRADO ----
+  //
+  // La forma es la que dejo el papa de Roberto en su archivo corregido del
+  // 25-08: un bloque por OT con su fila de SUBTOTAL, una fila en blanco entre
+  // bloques, y una fila de TOTAL al final. Fuera "DOC. A ENVIAR 1ER PARCIL" y
+  // "STATUS", que el quito.
+  //
+  // ⚠️ Los subtotales y el total van como FORMULAS de Excel (=SUM), no como
+  // numeros pegados: Roberto pidio "corroborar las sumas" porque en el
+  // archivo a mano el % total salio 201% -- se sumaron los porcentajes en vez
+  // de dividir los totales. Con formulas, Excel recalcula solo si alguien
+  // edita un renglon, y los % de subtotal se calculan como division de
+  // totales, nunca como suma de porcentajes.
   const conc = libro.addWorksheet('CONCENTRADO')
   const encConc = varias ? ['OC', ...COLUMNAS_CONCENTRADO] : COLUMNAS_CONCENTRADO
   conc.addRow(encConc)
   conc.getRow(1).font = { bold: true }
   conc.views = [{ state: 'frozen', ySplit: 1 }]
 
+  const off = varias ? 1 : 0
+  const letra = (idx1) => String.fromCharCode(64 + idx1) // 1->A ... valido hasta 26 columnas
+  // Indices 1-based SIN contar la columna OC; se corrigen con `off`.
+  const COLS_SUMA = { falta: 9, solicita: 10, tejido: 11, sobranteTejido: 12, capturado: 14, sobran: 16, enviadas: 17, xEnvio: 18 }
+  const col = (k) => letra(COLS_SUMA[k] + off)
+
   for (const orden of ordenes) {
+    const filasDeSubtotal = []
     for (const rama of orden.arbol.ramas) {
+      const primeraFila = conc.rowCount + 1
       for (const l of rama.lineas) {
         const cat = catalogo.get(String(l.codigo || '').trim()) || {}
         const modelo = l.modelo || cat.modelo || ''
@@ -149,11 +174,7 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
         const talla = l.talla || cat.talla || ''
         const articulo = l.descripcion || cat.descripcion || ''
         const solicita = typeof l.cantidadPlaneada === 'number' ? l.cantidadPlaneada : null
-        const tejido = num(l.producido || 0)
         const fila = [
-          // NoPedido: Cielo lo arma como OT_MODELO_TALLA_ARTICULO. Se replica
-          // con lo que hay, saltando lo que falte en vez de dejar guiones
-          // sueltos que ensucian el filtro.
           [rama.ot, modelo, talla, articulo].filter(Boolean).join('_'),
           l.codigo || '',
           rama.ot || '',
@@ -162,39 +183,75 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
           modelo,
           color,
           talla,
-          // FALTA por tejer: contra el TEJIDO del seguimiento, como el papel
-          // de Cielo, no contra lo capturado.
-          solicita !== null ? num(Math.max(0, solicita - (l.tejido || 0))) : null,
+          solicita !== null ? num(Math.max(0, solicita - (l.tejido || 0))) : null, // FALTA por tejer
           solicita,
-          // TEJIDO segun el seguimiento de folios de America: cada folio
-          // emitido es un bulto que tejido ya produjo, este o no pesado.
           num(l.tejido || 0),
+          solicita !== null ? num(Math.max(0, (l.tejido || 0) - solicita)) : null, // SOBRANTE TEJIDO
           fraccion(l.tejido, solicita),
-          tejido,
+          num(l.producido || 0),
           fraccion(l.producido, solicita),
-          solicita !== null ? num(Math.max(0, (l.tejido || 0) - solicita)) : null, // SOBRAN
-          null, // DOC. A ENVIAR 1ER PARCIL: lo decide una persona
-          // Docenas que YA SALIERON EN REMISION (folio con PDF). El 0 aqui SI
-          // es un dato: hay capturas y ninguna se ha mandado.
+          solicita !== null ? num(Math.max(0, (l.producido || 0) - solicita)) : null, // SOBRAN (capturado)
           num(l.mandadoPdf || 0),
           solicita !== null ? num(Math.max(0, solicita - (l.mandadoPdf || 0))) : null, // DOC. X ENVIO
-          // STATUS se queda VACIA siempre: es la que teclea Cielo a mano y la
-          // portada lo promete. Escribir aqui un aviso de la app haria que ese
-          // texto se leyera como si fuera su status.
-          '',
           fraccion(l.mandadoPdf, solicita)
         ]
         conc.addRow(varias ? [orden.oc, ...fila] : fila)
       }
+      const ultimaFila = conc.rowCount
+      if (ultimaFila < primeraFila) continue
+
+      // SUBTOTAL de la OT: sumas por formula sobre el rango del bloque, y los
+      // porcentajes como DIVISION de totales.
+      const sub = new Array(encConc.length).fill('')
+      sub[off + 0] = `SUBTOTAL OT ${rama.ot}`
+      const filaSub = conc.rowCount + 1
+      const suma = (k) => ({ formula: `SUM(${col(k)}${primeraFila}:${col(k)}${ultimaFila})` })
+      sub[off + 8] = suma('falta')
+      sub[off + 9] = suma('solicita')
+      sub[off + 10] = suma('tejido')
+      sub[off + 11] = suma('sobranteTejido')
+      sub[off + 12] = { formula: `IF(${col('solicita')}${filaSub}=0,"",${col('tejido')}${filaSub}/${col('solicita')}${filaSub})` }
+      sub[off + 13] = suma('capturado')
+      sub[off + 14] = { formula: `IF(${col('solicita')}${filaSub}=0,"",${col('capturado')}${filaSub}/${col('solicita')}${filaSub})` }
+      sub[off + 15] = suma('sobran')
+      sub[off + 16] = suma('enviadas')
+      sub[off + 17] = suma('xEnvio')
+      sub[off + 18] = { formula: `IF(${col('solicita')}${filaSub}=0,"",${col('enviadas')}${filaSub}/${col('solicita')}${filaSub})` }
+      conc.addRow(sub)
+      conc.getRow(conc.rowCount).font = { bold: true }
+      filasDeSubtotal.push(conc.rowCount)
+      conc.addRow([]) // aire entre bloques, como en el archivo del papa
+    }
+
+    // TOTAL de la orden: suma de las filas de subtotal, como lo armo el papa
+    // (=I20+I13+I8), y los % otra vez como division de totales.
+    if (filasDeSubtotal.length) {
+      const tot = new Array(encConc.length).fill('')
+      tot[off + 0] = varias ? `TOTAL OC ${orden.oc}` : 'TOTAL'
+      const filaTot = conc.rowCount + 1
+      const sumaDeSub = (k) => ({ formula: filasDeSubtotal.map((f) => `${col(k)}${f}`).join('+') })
+      tot[off + 8] = sumaDeSub('falta')
+      tot[off + 9] = sumaDeSub('solicita')
+      tot[off + 10] = sumaDeSub('tejido')
+      tot[off + 11] = sumaDeSub('sobranteTejido')
+      tot[off + 12] = { formula: `IF(${col('solicita')}${filaTot}=0,"",${col('tejido')}${filaTot}/${col('solicita')}${filaTot})` }
+      tot[off + 13] = sumaDeSub('capturado')
+      tot[off + 14] = { formula: `IF(${col('solicita')}${filaTot}=0,"",${col('capturado')}${filaTot}/${col('solicita')}${filaTot})` }
+      tot[off + 15] = sumaDeSub('sobran')
+      tot[off + 16] = sumaDeSub('enviadas')
+      tot[off + 17] = sumaDeSub('xEnvio')
+      tot[off + 18] = { formula: `IF(${col('solicita')}${filaTot}=0,"",${col('enviadas')}${filaTot}/${col('solicita')}${filaTot})` }
+      conc.addRow(tot)
+      const r = conc.getRow(conc.rowCount)
+      r.font = { bold: true }
+      r.border = { top: { style: 'double' } }
+      conc.addRow([])
     }
   }
   encConc.forEach((enc, i) => {
-    const col = conc.getColumn(i + 1)
-    col.width = i === 0 ? 26 : 15
-    // Las columnas de porcentaje llevan formato de porcentaje: la celda
-    // guarda 0.31 y Excel la muestra "31%", que es lo que se puede promediar
-    // y graficar. Sin el formato se veria un 0.31 sin sentido.
-    if (String(enc).startsWith('%')) col.numFmt = '0%'
+    const c = conc.getColumn(i + 1)
+    c.width = i === 0 ? 26 : 15
+    if (String(enc).startsWith('%')) c.numFmt = '0%'
   })
 
   // ---- ENVIOS ----
