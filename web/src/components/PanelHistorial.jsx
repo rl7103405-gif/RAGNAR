@@ -15,6 +15,7 @@ import { normalizarOt } from '../utils/planMaestro'
 import { useMaquilas } from './Maquilas'
 import { useAuth } from '../context/AuthContext'
 import { arbolDeOcCacheado } from '../utils/arbolOrdenes'
+import { resumenDeOcs, versionActiva } from '../utils/planMaestro'
 import { generarExcelOrdenCompra, nombreDelExcel } from '../utils/excelOrdenCompra'
 import { descargarArchivo } from '../utils/excelSalida'
 import CorregirPdfModal from './CorregirPdfModal'
@@ -41,12 +42,6 @@ export default function PanelHistorial() {
   // una orden, o varias marcadas, en un solo archivo.
   const [ocsMarcadas, setOcsMarcadas] = useState(new Set())
   const [bajando, setBajando] = useState('')
-  // Los porcentajes hecho/mandado de cada OC visible. Los pidio el papa de
-  // Roberto para el Historial (25-08); se calculan DESPUES de pintar la
-  // lista, uno por uno, para no atorar la tabla. Calcularlos ademas
-  // precalienta el ruteo y las tareas, que es justo lo que la descarga del
-  // Excel necesita: la primera bajada tardaba "un buen" por eso.
-  const [avancesPorOc, setAvancesPorOc] = useState(new Map())
   const [busquedaPdf, setBusquedaPdf] = useState({ maquila: '', folio: '', genero: '', numero: '' })
   // Con cientos de folios por periodo, las OT arrancan CERRADAS: se ve el
   // resumen de cada una y se abre solo la que interesa, sin scrollear todo.
@@ -120,13 +115,19 @@ export default function PanelHistorial() {
       const u = ubicaciones.get(normalizarOt(g.ot))
       const clave = u?.oc || SIN_OC
       if (!porOc.has(clave)) {
-        porOc.set(clave, { oc: clave, destino: u?.destino || '', ots: [], folios: 0, docenas: 0, kg: 0, pendientes: 0 })
+        porOc.set(clave, { oc: clave, destino: u?.destino || '', ots: [], folios: 0, docenas: 0, docenasMandadas: 0, kg: 0, pendientes: 0 })
       }
       const grupo = porOc.get(clave)
       if (!grupo.destino && u?.destino) grupo.destino = u.destino
       grupo.ots.push(g)
       grupo.folios += g.folios
       grupo.docenas += g.filas.reduce((a, f) => a + docenasDeCaptura(f), 0)
+      // MANDADO = lo que ya salio en una remision (tiene su PDF generado).
+      // Es lo que la fabrica llama "ya se mando", y es distinto de lo que se
+      // encarga a una maquila para ensamblar.
+      grupo.docenasMandadas += g.filas
+        .filter((f) => f.pdfGeneradoEn)
+        .reduce((a, f) => a + docenasDeCaptura(f), 0)
       grupo.kg += g.kg
       grupo.pendientes += g.filas.filter((f) => !f.pdfGeneradoEn).length
     })
@@ -138,50 +139,83 @@ export default function PanelHistorial() {
     })
   }, [gruposCapturas, ubicaciones])
 
-  // Calcula hecho/mandado por cada OC de la lista, en orden y cancelable: si
-  // el usuario cambia de periodo a media pasada, la pasada vieja se abandona
-  // en vez de pisar el estado con datos de otra lista.
+
+  /**
+   * LO PLANEADO POR ORDEN DE COMPRA, en UNA sola lectura.
+   *
+   * ⚠️ Antes esto armaba el arbol completo de CADA orden visible (una consulta
+   * de plan + los bultos + las tareas de todas las maquilas, por orden). Con
+   * el Historial mostrando TODAS las ordenes eso eran decenas de consultas
+   * cada vez que alguien abria la pestaña -- justo lo que Roberto senalo el
+   * 25-08: "si estamos pidiendo esto cada rato, se va a llenar rapidisimo".
+   *
+   * El resumen del plan vigente ya trae lo planeado de todas las ordenes en un
+   * solo documento, y lo producido y lo mandado salen de los bultos que esta
+   * pantalla YA tiene cargados. Cero consultas por orden.
+   */
+  const [planeadoPorOc, setPlaneadoPorOc] = useState(null)
   useEffect(() => {
-    const ocs = arbolCapturas.map((g) => g.oc).filter((oc) => oc !== SIN_OC)
-    if (!ocs.length) return undefined
     let vigente = true
-    // En lotes, no todas de golpe: ahora el Historial muestra el historico
-    // COMPLETO, asi que pueden ser decenas de ordenes y cada una dispara sus
-    // propias consultas. De 6 en 6 se aprovecha el paralelismo sin abrir
-    // cincuenta conexiones a la vez. Cada OC pinta lo suyo en cuanto lo tiene.
-    const LOTE = 6
-    const calcular = async (oc) => {
-        try {
-          const { arbol } = await arbolDeOcCacheado(oc, esPrueba)
-          if (!vigente) return
-          setAvancesPorOc((prev) => {
-            const nueva = new Map(prev)
-            // 'arbol' nulo = esta orden ya no esta en el plan vigente. Se
-            // guarda como tal para dejar de decir "calculando" para siempre.
-            nueva.set(oc, arbol
-              ? { hecho: arbol.total.porcentaje, mandado: arbol.totalEnvio?.porcentaje ?? null }
-              : { fueraDelPlan: true })
-            return nueva
-          })
-        } catch (err) {
-          // Sin plan maestro o sin red: se marca el fallo para que la fila
-          // deje de decir "calculando" y diga que no se pudo.
-          console.warn(`[Historial] Sin avance para la OC ${oc}:`, err?.message)
-          if (!vigente) return
-          setAvancesPorOc((prev) => new Map(prev).set(oc, { error: true }))
-        }
-    }
     ;(async () => {
-      for (let i = 0; i < ocs.length && vigente; i += LOTE) {
-        await Promise.all(ocs.slice(i, i + LOTE).map(calcular))
+      try {
+        const version = await versionActiva()
+        if (!version) { if (vigente) setPlaneadoPorOc(new Map()); return }
+        const resumen = await resumenDeOcs(version)
+        if (!vigente) return
+        setPlaneadoPorOc(new Map(resumen.map((o) => [o.oc, o.planeado])))
+      } catch (err) {
+        console.warn('[Historial] No se pudo leer el plan:', err?.message)
+        if (vigente) setPlaneadoPorOc(new Map())
       }
     })()
     return () => { vigente = false }
-    // La clave es la LISTA de OCs, no la referencia del arbol: cada tecla del
-    // buscador crea un arbol nuevo con las mismas OCs, y con la referencia
-    // como dependencia el loop se reiniciaba en cada tecleo.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arbolCapturas.map((g) => g.oc).join(','), esPrueba])
+  }, [])
+
+  /**
+   * hecho / mandado por orden, en porcentaje.
+   *
+   * hecho   = docenas capturadas contra lo que pide el plan.
+   * mandado = docenas que YA SALIERON en una remision (su folio tiene PDF).
+   *
+   * Los dos comparten denominador, asi que "mandado" nunca puede pasar a
+   * "hecho": no se puede embarcar lo que no se capturo.
+   */
+  const avancesPorOc = useMemo(() => {
+    const salida = new Map()
+    if (!planeadoPorOc) return salida
+    for (const g of arbolCapturas) {
+      if (g.oc === SIN_OC) continue
+      const meta = planeadoPorOc.get(g.oc)
+      if (typeof meta !== 'number' || meta <= 0) {
+        // Sin meta en el plan no hay porcentaje posible. Se distingue de un
+        // 0% real: uno dice "no se sabe", el otro "no se ha hecho nada".
+        salida.set(g.oc, { sinMeta: true })
+        continue
+      }
+      salida.set(g.oc, {
+        hecho: Math.min(100, (g.docenas / meta) * 100),
+        mandado: Math.min(100, (g.docenasMandadas / meta) * 100)
+      })
+    }
+    return salida
+  }, [arbolCapturas, planeadoPorOc])
+
+  /**
+   * Las ordenes ABIERTAS primero; las que ya se mandaron completas, al final.
+   *
+   * Lo pidio Roberto el 25-08: "orden de compra terminada o mandado al cien
+   * por ciento, dividelo". Lo que ocupa la atencion todos los dias es lo que
+   * falta por cerrar; una orden entregada al 100% ya solo se consulta.
+   *
+   * No se ESCONDE ninguna: se ordena y se marca. Esconderla haria que quien
+   * busca un folio viejo crea que se perdio.
+   */
+  const capturasOrdenadas = useMemo(() => {
+    const completa = (g) => (avancesPorOc.get(g.oc)?.mandado ?? 0) >= 100
+    const abiertas = arbolCapturas.filter((g) => !completa(g))
+    const cerradas = arbolCapturas.filter((g) => completa(g))
+    return { abiertas, cerradas, lista: [...abiertas, ...cerradas] }
+  }, [arbolCapturas, avancesPorOc])
 
   // Precalienta la libreria de Excel en cuanto la pantalla respira: pesa como
   // 1 MB y bajarla al momento del clic era parte del "tarda un buen".
@@ -485,7 +519,8 @@ export default function PanelHistorial() {
               {/* NIVEL 1: la orden de compra. Dentro van sus ordenes de trabajo,
                   y dentro de esas los folios. El dueno se queda en este
                   renglon; Lindbergh abre una OT; America llega al folio. */}
-              {arbolCapturas.map((grupoOc) => {
+              {/* Abiertas primero, completas al final (ver capturasOrdenadas). */}
+              {capturasOrdenadas.lista.map((grupoOc) => {
                 const ocAbierta = hayBusqueda || ocsAbiertas.has(grupoOc.oc)
                 const sinOc = grupoOc.oc === SIN_OC
                 return (
@@ -569,33 +604,47 @@ export default function PanelHistorial() {
                               </span>
                             )
                           }
-                          if (a.error) {
-                            return (
-                              <span
-                                style={{ ...base, fontWeight: 400, color: '#b45309' }}
-                                title="No se pudo calcular el avance de esta orden"
-                              >
-                                sin avance
-                              </span>
-                            )
-                          }
-                          if (a.fueraDelPlan) {
+                          if (a.sinMeta) {
                             return (
                               <span
                                 style={{ ...base, fontWeight: 400, color: '#94a3b8' }}
-                                title="Esta orden ya no tiene renglones en el plan maestro vigente"
+                                title="El plan maestro no trae cantidades para esta orden, asi que no hay contra que medir el avance"
                               >
-                                no esta en el plan
+                                sin meta en el plan
                               </span>
                             )
                           }
-                          const pinta = (v) => (v === null ? '—' : `${v.toFixed(0)}%`)
+                          const pinta = (v) => `${v.toFixed(0)}%`
+                          const completa = a.mandado >= 100
                           return (
                             <span style={base}>
-                              <span style={{ color: '#16a34a' }}>hecho {pinta(a.hecho)}</span>
-                              <span style={{ color: '#1e40af', marginLeft: 8 }}>
+                              <span style={{ color: '#16a34a' }} title={`${grupoOc.docenas} docenas capturadas`}>
+                                hecho {pinta(a.hecho)}
+                              </span>
+                              <span
+                                style={{ color: '#1e40af', marginLeft: 8 }}
+                                title={`${grupoOc.docenasMandadas} docenas ya salieron en una remision`}
+                              >
                                 mandado {pinta(a.mandado)}
                               </span>
+                              {/* Una orden mandada al 100% ya no pide atencion:
+                                  se marca para poder distinguirla de un golpe
+                                  de las que siguen abiertas. */}
+                              {completa && (
+                                <span
+                                  style={{
+                                    marginLeft: 8,
+                                    fontSize: 12,
+                                    background: '#dcfce7',
+                                    color: '#166534',
+                                    borderRadius: 999,
+                                    padding: '2px 8px'
+                                  }}
+                                  title="Todo lo que pide el plan ya salio en remision"
+                                >
+                                  completa
+                                </span>
+                              )}
                             </span>
                           )
                         })()}
