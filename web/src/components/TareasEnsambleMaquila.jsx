@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { collection, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { normalizarModelo } from '../utils/planMaestro'
 import VisorTechPack from './VisorTechPack'
 import {
   ESTADOS_TAREA_ENSAMBLE,
@@ -98,6 +99,7 @@ export default function TareasEnsambleMaquila() {
       collection(db, 'portalMaquila', maquilaId, 'preciosEnsamble'),
       (snap) => {
         const m = new Map()
+        // La llave del documento es el MODELO, ya en mayusculas.
         snap.docs.forEach((d) => m.set(d.id, Number(d.data().precioPorPack) || 0))
         setPrecios(m)
       },
@@ -125,9 +127,18 @@ export default function TareasEnsambleMaquila() {
         talla: r.talla || '',
         packs: cap.packs,
         docenas: cap.docenas,
-        // Si Cielo ya puso el precio de este codigo para esta maquila, va
-        // impreso y la remision suma sola. Si no, la columna sale en blanco.
-        precioUnitario: precios.get(r.codigo) || 0,
+        // EL AUTOCOBRO. Si Cielo ya puso el precio de este MODELO para esta
+        // maquila, va impreso y la remision suma sola: docenas x precio, sin
+        // que nadie teclee nada al terminar la tarea.
+        //
+        // ⚠️ Por MODELO, no por codigo: un modelo cubre todas sus tallas y
+        // colores, que se pagan igual (Cielo, 24-08). El modelo viene
+        // congelado en el renglon desde que Quini creo la tarea.
+        //
+        // Sin precio la columna sale EN BLANCO, nunca en cero: un cero
+        // impreso en la remision con la que la maquila cobra diria que ese
+        // renglon no se le paga.
+        precioUnitario: precios.get(normalizarModelo(r.modelo)) || 0,
         observaciones: cap.observaciones || '',
         caja: cap.caja || ''
       }

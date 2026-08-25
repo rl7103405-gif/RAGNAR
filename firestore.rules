@@ -1266,9 +1266,9 @@ service cloud.firestore {
 
     function precioEnsambleValido() {
       let d = request.resource.data;
-      return d.keys().hasAll(['codigo', 'maquilaId', 'precioPorPack', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
-        && d.keys().hasOnly(['codigo', 'maquilaId', 'precioPorPack', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'descripcion', 'modelo', 'notas', 'creadoEn', 'codigoBarras'])
-        && d.codigo is string && d.codigo.size() > 0 && d.codigo.size() <= 60
+      return d.keys().hasAll(['modelo', 'maquilaId', 'precioPorPack', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && d.keys().hasOnly(['modelo', 'maquilaId', 'precioPorPack', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'descripcion', 'notas', 'creadoEn', 'codigoBarras'])
+        && d.modelo is string && d.modelo.size() > 0 && d.modelo.size() <= 60
         // El precio es un NUMERO y tiene tope: un cero por error deja sin
         // pagar, y un tecleo de mas (1000 en vez de 10.00) infla la remision.
         && d.precioPorPack is number
@@ -1278,7 +1278,6 @@ service cloud.firestore {
         && d.actualizadoPorUid == request.auth.uid
         && d.actualizadoPorNombre == perfil().get('nombreCompleto', '')
         && (!('descripcion' in d) || (d.descripcion is string && d.descripcion.size() <= 200))
-        && (!('modelo' in d) || (d.modelo is string && d.modelo.size() <= 60))
         && (!('notas' in d) || (d.notas is string && d.notas.size() <= 200))
         // Con que codigo de barras se encontro este producto. Se guarda para
         // poder rastrear de donde salio el precio cuando el archivo de pagos
@@ -1906,7 +1905,7 @@ service cloud.firestore {
             ));
     }
 
-    // PRECIOS DE ENSAMBLE por maquila y codigo.
+    // PRECIOS DE ENSAMBLE por maquila y MODELO.
     //
     // Es lo que se le paga a cada maquila por armar un pack de ese codigo, y
     // es lo que va a imprimir su remision. Los pone Cielo.
@@ -1914,7 +1913,13 @@ service cloud.firestore {
     // La MAQUILA lee los SUYOS —y solo los suyos, porque la ruta la aisla—:
     // los necesita para su remision y es lo que va a cobrar. No puede
     // escribirlos: el precio lo pone quien paga, no quien cobra.
-    match /portalMaquila/{maquilaId}/preciosEnsamble/{codigo} {
+    // ⚠️ El ID del documento es el MODELO, no el codigo de producto.
+    // Cambiado el 2026-08-25: cada maquila cobra por MODELO, y un modelo
+    // agrupa varias tallas y colores que se pagan IGUAL (Cielo lo confirmo por
+    // correo el 24-08: "el precio si es el mismo para el modelo en diferentes
+    // tallas"). Con la llave por codigo, RBFW26T412 pedia capturar seis veces
+    // el mismo precio, y el sexto se iba a quedar sin poner.
+    match /portalMaquila/{maquilaId}/preciosEnsamble/{modelo} {
       allow read: if esInterno() || esMaquilaDe(maquilaId);
       // mismoMundoMaquila y NO soloCuentaReal: una cuenta de prueba SI debe
       // poder ponerle precios a la maquila ficticia (es su corral), y una
@@ -1924,7 +1929,7 @@ service cloud.firestore {
         && mismoMundoMaquila(maquilaId)
         && precioEnsambleValido()
         && request.resource.data.maquilaId == maquilaId
-        && request.resource.data.codigo == codigo;
+        && request.resource.data.modelo == modelo;
       // No se borran: un precio que existio explica una remision que ya se
       // pago. Para dejar de usarlo se pone el nuevo encima.
       allow delete: if false;

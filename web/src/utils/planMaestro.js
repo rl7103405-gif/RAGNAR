@@ -96,6 +96,7 @@ export {
   idDeLinea,
   idDePedido,
   normalizarCodigo,
+  normalizarModelo,
   normalizarOc,
   normalizarOt,
   normalizarPedido,

@@ -37,7 +37,7 @@ import {
   writeBatch
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import { destinoDeOt, normalizarCodigo, normalizarOt } from './planMaestro'
+import { destinoDeOt, normalizarCodigo, normalizarModelo, normalizarOt } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
 import { ordenarPorFechaDesc } from './solicitudesAvios'
 
@@ -178,7 +178,10 @@ export async function crearTareaEnsamble({
       return {
         ...r,
         descripcion: r.descripcion || String(c.descripcion || '').slice(0, 200),
-        ...(c.modelo ? { modelo: String(c.modelo).slice(0, 60) } : {}),
+        // Normalizado al congelarlo: es la llave con la que se le va a pagar
+        // a la maquila, y tiene que ser LA MISMA que guarda la pantalla de
+        // precios y que busca la remision.
+        ...(c.modelo ? { modelo: normalizarModelo(c.modelo).slice(0, 60) } : {}),
         ...(c.talla ? { talla: String(c.talla).slice(0, 60) } : {})
       }
     })

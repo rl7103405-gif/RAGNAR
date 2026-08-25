@@ -37,6 +37,24 @@ export function normalizarOc(valor) {
 }
 
 /** Codigo de producto normalizado (mismo criterio que el resto de la app). */
+/**
+ * El MODELO, normalizado. Es la llave con la que se paga a las maquilas.
+ *
+ * ⚠️ Colapsa los espacios internos ademas de recortar y subir a mayusculas.
+ * Los modelos reales traen espacios significativos ("SQT306 4-6",
+ * "WKD125Q401 T10-13") y un doble espacio o un espacio duro pegado desde
+ * Excel produciria OTRA llave: el precio quedaria guardado bajo una y la
+ * remision lo buscaria bajo la otra, saldria en blanco, y el total a pagar
+ * seria menor sin que nadie lo note. \s en JS ya incluye el NBSP.
+ *
+ * Vive aqui, en un solo lugar, porque la usan cuatro puntos distintos: quien
+ * congela el modelo en la tarea, quien guarda el precio, quien lo busca al
+ * armar la remision y quien lo compara en pantalla.
+ */
+export function normalizarModelo(valor) {
+  return String(valor ?? '').trim().toUpperCase().replace(/\s+/g, ' ')
+}
+
 export function normalizarCodigo(valor) {
   return String(valor ?? '').trim().toUpperCase().replace(/\s+/g, '')
 }
