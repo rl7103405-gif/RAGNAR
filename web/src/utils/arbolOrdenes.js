@@ -63,24 +63,27 @@ export function otDeBulto(bulto) {
  * haciendo falta el ruteo, que es lo que hace la otra via.
  */
 async function bultosPorOtGuardada(ots) {
-  const encontrados = []
   const lista = ots.filter(Boolean)
-  for (let i = 0; i < lista.length; i += MAX_IN) {
-    const lote = lista.slice(i, i + MAX_IN)
-    try {
-      const snap = await getDocs(
-        query(collection(db, 'bultos'), where('producto.ot', 'in', lote))
+  const lotes = []
+  for (let i = 0; i < lista.length; i += MAX_IN) lotes.push(lista.slice(i, i + MAX_IN))
+  try {
+    // Lotes en PARALELO: una orden con muchas OT encadenaba una espera por
+    // lote y era parte del "se tarda muchisimo".
+    const snaps = await Promise.all(
+      lotes.map((lote) =>
+        getDocs(query(collection(db, 'bultos'), where('producto.ot', 'in', lote)))
       )
-      snap.docs.forEach((d) => encontrados.push({ folio: d.id, ...d.data() }))
-    } catch (err) {
-      // Si Firestore pide un indice para esta consulta, no se tumba el arbol:
-      // se sigue con la via del ruteo y se avisa en consola con el enlace que
-      // trae el propio error para crearlo.
-      console.warn('[Arbol] No se pudo consultar por producto.ot (¿falta indice?):', err?.message)
-      return null
-    }
+    )
+    const encontrados = []
+    snaps.forEach((snap) => snap.docs.forEach((d) => encontrados.push({ folio: d.id, ...d.data() })))
+    return encontrados
+  } catch (err) {
+    // Si Firestore pide un indice para esta consulta, no se tumba el arbol:
+    // se sigue con la via del ruteo y se avisa en consola con el enlace que
+    // trae el propio error para crearlo.
+    console.warn('[Arbol] No se pudo consultar por producto.ot (¿falta indice?):', err?.message)
+    return null
   }
-  return encontrados
 }
 
 /**
@@ -170,14 +173,17 @@ async function foliosDeLasOts(ots) {
 /** Los bultos ya capturados de una lista de folios, en lotes de 30. */
 async function bultosDeFolios(folios) {
   const unicos = [...new Set(folios)]
-  const encontrados = []
-  for (let i = 0; i < unicos.length; i += MAX_IN) {
-    const lote = unicos.slice(i, i + MAX_IN)
-    const snap = await getDocs(
-      query(collection(db, 'bultos'), where(documentId(), 'in', lote), orderBy(documentId()))
+  const lotes = []
+  for (let i = 0; i < unicos.length; i += MAX_IN) lotes.push(unicos.slice(i, i + MAX_IN))
+  // En paralelo: la 2449 trae 429 folios (15 lotes) y en serie eran 15
+  // esperas encadenadas.
+  const snaps = await Promise.all(
+    lotes.map((lote) =>
+      getDocs(query(collection(db, 'bultos'), where(documentId(), 'in', lote), orderBy(documentId())))
     )
-    snap.docs.forEach((d) => encontrados.push({ folio: d.id, ...d.data() }))
-  }
+  )
+  const encontrados = []
+  snaps.forEach((snap) => snap.docs.forEach((d) => encontrados.push({ folio: d.id, ...d.data() })))
   return encontrados
 }
 
@@ -427,6 +433,30 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
   // Se unen por folio para no contar dos veces el mismo bulto.
   const porCampo = await bultosPorOtGuardada(ots)
   const folios = await foliosDeLasOts(ots)
+
+  // EL TEJIDO, segun el seguimiento de folios que sube America: un folio
+  // emitido es un bulto que tejido ya produjo, aunque todavia no pase por la
+  // bascula (Roberto, 25-08: "lo mas probable es que en el Excel que sube
+  // America te aparezca" -- y si). Se suman TODOS los folios del ruteo de
+  // estas OT, capturados o no. resolverVarios ya esta cacheado de la pasada
+  // de foliosDeLasOts, asi que esto no vuelve a consultar nada.
+  //
+  // ⚠️ El ruteo retiene 60 dias: en una orden mas vieja esta cifra
+  // SUBESTIMA, porque sus primeros folios ya se purgaron. Por eso el tejido
+  // nunca se muestra menor que lo capturado (lo pesado se tejio seguro).
+  const tejidoRuteo = new Map()
+  {
+    const resueltasTejido = await resolverVarios(folios.map((f) => f.pedido).filter(Boolean))
+    for (const f of folios) {
+      const r = resueltasTejido.get(normalizarPedido(f.pedido))
+      const ot = r?.ot ? normalizarOt(r.ot) : normalizarOt(otDelTexto(f.pedido) || '')
+      if (!ot) continue
+      const clave = `${ot}||${normalizarCodigo(f.codigo)}`
+      const doc = typeof f.docenas === 'number' ? f.docenas : (typeof f.total === 'number' ? f.total : 0)
+      tejidoRuteo.set(clave, (tejidoRuteo.get(clave) || 0) + doc)
+    }
+  }
+
   const porRuteo = await bultosDeFolios(folios.map((f) => f.folio))
   const porFolio = new Map()
   for (const b of porCampo || []) porFolio.set(b.folio, b)
@@ -498,6 +528,8 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
     porOt.get(l.ot).push({
       ...l,
       producido: producido.get(clave) || 0,
+      // Tejido segun el seguimiento de folios; el piso es lo capturado.
+      tejido: Math.max(tejidoRuteo.get(clave) || 0, producido.get(clave) || 0),
       // Docenas de esta linea que ya salieron en remision (folio con PDF).
       mandadoPdf: mandadoPdf.get(clave) || 0,
       // Lo enviado va con su unidad y NO entra en el porcentaje de avance:

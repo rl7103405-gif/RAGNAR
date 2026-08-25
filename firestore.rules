@@ -938,12 +938,13 @@ service cloud.firestore {
     //
     // El documento dice QUIEN y CUANDO, siempre: es una afirmacion de negocio,
     // no un dato calculado, y tiene que poder rastrearse. Reabrir = borrarlo.
-    // Solo direccion y embarques (admin, completo): los mismos que pueden
-    // embarcar. Consulta y produccion la VEN cerrada pero no la cierran.
+    // ⚠️ SOLO admin (Roberto, 25-08: "solo mi papa podria cerrar una OC
+    // manualmente"). Cerrar es una afirmacion de direccion; embarques,
+    // consulta y produccion la VEN cerrada pero no la cierran ni la reabren.
     match /ordenesCompraCerradas/{oc} {
       allow read: if esInterno();
       allow create: if esInterno()
-        && rol() in ['admin', 'completo']
+        && rol() == 'admin'
         && request.resource.data.keys().hasAll(['oc', 'cerradaPorUid', 'cerradaPorNombre', 'cerradaEn'])
         && request.resource.data.keys().hasOnly(['oc', 'cerradaPorUid', 'cerradaPorNombre', 'cerradaEn', 'esPrueba'])
         && request.resource.data.oc == oc
@@ -956,7 +957,7 @@ service cloud.firestore {
       // No se edita: se reabre (delete) y se vuelve a cerrar si hace falta,
       // para que el QUIEN/CUANDO siempre sea del ultimo cierre real.
       allow update: if false;
-      allow delete: if esInterno() && rol() in ['admin', 'completo']
+      allow delete: if esInterno() && rol() == 'admin'
         // Cada mundo reabre lo suyo: una cuenta de prueba no puede borrar el
         // cierre que hizo un usuario real, ni al reves.
         && (esCuentaDePrueba() == (resource.data.get('esPrueba', false) == true));

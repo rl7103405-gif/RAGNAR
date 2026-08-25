@@ -13,6 +13,11 @@ import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { claveDeCodigo, shardDeCodigo, NUM_SHARDS_CATALOGO } from './catalogoClaves'
 
+// Shards del catalogo ya bajados en esta sesion: `${versionId}||${shard}` ->
+// promesa del mapa de productos. La clave lleva la VERSION, asi que un
+// catalogo recargado nunca sirve shards del anterior.
+const cacheShards = new Map()
+
 /**
  * Devuelve un Map codigo -> { descripcion, modelo, talla, color }.
  *
@@ -44,22 +49,33 @@ export async function datosDeCodigos(codigos) {
       porShard.get(sh).push(c)
     })
 
-    for (const [sh, delShard] of porShard) {
-      const snap = await getDoc(doc(db, 'catalogoVersiones', versionId, 'shards', sh))
-      if (!snap.exists()) continue
-      const productos = snap.data().productos || {}
-      delShard.forEach((c) => {
-        const e = productos[claveDeCodigo(c)]
-        if (e) {
-          salida.set(c, {
-            descripcion: e.descripcion || '',
-            modelo: e.modelo || '',
-            talla: e.talla || '',
-            color: e.color || ''
-          })
+    // En PARALELO y con cache de sesion: cada shard pesa ~250 KB (38 mil
+    // codigos repartidos en 64) y bajarlos uno tras otro, otra vez en cada
+    // Excel, era parte del "se tarda muchisimo". La promesa se cachea para
+    // que dos consultas simultaneas del mismo shard compartan una descarga.
+    await Promise.all(
+      [...porShard.entries()].map(async ([sh, delShard]) => {
+        const claveCache = `${versionId}||${sh}`
+        if (!cacheShards.has(claveCache)) {
+          const promesa = getDoc(doc(db, 'catalogoVersiones', versionId, 'shards', sh))
+            .then((snap) => (snap.exists() ? snap.data().productos || {} : {}))
+          promesa.catch(() => cacheShards.delete(claveCache))
+          cacheShards.set(claveCache, promesa)
         }
+        const productos = await cacheShards.get(claveCache)
+        delShard.forEach((c) => {
+          const e = productos[claveDeCodigo(c)]
+          if (e) {
+            salida.set(c, {
+              descripcion: e.descripcion || '',
+              modelo: e.modelo || '',
+              talla: e.talla || '',
+              color: e.color || ''
+            })
+          }
+        })
       })
-    }
+    )
   } catch (err) {
     console.warn('[Catalogo] No se pudieron leer los datos de los codigos:', err?.message)
   }

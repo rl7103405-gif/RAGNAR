@@ -147,8 +147,16 @@ export async function resolverOt(pedido) {
 export async function resolverVarios(pedidos) {
   const claves = [...new Set(pedidos.map(normalizarPedido).filter(Boolean))]
   const salida = new Map()
-  // En serie a proposito: son decenas, y en paralelo un plan grande podria
-  // abrir cien conexiones a la vez desde una PC de planta.
-  for (const clave of claves) salida.set(clave, await resolverOt(clave))
+  // En LOTES de 12: uno por uno era un viaje a Firestore por pedido y con
+  // cientos de pedidos del ruteo (60 dias de retencion) eso eran segundos de
+  // pura espera encadenada -- "el excel se tarda muchisimo" (Roberto, 25-08).
+  // Doce a la vez aprovecha la red sin abrir cien conexiones desde una PC de
+  // planta; la cache por pedido hace que solo la primera pasada cueste.
+  const LOTE = 12
+  for (let i = 0; i < claves.length; i += LOTE) {
+    const lote = claves.slice(i, i + LOTE)
+    const resueltos = await Promise.all(lote.map((clave) => resolverOt(clave)))
+    lote.forEach((clave, j) => salida.set(clave, resueltos[j]))
+  }
   return salida
 }

@@ -31,9 +31,9 @@ import { datosDeCodigos } from './datosDelCatalogo'
 //    REMISION (PDF generado): el mismo "mandado" del Historial.
 const COLUMNAS_CONCENTRADO = [
   'NoPedido', 'Código', 'NumPedido', 'MAQUILA', 'ARTICULO', 'No.', 'COLOR2', 'TALLA2',
-  'FALTA', 'SOLICITA', 'CAPTURADO (BASCULA)', 'SOBRAN', '% capturado',
-  'DOC. A ENVIAR 1ER PARCIL', 'DOC. ENVIADAS', 'DOC. X ENVIO', 'STATUS',
-  '% enviado a maquila'
+  'FALTA', 'SOLICITA', 'TEJIDO (SEGUIMIENTO)', '% tejido', 'CAPTURADO (BASCULA)',
+  '% capturado', 'SOBRAN', 'DOC. A ENVIAR 1ER PARCIL', 'DOC. ENVIADAS',
+  'DOC. X ENVIO', 'STATUS', '% enviado a maquila'
 ]
 
 /**
@@ -124,8 +124,11 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
   portada.addRow(['SOLICITA sale del plan maestro que sube Adrian. Si una orden no trae cantidades,'])
   portada.addRow(['esa columna va vacia y las que dependen de ella tambien.'])
   portada.addRow([])
-  portada.addRow(['CAPTURADO (BASCULA): RAGNAR no recibe el dato de TEJIDO de nadie; lo que sabe es'])
-  portada.addRow(['lo que ya paso por la bascula. Es un PISO de lo tejido, no el total.'])
+  portada.addRow(['TEJIDO (SEGUIMIENTO): docenas de TODOS los folios del seguimiento que sube'])
+  portada.addRow(['America, esten pesados o no. OJO: el seguimiento retiene 60 dias, asi que en una'])
+  portada.addRow(['orden vieja esta cifra puede quedarse corta (nunca menor que lo capturado).'])
+  portada.addRow(['CAPTURADO (BASCULA): lo que ya paso por la bascula. FALTA y SOBRAN se calculan'])
+  portada.addRow(['contra el TEJIDO, como el papel de Cielo.'])
   portada.addRow(['DOC. ENVIADAS: docenas de folios que ya salieron en una remision (PDF generado).'])
   portada.getColumn(1).width = 34
   portada.getColumn(2).width = 78
@@ -159,13 +162,17 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
           modelo,
           color,
           talla,
-          solicita !== null ? Math.max(0, solicita - (l.producido || 0)) : null, // FALTA (por tejer)
+          // FALTA por tejer: contra el TEJIDO del seguimiento, como el papel
+          // de Cielo, no contra lo capturado.
+          solicita !== null ? num(Math.max(0, solicita - (l.tejido || 0))) : null,
           solicita,
+          // TEJIDO segun el seguimiento de folios de America: cada folio
+          // emitido es un bulto que tejido ya produjo, este o no pesado.
+          num(l.tejido || 0),
+          fraccion(l.tejido, solicita),
           tejido,
-          solicita !== null ? num(Math.max(0, (l.producido || 0) - solicita)) : null, // SOBRAN
-          // % capturado contra lo que pide el plan (columna que el papa de
-          // Roberto pidio como porcentaje el 25-08).
           fraccion(l.producido, solicita),
+          solicita !== null ? num(Math.max(0, (l.tejido || 0) - solicita)) : null, // SOBRAN
           null, // DOC. A ENVIAR 1ER PARCIL: lo decide una persona
           // Docenas que YA SALIERON EN REMISION (folio con PDF). El 0 aqui SI
           // es un dato: hay capturas y ninguna se ha mandado.

@@ -26,7 +26,7 @@ import CorregirPdfModal from './CorregirPdfModal'
 export default function PanelHistorial() {
   // Corregir una remision es operacion de embarque: un rol de consulta
   // (Cielo) no debe ver el boton, porque las reglas se lo niegan.
-  const { puedeEmbarcar, nivelDeVista, esPrueba, authUser, perfil } = useAuth()
+  const { puedeEmbarcar, esAdmin, nivelDeVista, esPrueba, authUser, perfil } = useAuth()
   // El Historial ya NO se divide por dia/semana/mes/año (Roberto y su papa,
   // 25-08): una orden de compra vive semanas, y partirla obligaba a brincar
   // entre periodos para verla completa. Los INDICADORES conservan el suyo.
@@ -519,10 +519,10 @@ export default function PanelHistorial() {
                           </button>
                         )}
                         {/* CERRAR A MANO (Roberto, 25-08): una orden que ya
-                            quedo aunque no llegue al 100% contra el plan --
-                            al arrancar la app hubo capturas que no entraron.
-                            Solo direccion y embarques; reversible. */}
-                        {!sinOc && puedeEmbarcar && (() => {
+                            quedo aunque no llegue al 100% contra el plan.
+                            SOLO admin -- "solo mi papa podria cerrar una OC
+                            manualmente" --; reversible. */}
+                        {!sinOc && esAdmin && (() => {
                           const cierre = cerradasManual.get(grupoOc.oc)
                           if (cierre) {
                             return (
