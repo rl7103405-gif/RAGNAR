@@ -457,6 +457,11 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
   // Producido por (OT, codigo). Se cuenta en DOCENAS, que es la unidad con la
   // que ya se miden las tareas en la app.
   const producido = new Map()
+  // Lo ya MANDADO de cada (OT, codigo): docenas de folios que ya salieron en
+  // una remision (tienen su PDF). Es el "DOC. ENVIADAS" del papel de Cielo --
+  // el Excel lo usaba con otra base (tareas de ensamble) y salia en ceros
+  // teniendo folios mandados; Roberto lo cazo el 25-08 viendo el archivo.
+  const mandadoPdf = new Map()
   const bultosPorOt = new Map()
   for (const b of bultos) {
     // Si el bulto no trae 'producto.ot', se usa la OT ya resuelta plan-primero
@@ -474,6 +479,9 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
     const codigo = normalizarCodigo(b.producto?.codigo)
     const clave = `${ot}||${codigo}`
     producido.set(clave, (producido.get(clave) || 0) + docenasDeCaptura(b))
+    if (b.pdfGeneradoEn) {
+      mandadoPdf.set(clave, (mandadoPdf.get(clave) || 0) + docenasDeCaptura(b))
+    }
     if (!bultosPorOt.has(ot)) bultosPorOt.set(ot, [])
     bultosPorOt.get(ot).push(b)
   }
@@ -490,6 +498,8 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
     porOt.get(l.ot).push({
       ...l,
       producido: producido.get(clave) || 0,
+      // Docenas de esta linea que ya salieron en remision (folio con PDF).
+      mandadoPdf: mandadoPdf.get(clave) || 0,
       // Lo enviado va con su unidad y NO entra en el porcentaje de avance:
       // ese porcentaje compara docenas con docenas.
       // Una entrada por unidad: [{ unidad, cantidad, maquilas }]. Vacio si

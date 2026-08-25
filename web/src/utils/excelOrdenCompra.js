@@ -16,14 +16,24 @@
 // cero: un cero dice "no hay", y aqui la verdad es "no lo se". Van explicadas
 // en la hoja de portada para que nadie las lea como un dato de la app.
 import { cargarWorkbook } from './excelJs.js'
-import { esEnDocenas } from './arbolOrdenes'
 import { datosDeCodigos } from './datosDelCatalogo'
 
 /** Las columnas del CONCENTRADO de Cielo, en su orden y con su ortografia. */
+// ⚠️ Dos encabezados difieren A PROPOSITO del papel de Cielo (Roberto,
+// 25-08: "de donde estamos sacando el numero no es correcto como tal"):
+//
+//  - Su "TEJIDS" es la produccion de TEJIDO, y ese dato RAGNAR no lo recibe
+//    de nadie (el seguimiento de folios de America tampoco dice que ya se
+//    tejio). Lo que RAGNAR si sabe es lo CAPTURADO EN BASCULA -- un piso de
+//    lo tejido: todo lo pesado tuvo que tejerse antes. La columna se llama
+//    por lo que ES, para que nadie lea el piso como el total.
+//  - "DOC. ENVIADAS" aqui son docenas de folios que ya salieron en una
+//    REMISION (PDF generado): el mismo "mandado" del Historial.
 const COLUMNAS_CONCENTRADO = [
   'NoPedido', 'Código', 'NumPedido', 'MAQUILA', 'ARTICULO', 'No.', 'COLOR2', 'TALLA2',
-  'FALTA', 'SOLICITA', 'TEJIDS', 'SOBRAN', '% tejido', 'DOC. A ENVIAR 1ER PARCIL',
-  'DOC. ENVIADAS', 'DOC. X ENVIO', 'STATUS', '% enviado a maquila', 'AVISO RAGNAR'
+  'FALTA', 'SOLICITA', 'CAPTURADO (BASCULA)', 'SOBRAN', '% capturado',
+  'DOC. A ENVIAR 1ER PARCIL', 'DOC. ENVIADAS', 'DOC. X ENVIO', 'STATUS',
+  '% enviado a maquila'
 ]
 
 /**
@@ -52,26 +62,6 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? Number(v.toFix
 const fecha = (t) => {
   const d = t?.toDate ? t.toDate() : t instanceof Date ? t : null
   return d ? d.toLocaleDateString('es-MX') : ''
-}
-
-/**
- * Lo que ya salio a maquila de un renglon, en DOCENAS.
- *
- * Solo cuenta lo encargado en docenas, por lo mismo que el arbol: un pack no
- * se convierte a docenas sin saber cuantos pares trae, y esta columna se llama
- * "DOC. ENVIADAS". Meter packs aqui seria escribir packs en una casilla que
- * dice docenas.
- */
-function docenasEnviadas(linea) {
-  return (linea.enviado || [])
-    .filter((e) => esEnDocenas(e.unidad))
-    .reduce((a, e) => a + e.cantidad, 0)
-}
-
-/** Si algo del renglon salio en otra unidad, se dice cual y cuanto. */
-function enviadoSinMedir(linea) {
-  const otras = (linea.enviado || []).filter((e) => !esEnDocenas(e.unidad))
-  return otras.length ? otras.map((e) => `${e.cantidad} ${e.unidad}`).join(' + ') : ''
 }
 
 /**
@@ -127,12 +117,16 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
     ['STATUS', 'Lo teclea Cielo a mano ("OK MAQUILA"). No hay campo equivalente.'],
     ['MAQUILA (en CONCENTRADO)', 'Sale de la tarea de ensamble cuando el codigo ya se encargo; si no, va vacia.'],
     ['REMISION y MAQUILERO (en ENVIOS)', 'Se llenan cuando el folio ya salio en una remision.'],
-    ['SOBRAN', 'Se calcula como lo tejido menos lo que pide el plan, solo si el plan trae cantidad.'],
+    ['SOBRAN', 'Lo capturado de mas contra lo que pide el plan, solo si el plan trae cantidad.'],
     ['DOCENAS (en ENVIOS)', 'Si el folio se capturo sin docenas, la celda va vacia. Vacia NO es cero.']
   ].forEach((f) => portada.addRow(f))
   portada.addRow([])
   portada.addRow(['SOLICITA sale del plan maestro que sube Adrian. Si una orden no trae cantidades,'])
   portada.addRow(['esa columna va vacia y las que dependen de ella tambien.'])
+  portada.addRow([])
+  portada.addRow(['CAPTURADO (BASCULA): RAGNAR no recibe el dato de TEJIDO de nadie; lo que sabe es'])
+  portada.addRow(['lo que ya paso por la bascula. Es un PISO de lo tejido, no el total.'])
+  portada.addRow(['DOC. ENVIADAS: docenas de folios que ya salieron en una remision (PDF generado).'])
   portada.getColumn(1).width = 34
   portada.getColumn(2).width = 78
 
@@ -153,7 +147,6 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
         const articulo = l.descripcion || cat.descripcion || ''
         const solicita = typeof l.cantidadPlaneada === 'number' ? l.cantidadPlaneada : null
         const tejido = num(l.producido || 0)
-        const enviadas = num(docenasEnviadas(l))
         const fila = [
           // NoPedido: Cielo lo arma como OT_MODELO_TALLA_ARTICULO. Se replica
           // con lo que hay, saltando lo que falte en vez de dejar guiones
@@ -170,26 +163,19 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
           solicita,
           tejido,
           solicita !== null ? num(Math.max(0, (l.producido || 0) - solicita)) : null, // SOBRAN
-          // % tejido: lo que se lleva capturado contra lo que pide el plan.
-          // Lo pidio el papa de Roberto el 25-08, escribiendo el encabezado a
-          // mano en el archivo que bajo de la app.
+          // % capturado contra lo que pide el plan (columna que el papa de
+          // Roberto pidio como porcentaje el 25-08).
           fraccion(l.producido, solicita),
           null, // DOC. A ENVIAR 1ER PARCIL: lo decide una persona
-          // 0 aqui SI es un dato: se sabe que no se ha mandado nada en
-          // docenas. Lo que va vacio es cuando lo unico enviado fue en packs
-          // (no se puede medir), y eso ya lo dice AVISO RAGNAR.
-          enviadoSinMedir(l) && !enviadas ? null : enviadas ?? 0,
-          solicita !== null ? num(Math.max(0, solicita - (enviadas || 0))) : null, // DOC. X ENVIO
+          // Docenas que YA SALIERON EN REMISION (folio con PDF). El 0 aqui SI
+          // es un dato: hay capturas y ninguna se ha mandado.
+          num(l.mandadoPdf || 0),
+          solicita !== null ? num(Math.max(0, solicita - (l.mandadoPdf || 0))) : null, // DOC. X ENVIO
           // STATUS se queda VACIA siempre: es la que teclea Cielo a mano y la
           // portada lo promete. Escribir aqui un aviso de la app haria que ese
           // texto se leyera como si fuera su status.
           '',
-          // % enviado a maquila. Solo cuenta lo encargado en DOCENAS, igual
-          // que la columna DOC. ENVIADAS de la que sale: un renglon pedido en
-          // packs no se puede medir contra las docenas del plan, y va en null
-          // (no en 0) para no decir que no se ha mandado nada.
-          enviadoSinMedir(l) && !enviadas ? null : fraccion(enviadas, solicita),
-          enviadoSinMedir(l) ? `enviado ${enviadoSinMedir(l)} (no se puede pasar a docenas)` : ''
+          fraccion(l.mandadoPdf, solicita)
         ]
         conc.addRow(varias ? [orden.oc, ...fila] : fila)
       }
