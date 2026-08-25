@@ -5,6 +5,8 @@
 //    y el contenido congelado -- "Reimprimir original" reproduce exactamente
 //    el papel emitido aunque las capturas hayan cambiado despues.
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
+import { db } from '../firebase/config'
 import { useDatosPeriodo } from '../hooks/useDatosPeriodo'
 import { compararAscendente, coincide } from '../utils/texto'
 import { reimprimirRegistro, ErrorReimpresion, docenasDeCaptura } from '../utils/reimprimir'
@@ -23,7 +25,7 @@ import CorregirPdfModal from './CorregirPdfModal'
 export default function PanelHistorial() {
   // Corregir una remision es operacion de embarque: un rol de consulta
   // (Cielo) no debe ver el boton, porque las reglas se lo niegan.
-  const { puedeEmbarcar, nivelDeVista, esPrueba } = useAuth()
+  const { puedeEmbarcar, nivelDeVista, esPrueba, authUser, perfil } = useAuth()
   // El Historial ya NO se divide por dia/semana/mes/año (Roberto y su papa,
   // 25-08): una orden de compra vive semanas, y partirla obligaba a brincar
   // entre periodos para verla completa. Los INDICADORES conservan el suyo.
@@ -44,6 +46,54 @@ export default function PanelHistorial() {
   // Las ordenes ya terminadas arrancan CERRADAS: son las que ya no piden
   // atencion. Se abren con un clic cuando alguien quiere consultarlas.
   const [terminadasAbiertas, setTerminadasAbiertas] = useState(false)
+  // Ordenes CERRADAS A MANO (Roberto, 25-08): las que en la practica ya
+  // quedaron aunque no lleguen al 100% contra el plan, porque al arrancar la
+  // app hubo capturas que no se registraron. Map oc -> {quien, cuando}.
+  const [cerradasManual, setCerradasManual] = useState(new Map())
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'ordenesCompraCerradas'),
+      (snap) => {
+        const m = new Map()
+        snap.docs.forEach((d) => {
+          const x = d.data()
+          // Cada mundo ve sus cierres: un cierre de prueba no manda a
+          // terminadas una orden del mundo real, ni al reves.
+          if ((x.esPrueba === true) === !!esPrueba) m.set(d.id, x)
+        })
+        setCerradasManual(m)
+      },
+      (err) => console.warn('[Historial] No se pudieron leer los cierres:', err?.message)
+    )
+    return unsub
+  }, [esPrueba])
+
+  const cerrarOrden = async (oc) => {
+    // confirm nativo: cerrar una orden es afirmar "lo que falte no va a
+    // llegar", y un clic accidental la desapareceria de la vista de trabajo.
+    if (!window.confirm(`¿Cerrar la orden ${oc}? Se ira a "terminadas". Puedes reabrirla cuando quieras.`)) return
+    try {
+      await setDoc(doc(db, 'ordenesCompraCerradas', String(oc)), {
+        oc: String(oc),
+        cerradaPorUid: authUser.uid,
+        cerradaPorNombre: perfil?.nombreCompleto || '',
+        cerradaEn: serverTimestamp(),
+        ...(esPrueba ? { esPrueba: true } : {})
+      })
+      setAviso(`Orden ${oc} cerrada. Esta en "Ordenes de compra terminadas"; ahi la puedes reabrir.`)
+    } catch (err) {
+      setErrorLocal('No se pudo cerrar la orden: ' + (err.message || err))
+    }
+  }
+
+  const reabrirOrden = async (oc) => {
+    try {
+      await deleteDoc(doc(db, 'ordenesCompraCerradas', String(oc)))
+      setAviso(`Orden ${oc} reabierta: vuelve a "sin terminar".`)
+    } catch (err) {
+      setErrorLocal('No se pudo reabrir: ' + (err.message || err))
+    }
+  }
   const [bajando, setBajando] = useState('')
   const [busquedaPdf, setBusquedaPdf] = useState({ maquila: '', folio: '', genero: '', numero: '' })
   // Con cientos de folios por periodo, las OT arrancan CERRADAS: se ve el
@@ -215,7 +265,8 @@ export default function PanelHistorial() {
    * busca un folio viejo crea que se perdio.
    */
   const capturasOrdenadas = useMemo(() => {
-    const completa = (g) => (avancesPorOc.get(g.oc)?.mandado ?? 0) >= 100
+    const completa = (g) =>
+      (avancesPorOc.get(g.oc)?.mandado ?? 0) >= 100 || cerradasManual.has(g.oc)
     const abiertas = arbolCapturas.filter((g) => !completa(g))
     const cerradas = arbolCapturas.filter((g) => completa(g))
     // El avance de UN GRUPO de ordenes: se suman docenas contra docenas, no se
@@ -254,7 +305,7 @@ export default function PanelHistorial() {
       totalAbiertas: totalDe(abiertas),
       totalCerradas: totalDe(cerradas)
     }
-  }, [arbolCapturas, avancesPorOc, planeadoPorOc])
+  }, [arbolCapturas, avancesPorOc, planeadoPorOc, cerradasManual])
 
   // Precalienta la libreria de Excel en cuanto la pantalla respira: pesa como
   // 1 MB y bajarla al momento del clic era parte del "tarda un buen".
@@ -597,13 +648,15 @@ export default function PanelHistorial() {
                           </span>
                         </span>
                         <span className="texto-suave" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
-                          todo lo que pide el plan ya salio en remision
+                          mandadas al 100%, o cerradas a mano
                         </span>
                       </td>
                     </tr>
                   )
                 }
-                const esTerminada = (avancesPorOc.get(grupoOc.oc)?.mandado ?? 0) >= 100
+                const esTerminada =
+                  (avancesPorOc.get(grupoOc.oc)?.mandado ?? 0) >= 100 ||
+                  cerradasManual.has(grupoOc.oc)
                 // Una terminada solo se pinta si su seccion esta abierta. La
                 // busqueda manda sobre eso: si alguien busca un folio viejo,
                 // tiene que aparecer aunque su orden ya este cerrada.
@@ -672,6 +725,67 @@ export default function PanelHistorial() {
                             {bajando === grupoOc.oc ? 'Armando...' : 'Excel'}
                           </button>
                         )}
+                        {/* CERRAR A MANO (Roberto, 25-08): una orden que ya
+                            quedo aunque no llegue al 100% contra el plan --
+                            al arrancar la app hubo capturas que no entraron.
+                            Solo direccion y embarques; reversible. */}
+                        {!sinOc && puedeEmbarcar && (() => {
+                          const cierre = cerradasManual.get(grupoOc.oc)
+                          if (cierre) {
+                            return (
+                              <>
+                                <span
+                                  style={{
+                                    marginLeft: 8,
+                                    fontSize: 12,
+                                    background: '#fef9c3',
+                                    color: '#854d0e',
+                                    borderRadius: 999,
+                                    padding: '2px 8px'
+                                  }}
+                                  title={`La cerro ${cierre.cerradaPorNombre || 'alguien'} a mano: el avance no llego al 100% pero se dio por terminada`}
+                                >
+                                  cerrada a mano
+                                </span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); reabrirOrden(grupoOc.oc) }}
+                                  style={{
+                                    marginLeft: 6,
+                                    fontSize: 12,
+                                    padding: '3px 10px',
+                                    borderRadius: 6,
+                                    border: '1px solid #94a3b8',
+                                    background: '#fff',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Reabrir
+                                </button>
+                              </>
+                            )
+                          }
+                          // Solo tiene sentido ofrecer el cierre en una orden
+                          // que NO llego sola al 100%: esa ya esta terminada.
+                          if ((avancesPorOc.get(grupoOc.oc)?.mandado ?? 0) >= 100) return null
+                          return (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); cerrarOrden(grupoOc.oc) }}
+                              title="Dar por terminada esta orden aunque no llegue al 100%: se va a la seccion de terminadas. Se puede reabrir."
+                              style={{
+                                marginLeft: 8,
+                                fontSize: 12,
+                                padding: '3px 10px',
+                                borderRadius: 6,
+                                border: '1px solid #16a34a',
+                                color: '#166534',
+                                background: '#fff',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Cerrar orden
+                            </button>
+                          )
+                        })()}
                         {/* hecho = produccion capturada de la ORDEN COMPLETA
                             (no solo el periodo en pantalla); mandado = lo
                             encargado a maquila en docenas. Mismos numeros que

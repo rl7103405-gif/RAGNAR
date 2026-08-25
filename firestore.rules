@@ -929,6 +929,39 @@ service cloud.firestore {
     //
     // Lo lee CUALQUIER interno porque la captura corre en la estacion de
     // pesaje; escribirlo sigue siendo solo de produccion y admin.
+    // ORDENES DE COMPRA CERRADAS A MANO. Lo pidio Roberto el 25-08: hay
+    // ordenes que en la practica ya quedaron pero no llegan al 100% contra el
+    // plan, porque al arrancar la app hubo capturas que no se registraron
+    // (la 4504364960: el plan pide 357 docenas y solo 329 pasaron por RAGNAR).
+    // Cerrarla a mano es AFIRMAR "esta orden ya quedo, lo que falte no va a
+    // llegar": la manda a la seccion de terminadas del Historial.
+    //
+    // El documento dice QUIEN y CUANDO, siempre: es una afirmacion de negocio,
+    // no un dato calculado, y tiene que poder rastrearse. Reabrir = borrarlo.
+    // Solo direccion y embarques (admin, completo): los mismos que pueden
+    // embarcar. Consulta y produccion la VEN cerrada pero no la cierran.
+    match /ordenesCompraCerradas/{oc} {
+      allow read: if esInterno();
+      allow create: if esInterno()
+        && rol() in ['admin', 'completo']
+        && request.resource.data.keys().hasAll(['oc', 'cerradaPorUid', 'cerradaPorNombre', 'cerradaEn'])
+        && request.resource.data.keys().hasOnly(['oc', 'cerradaPorUid', 'cerradaPorNombre', 'cerradaEn', 'esPrueba'])
+        && request.resource.data.oc == oc
+        && request.resource.data.oc.size() > 0
+        && request.resource.data.oc.size() <= 40
+        && request.resource.data.cerradaPorUid == request.auth.uid
+        && request.resource.data.cerradaPorNombre == perfil().get('nombreCompleto', '')
+        && request.resource.data.cerradaEn == request.time
+        && marcaDePruebaCoherente(request.resource.data);
+      // No se edita: se reabre (delete) y se vuelve a cerrar si hace falta,
+      // para que el QUIEN/CUANDO siempre sea del ultimo cierre real.
+      allow update: if false;
+      allow delete: if esInterno() && rol() in ['admin', 'completo']
+        // Cada mundo reabre lo suyo: una cuenta de prueba no puede borrar el
+        // cierre que hizo un usuario real, ni al reves.
+        && (esCuentaDePrueba() == (resource.data.get('esPrueba', false) == true));
+    }
+
     match /planMaestroPedidos/{pedidoId} {
       allow read: if esInterno();
       allow create: if puedeSubirPlanMaestro()
