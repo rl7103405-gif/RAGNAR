@@ -146,13 +146,21 @@ export function olvidarCacheDeRuteo() {
 async function foliosDeLasOts(ots) {
   const buscadas = new Set(ots.filter(Boolean))
   if (!buscadas.size) return []
+  // Se cachea la PROMESA, no el arreglo: varias OC pidiendo su avance a la vez
+  // compartian el cache solo DESPUES de que la primera terminara. Antes de eso
+  // cada una veia 'cacheRuteo' en null y arrancaba su propia descarga de la
+  // coleccion entera (~5,000 folios, ~2 MB). Con la promesa cacheada, la
+  // primera descarga la esperan todas.
   if (!cacheRuteo) {
-    const snap = await getDocs(collection(db, 'foliosRuteo'))
-    cacheRuteo = snap.docs.map((d) => ({ folio: d.id, ...d.data() }))
+    cacheRuteo = getDocs(collection(db, 'foliosRuteo'))
+      .then((snap) => snap.docs.map((d) => ({ folio: d.id, ...d.data() })))
+    // Un fallo no deja el cache envenenado con una promesa rota para siempre.
+    cacheRuteo.catch(() => { cacheRuteo = null })
   }
+  const ruteo = await cacheRuteo
   // Se resuelven de golpe los pedidos DISTINTOS (decenas), no folio por folio.
-  const resueltas = await resolverVarios(cacheRuteo.map((f) => f.pedido).filter(Boolean))
-  return cacheRuteo.filter((f) => {
+  const resueltas = await resolverVarios(ruteo.map((f) => f.pedido).filter(Boolean))
+  return ruteo.filter((f) => {
     const resuelta = resueltas.get(normalizarPedido(f.pedido))
     const ot = resuelta?.ot || otDelTexto(f.pedido)
     return ot && buscadas.has(normalizarOt(ot))

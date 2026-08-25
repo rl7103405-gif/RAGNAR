@@ -143,28 +143,32 @@ export default function PanelHistorial() {
     const ocs = arbolCapturas.map((g) => g.oc).filter((oc) => oc !== SIN_OC)
     if (!ocs.length) return undefined
     let vigente = true
-    ;(async () => {
-      for (const oc of ocs) {
+    // Todas a la vez, no una por una: la descarga pesada (el ruteo) ya la
+    // comparten entre si, asi que en serie solo se sumaban esperas. Cada OC
+    // pinta su porcentaje en cuanto lo tiene, sin esperar a las demas.
+    Promise.all(
+      ocs.map(async (oc) => {
         try {
           const { arbol } = await arbolDeOcCacheado(oc, esPrueba)
           if (!vigente) return
-          if (!arbol) continue
           setAvancesPorOc((prev) => {
             const nueva = new Map(prev)
-            nueva.set(oc, {
-              hecho: arbol.total.porcentaje,
-              mandado: arbol.totalEnvio?.porcentaje ?? null
-            })
+            // 'arbol' nulo = esta orden ya no esta en el plan vigente. Se
+            // guarda como tal para dejar de decir "calculando" para siempre.
+            nueva.set(oc, arbol
+              ? { hecho: arbol.total.porcentaje, mandado: arbol.totalEnvio?.porcentaje ?? null }
+              : { fueraDelPlan: true })
             return nueva
           })
         } catch (err) {
-          // Sin plan maestro (o sin red) no hay porcentaje que pintar; la
-          // fila simplemente no lo muestra. No es un error de la lista.
+          // Sin plan maestro o sin red: se marca el fallo para que la fila
+          // deje de decir "calculando" y diga que no se pudo.
           console.warn(`[Historial] Sin avance para la OC ${oc}:`, err?.message)
           if (!vigente) return
+          setAvancesPorOc((prev) => new Map(prev).set(oc, { error: true }))
         }
-      }
-    })()
+      })
+    )
     return () => { vigente = false }
     // La clave es la LISTA de OCs, no la referencia del arbol: cada tecla del
     // buscador crea un arbol nuevo con las mismas OCs, y con la referencia
@@ -547,22 +551,50 @@ export default function PanelHistorial() {
                             encargado a maquila en docenas. Mismos numeros que
                             la pestaña Ordenes, mismo arbol. Aparecen cuando
                             terminan de calcularse. */}
-                        {avancesPorOc.has(grupoOc.oc) && (
-                          <span style={{ fontWeight: 600, marginLeft: 10, fontSize: 13 }}>
-                            <span style={{ color: '#16a34a' }}>
-                              hecho{' '}
-                              {avancesPorOc.get(grupoOc.oc).hecho === null
-                                ? '—'
-                                : `${avancesPorOc.get(grupoOc.oc).hecho.toFixed(0)}%`}
+                        {/* El espacio esta SIEMPRE (Roberto, 25-08): mientras
+                            se calcula dice "calculando...", no desaparece. Un
+                            dato que aparece de la nada hace dudar de si va a
+                            llegar o si la fila no lo tiene. */}
+                        {!sinOc && (() => {
+                          const a = avancesPorOc.get(grupoOc.oc)
+                          const base = { fontWeight: 600, marginLeft: 10, fontSize: 13 }
+                          if (!a) {
+                            return (
+                              <span style={{ ...base, fontWeight: 400, color: '#94a3b8' }}>
+                                calculando avance...
+                              </span>
+                            )
+                          }
+                          if (a.error) {
+                            return (
+                              <span
+                                style={{ ...base, fontWeight: 400, color: '#b45309' }}
+                                title="No se pudo calcular el avance de esta orden"
+                              >
+                                sin avance
+                              </span>
+                            )
+                          }
+                          if (a.fueraDelPlan) {
+                            return (
+                              <span
+                                style={{ ...base, fontWeight: 400, color: '#94a3b8' }}
+                                title="Esta orden ya no tiene renglones en el plan maestro vigente"
+                              >
+                                no esta en el plan
+                              </span>
+                            )
+                          }
+                          const pinta = (v) => (v === null ? '—' : `${v.toFixed(0)}%`)
+                          return (
+                            <span style={base}>
+                              <span style={{ color: '#16a34a' }}>hecho {pinta(a.hecho)}</span>
+                              <span style={{ color: '#1e40af', marginLeft: 8 }}>
+                                mandado {pinta(a.mandado)}
+                              </span>
                             </span>
-                            <span style={{ color: '#1e40af', marginLeft: 8 }}>
-                              mandado{' '}
-                              {avancesPorOc.get(grupoOc.oc).mandado === null
-                                ? '—'
-                                : `${avancesPorOc.get(grupoOc.oc).mandado.toFixed(0)}%`}
-                            </span>
-                          </span>
-                        )}
+                          )
+                        })()}
                         <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
                           {grupoOc.ots.length} OT - {grupoOc.folios} folio
                           {grupoOc.folios === 1 ? '' : 's'} - {grupoOc.docenas} docenas -{' '}
