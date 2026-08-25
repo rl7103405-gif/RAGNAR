@@ -22,9 +22,24 @@ import { datosDeCodigos } from './datosDelCatalogo'
 /** Las columnas del CONCENTRADO de Cielo, en su orden y con su ortografia. */
 const COLUMNAS_CONCENTRADO = [
   'NoPedido', 'Código', 'NumPedido', 'MAQUILA', 'ARTICULO', 'No.', 'COLOR2', 'TALLA2',
-  'FALTA', 'SOLICITA', 'TEJIDS', 'SOBRAN', 'DOC. A ENVIAR 1ER PARCIL', 'DOC. ENVIADAS',
-  'DOC. X ENVIO', 'STATUS', 'AVISO RAGNAR'
+  'FALTA', 'SOLICITA', 'TEJIDS', 'SOBRAN', '% tejido', 'DOC. A ENVIAR 1ER PARCIL',
+  'DOC. ENVIADAS', 'DOC. X ENVIO', 'STATUS', '% enviado a maquila', 'AVISO RAGNAR'
 ]
+
+/**
+ * Un porcentaje como FRACCION (0.31), no como numero (31).
+ *
+ * Excel formatea la fraccion con el estilo de porcentaje, y asi la celda se
+ * puede sumar, promediar y graficar como porcentaje de verdad. Escribir 31
+ * con formato '0%' pintaria "3100%".
+ *
+ * null (no 0) cuando no hay meta contra la cual medir: sin SOLICITA no se
+ * sabe si 230 docenas son el 10% o el 100%.
+ */
+function fraccion(parte, total) {
+  if (typeof total !== 'number' || total <= 0) return null
+  return Math.min(1, (Number(parte) || 0) / total)
+}
 
 /** Las columnas de ENVIOS, igual. */
 const COLUMNAS_ENVIOS = [
@@ -155,6 +170,10 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
           solicita,
           tejido,
           solicita !== null ? num(Math.max(0, (l.producido || 0) - solicita)) : null, // SOBRAN
+          // % tejido: lo que se lleva capturado contra lo que pide el plan.
+          // Lo pidio el papa de Roberto el 25-08, escribiendo el encabezado a
+          // mano en el archivo que bajo de la app.
+          fraccion(l.producido, solicita),
           null, // DOC. A ENVIAR 1ER PARCIL: lo decide una persona
           // 0 aqui SI es un dato: se sabe que no se ha mandado nada en
           // docenas. Lo que va vacio es cuando lo unico enviado fue en packs
@@ -165,13 +184,25 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
           // portada lo promete. Escribir aqui un aviso de la app haria que ese
           // texto se leyera como si fuera su status.
           '',
+          // % enviado a maquila. Solo cuenta lo encargado en DOCENAS, igual
+          // que la columna DOC. ENVIADAS de la que sale: un renglon pedido en
+          // packs no se puede medir contra las docenas del plan, y va en null
+          // (no en 0) para no decir que no se ha mandado nada.
+          enviadoSinMedir(l) && !enviadas ? null : fraccion(enviadas, solicita),
           enviadoSinMedir(l) ? `enviado ${enviadoSinMedir(l)} (no se puede pasar a docenas)` : ''
         ]
         conc.addRow(varias ? [orden.oc, ...fila] : fila)
       }
     }
   }
-  encConc.forEach((_, i) => { conc.getColumn(i + 1).width = i === 0 ? 26 : 15 })
+  encConc.forEach((enc, i) => {
+    const col = conc.getColumn(i + 1)
+    col.width = i === 0 ? 26 : 15
+    // Las columnas de porcentaje llevan formato de porcentaje: la celda
+    // guarda 0.31 y Excel la muestra "31%", que es lo que se puede promediar
+    // y graficar. Sin el formato se veria un 0.31 sin sentido.
+    if (String(enc).startsWith('%')) col.numFmt = '0%'
+  })
 
   // ---- ENVIOS ----
   const env = libro.addWorksheet('ENVIOS')

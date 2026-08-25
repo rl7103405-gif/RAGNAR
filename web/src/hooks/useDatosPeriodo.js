@@ -25,6 +25,28 @@ const PAGINA_PDFS = 100
 // capturas (mas de un ano de operacion) sin que el usuario tenga que picarle
 // a "Cargar mas": un indicador anual que dice "500+" no sirve para nada.
 const MAX_PAGINAS = 100
+// Con tipo 'todo' el Historial pide el historico COMPLETO, no un periodo. El
+// orden es por fecha descendente, asi que toparse aqui recorta lo MAS VIEJO --
+// justo el arranque de una orden de compra que lleva meses abierta, que es
+// para lo que se quito el filtro por dia. Se le da un techo mucho mas alto:
+// 500 x 600 = 300,000 capturas (a ~2,300 al mes, mas de diez anos).
+const MAX_PAGINAS_TODO = 600
+const topeDePaginas = (tipo) => (tipo === 'todo' ? MAX_PAGINAS_TODO : MAX_PAGINAS)
+
+// El historico completo ('todo') cacheado a nivel modulo, con vigencia corta.
+// Estacion.jsx monta y DESMONTA el panel al cambiar de pestaña, asi que sin
+// esto cada visita al Historial volvia a paginar la coleccion entera de bultos
+// y de PDFs desde el año 2000. Con un periodo chico eso no dolia; con el
+// historico completo es toda la operacion de la fabrica, y crece cada dia.
+//
+// Solo se cachea 'todo': los periodos concretos son baratos y conviene que se
+// relean, porque el dia en curso cambia mientras alguien lo mira.
+const VIGENCIA_CACHE_TODO_MS = 120_000
+let cacheTodo = null
+
+export function olvidarCacheDeHistorial() {
+  cacheTodo = null
+}
 
 export function useDatosPeriodo(tipo, offset) {
   // El mundo de quien mira: una cuenta real no ve las pruebas y una de
@@ -55,6 +77,25 @@ export function useDatosPeriodo(tipo, offset) {
   useEffect(() => {
     let cancelado = false
     async function cargar() {
+      // Historico completo ya cargado hace poco: se pinta y no se vuelve a
+      // pedir. Cambiar de pestaña y regresar no debe costar la coleccion
+      // entera otra vez.
+      if (
+        tipo === 'todo' &&
+        cacheTodo &&
+        cacheTodo.esPrueba === !!esPrueba &&
+        Date.now() - cacheTodo.cuando < VIGENCIA_CACHE_TODO_MS
+      ) {
+        setCapturas(cacheTodo.capturas)
+        setPdfs(cacheTodo.pdfs)
+        setCapturasParcial(cacheTodo.capturasParcial)
+        setPdfsParcial(cacheTodo.pdfsParcial)
+        setUltimaCaptura(cacheTodo.ultimaCaptura)
+        setUltimoPdf(cacheTodo.ultimoPdf)
+        setCargando(false)
+        setError('')
+        return
+      }
       setCargando(true)
       setError('')
       setCapturas([])
@@ -80,7 +121,7 @@ export function useDatosPeriodo(tipo, offset) {
         let cursorCapturas = null
         let paginasCapturas = 0
         let hayMasCapturas = true
-        while (hayMasCapturas && paginasCapturas < MAX_PAGINAS) {
+        while (hayMasCapturas && paginasCapturas < topeDePaginas(tipo)) {
           const restricciones = [
             collection(db, 'bultos'),
             where('creadoEn', '>=', inicio),
@@ -115,7 +156,7 @@ export function useDatosPeriodo(tipo, offset) {
         let cursorPdfs = null
         let paginasPdfs = 0
         let hayMasPdfs = true
-        while (hayMasPdfs && paginasPdfs < MAX_PAGINAS) {
+        while (hayMasPdfs && paginasPdfs < topeDePaginas(tipo)) {
           const restricciones = [
             collection(db, 'pdfsGenerados'),
             where('creadoEn', '>=', inicio),
@@ -143,6 +184,21 @@ export function useDatosPeriodo(tipo, offset) {
         pdfsCompletos = true
         setPdfsParcial(hayMasPdfs)
         setUltimoPdf(cursorPdfs)
+        // Solo se guarda una carga que llego COMPLETA hasta aqui. Cachear un
+        // resultado a medias haria que el proximo que entre vea un historico
+        // recortado creyendo que es todo.
+        if (tipo === 'todo' && !cancelado) {
+          cacheTodo = {
+            esPrueba: !!esPrueba,
+            cuando: Date.now(),
+            capturas: [...capturasTodas],
+            pdfs: [...pdfsTodos],
+            capturasParcial: hayMasCapturas,
+            pdfsParcial: hayMasPdfs,
+            ultimaCaptura: cursorCapturas,
+            ultimoPdf: cursorPdfs
+          }
+        }
       } catch (err) {
         if (!cancelado) {
           console.error('[useDatosPeriodo] Error consultando:', err)

@@ -282,55 +282,61 @@ async function tareasDeLasMaquilas(esPrueba) {
     cacheTareas.esPrueba === !!esPrueba &&
     Date.now() - cacheTareas.cuando < VIGENCIA_CACHE_TAREAS_MS
   ) {
-    return cacheTareas.valor
+    return cacheTareas.promesa
   }
 
-  let maquilas = []
-  try {
-    const snap = await getDocs(collection(db, 'maquilas'))
-    // Cada mundo ve el suyo, con el MISMO filtro simetrico que usa la regla
-    // (mismoMundoMaquila) y que ya aplica la lista de maquilas. Sin esto un
-    // usuario real preguntaria por la maquila ficticia, se llevaria un
-    // permission-denied garantizado, y la pantalla le gritaria "no tienes
-    // permiso" para siempre por una maquila que ni le toca.
-    maquilas = snap.docs
-      .filter((d) => (d.data().esPrueba === true) === !!esPrueba)
-      .map((d) => d.id)
-  } catch (err) {
-    console.warn('[Arbol] No se pudo listar las maquilas:', err?.message)
-    return {
-      porMaquila: [],
-      maquilasNoLeidas: ['(no se pudo listar)'],
-      sinPermiso: err?.code === 'permission-denied'
-    }
-  }
-
-  // En paralelo: son N round-trips independientes y encadenarlos solo suma
-  // espera. Cada maquila reporta su propio fallo sin tumbar a las demas.
-  const resultados = await Promise.all(
-    maquilas.map(async (maquilaId) => {
-      try {
-        const snap = await getDocs(collection(db, 'portalMaquila', maquilaId, 'tareasEnsamble'))
-        return { maquilaId, docs: snap.docs.map((d) => d.data()) }
-      } catch (err) {
-        console.warn(`[Arbol] No se pudieron leer las tareas de ${maquilaId}:`, err?.message)
-        return { maquilaId, error: err }
+  // Se cachea la PROMESA, no el resultado ya resuelto: con el Historial
+  // mostrando TODAS las ordenes, decenas de OC piden su avance a la vez y
+  // todas veian el cache vacio, disparando cada una su propia lectura de
+  // 'maquilas' y de las tareas de cada maquila. Mismo arreglo que el ruteo.
+  const promesa = (async () => {
+    let maquilas = []
+    try {
+      const snap = await getDocs(collection(db, 'maquilas'))
+      // Cada mundo ve el suyo, con el MISMO filtro simetrico que usa la regla
+      // (mismoMundoMaquila). Sin esto un usuario real preguntaria por la
+      // maquila ficticia y se llevaria un permission-denied garantizado.
+      maquilas = snap.docs
+        .filter((d) => (d.data().esPrueba === true) === !!esPrueba)
+        .map((d) => d.id)
+    } catch (err) {
+      console.warn('[Arbol] No se pudo listar las maquilas:', err?.message)
+      return {
+        porMaquila: [],
+        maquilasNoLeidas: ['(no se pudo listar)'],
+        sinPermiso: err?.code === 'permission-denied'
       }
-    })
-  )
+    }
 
-  const valor = {
-    porMaquila: resultados.filter((r) => !r.error),
-    maquilasNoLeidas: resultados.filter((r) => r.error).map((r) => r.maquilaId),
-    sinPermiso: resultados.some((r) => r.error?.code === 'permission-denied')
-  }
-  // Un resultado con maquilas fallidas NO se cachea: si se guardara, un
-  // tropiezo de red de un segundo dejaria esa maquila como "no leida" durante
-  // todo el minuto, sin reintento.
-  if (!valor.maquilasNoLeidas.length) {
-    cacheTareas = { esPrueba: !!esPrueba, cuando: Date.now(), valor }
-  }
-  return valor
+    // En paralelo: son N round-trips independientes y encadenarlos solo suma
+    // espera. Cada maquila reporta su propio fallo sin tumbar a las demas.
+    const resultados = await Promise.all(
+      maquilas.map(async (maquilaId) => {
+        try {
+          const snap = await getDocs(collection(db, 'portalMaquila', maquilaId, 'tareasEnsamble'))
+          return { maquilaId, docs: snap.docs.map((d) => d.data()) }
+        } catch (err) {
+          console.warn(`[Arbol] No se pudieron leer las tareas de ${maquilaId}:`, err?.message)
+          return { maquilaId, error: err }
+        }
+      })
+    )
+
+    const valor = {
+      porMaquila: resultados.filter((r) => !r.error),
+      maquilasNoLeidas: resultados.filter((r) => r.error).map((r) => r.maquilaId),
+      sinPermiso: resultados.some((r) => r.error?.code === 'permission-denied')
+    }
+    // Un resultado con maquilas fallidas NO se conserva: si se guardara, un
+    // tropiezo de red de un segundo dejaria esa maquila como "no leida"
+    // durante todo el minuto, sin reintento.
+    if (valor.maquilasNoLeidas.length) cacheTareas = null
+    return valor
+  })()
+
+  promesa.catch(() => { cacheTareas = null })
+  cacheTareas = { esPrueba: !!esPrueba, cuando: Date.now(), promesa }
+  return promesa
 }
 
 async function enviosDeLasOts(ots, esPrueba) {

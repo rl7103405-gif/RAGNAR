@@ -106,3 +106,37 @@ maquilero, que es justo lo que empezo a existir el 24-08.
 ⚠️ Ojo antes de codear: el `SOLICITA` viene del pedido del cliente, que hoy
 RAGNAR **no tiene** — llega en el archivo de tarea que manda Lindbergh. Sin
 esa cifra el reporte solo puede contestar dos de los tres estados.
+
+---
+
+## Poder BORRAR ordenes de compra viejas del historial
+
+**Lo pidio el papa de Roberto el 2026-08-25, en el mismo audio en que pidio
+quitar el filtro de dia/semana/mes/año: "tener la orden de compra de todo el
+tiempo, y despues que los podamos ir borrando".**
+
+Quitar el filtro ya esta hecho. El borrado NO, a proposito: es destructivo y
+antes hay que decidir QUE se borra, porque "la orden de compra" no es un
+documento en RAGNAR, es un agrupador que sale del plan maestro.
+
+Lo que cuelga de una OC y habria que decidir uno por uno:
+
+- **Los BULTOS capturados** (peso, folio, docenas). Son el registro de lo que
+  la fabrica produjo. Borrarlos cambia los INDICADORES hacia atras.
+- **Los PDFs / remisiones** ya emitidos. Un folio consecutivo que existio
+  explica un embarque que ya se cobro.
+- **Las lineas del PLAN MAESTRO** de esa OC.
+- **Las tareas de ensamble** de sus OT, con su tech pack.
+
+⚠️ Tres preguntas antes de codear:
+
+1. ¿Borrar de verdad, o **archivar** (marcarla como cerrada y sacarla de la
+   vista, conservando el dato)? Archivar cubre el problema real —que la lista
+   crezca sin fin— sin perder historia. **Esta es la que hay que preguntarle.**
+2. Si es borrado real: ¿los indicadores deben seguir contando lo borrado?
+3. ¿Quien puede? Es la accion mas destructiva de la app: minimo `admin`, con
+   confirmacion escribiendo el numero de la OC, y bitacora de quien y cuando.
+
+Mientras tanto el volumen esta lejos de ser problema: 2,341 bultos y ~1 MB
+para todo el historico (medido el 25-08), con el tope del hook en 300,000
+capturas.

@@ -6,7 +6,6 @@
 //    el papel emitido aunque las capturas hayan cambiado despues.
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useDatosPeriodo } from '../hooks/useDatosPeriodo'
-import FiltroPeriodo from './FiltroPeriodo'
 import { compararAscendente, coincide } from '../utils/texto'
 import { reimprimirRegistro, ErrorReimpresion, docenasDeCaptura } from '../utils/reimprimir'
 import { agruparPorOt, etiquetaOt } from '../utils/agruparOt'
@@ -24,8 +23,11 @@ export default function PanelHistorial() {
   // Corregir una remision es operacion de embarque: un rol de consulta
   // (Cielo) no debe ver el boton, porque las reglas se lo niegan.
   const { puedeEmbarcar, nivelDeVista, esPrueba } = useAuth()
-  const [tipo, setTipo] = useState('dia')
-  const [offset, setOffset] = useState(0)
+  // El Historial ya NO se divide por dia/semana/mes/año (Roberto y su papa,
+  // 25-08): una orden de compra vive semanas, y partirla obligaba a brincar
+  // entre periodos para verla completa. Los INDICADORES conservan el suyo.
+  const tipo = 'todo'
+  const offset = 0
   const [pdfAbierto, setPdfAbierto] = useState(null)
   // Registro de pdfsGenerados que se esta corrigiendo (anular y reemitir).
   const [corrigiendo, setCorrigiendo] = useState(null)
@@ -143,11 +145,12 @@ export default function PanelHistorial() {
     const ocs = arbolCapturas.map((g) => g.oc).filter((oc) => oc !== SIN_OC)
     if (!ocs.length) return undefined
     let vigente = true
-    // Todas a la vez, no una por una: la descarga pesada (el ruteo) ya la
-    // comparten entre si, asi que en serie solo se sumaban esperas. Cada OC
-    // pinta su porcentaje en cuanto lo tiene, sin esperar a las demas.
-    Promise.all(
-      ocs.map(async (oc) => {
+    // En lotes, no todas de golpe: ahora el Historial muestra el historico
+    // COMPLETO, asi que pueden ser decenas de ordenes y cada una dispara sus
+    // propias consultas. De 6 en 6 se aprovecha el paralelismo sin abrir
+    // cincuenta conexiones a la vez. Cada OC pinta lo suyo en cuanto lo tiene.
+    const LOTE = 6
+    const calcular = async (oc) => {
         try {
           const { arbol } = await arbolDeOcCacheado(oc, esPrueba)
           if (!vigente) return
@@ -167,8 +170,12 @@ export default function PanelHistorial() {
           if (!vigente) return
           setAvancesPorOc((prev) => new Map(prev).set(oc, { error: true }))
         }
-      })
-    )
+    }
+    ;(async () => {
+      for (let i = 0; i < ocs.length && vigente; i += LOTE) {
+        await Promise.all(ocs.slice(i, i + LOTE).map(calcular))
+      }
+    })()
     return () => { vigente = false }
     // La clave es la LISTA de OCs, no la referencia del arbol: cada tecla del
     // buscador crea un arbol nuevo con las mismas OCs, y con la referencia
@@ -320,14 +327,6 @@ export default function PanelHistorial() {
 
   return (
     <>
-      <FiltroPeriodo
-        tipo={tipo}
-        setTipo={setTipo}
-        offset={offset}
-        setOffset={setOffset}
-        etiqueta={datos.rango.etiqueta}
-      />
-
       {datos.error && <div className="alerta-error" style={{ marginBottom: 12 }}>{datos.error}</div>}
       {errorLocal && <div className="alerta-error" style={{ marginBottom: 12 }}>{errorLocal}</div>}
       {aviso && <div className="alerta-exito" style={{ marginBottom: 12 }}>{aviso}</div>}
@@ -345,6 +344,11 @@ export default function PanelHistorial() {
           Capturas ({capturasFiltradas.length}
           {hayBusqueda ? ` de ${datos.capturas.length}` : ''}
           {datos.capturasParcial ? '+' : ''}) - {totalDocenas} docenas - {totalKg.toFixed(2)} kg
+          {/* Se dice que son TODAS: sin el aviso, quien recuerda los botones
+              de dia/semana puede pensar que se quedo un filtro puesto. */}
+          <span className="texto-suave" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
+            (todas las ordenes, sin filtro de fecha)
+          </span>
           <span style={{ fontWeight: 400, fontSize: 14, marginLeft: 10 }}>
             <span style={{ color: '#1a7a3a' }}>{enPdf}{datos.capturasParcial ? '+' : ''} en PDF</span>
             {' · '}

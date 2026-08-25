@@ -18,6 +18,23 @@ export function rangoDePeriodo(tipo, offset = 0) {
   const hoy = new Date()
   hoy.setHours(0, 0, 0, 0)
 
+  // TODO EL TIEMPO. Lo pidio Roberto con su papa el 2026-08-25 para el
+  // Historial: una orden de compra vive semanas o meses, asi que partirla en
+  // dias y semanas obligaba a ir brincando periodos para ver una sola orden
+  // completa. Los INDICADORES si conservan sus periodos, que es donde la
+  // pregunta si es "cuanto se hizo esta semana".
+  //
+  // El rango sigue siendo un rango de verdad (no se quita el where) para que
+  // la consulta mantenga su orden por fecha y su paginacion: solo se abre de
+  // par en par.
+  if (tipo === 'todo') {
+    return {
+      inicio: new Date(2000, 0, 1),
+      fin: new Date(hoy.getFullYear() + 50, 0, 1),
+      etiqueta: 'todo el tiempo'
+    }
+  }
+
   if (tipo === 'dia') {
     const inicio = new Date(hoy)
     inicio.setDate(inicio.getDate() + offset)
