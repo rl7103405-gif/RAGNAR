@@ -165,8 +165,17 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
 
   for (const orden of ordenes) {
     const filasDeSubtotal = []
+    // Acumulados de la ORDEN completa, sumados bloque a bloque.
+    const totalOrden = { falta: 0, solicita: 0, tejido: 0, sobranteTejido: 0, capturado: 0, sobran: 0, enviadas: 0, xEnvio: 0 }
     for (const rama of orden.arbol.ramas) {
       const primeraFila = conc.rowCount + 1
+      // Acumulados del BLOQUE (la OT): son el `result` que se guarda junto a
+      // cada formula. ⚠️ Sin el resultado guardado, la VISTA PROTEGIDA de
+      // Excel -- que es como se abre todo archivo bajado de internet -- NO
+      // recalcula formulas y las celdas se ven vacias: exactamente lo que
+      // Roberto reporto el 25-08. Con el resultado, la vista protegida ya
+      // muestra el numero, y al habilitar edicion la formula sigue viva.
+      const sub = { falta: 0, solicita: 0, tejido: 0, sobranteTejido: 0, capturado: 0, sobran: 0, enviadas: 0, xEnvio: 0 }
       for (const l of rama.lineas) {
         const cat = catalogo.get(String(l.codigo || '').trim()) || {}
         const modelo = l.modelo || cat.modelo || ''
@@ -196,28 +205,44 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
           fraccion(l.mandadoPdf, solicita)
         ]
         conc.addRow(varias ? [orden.oc, ...fila] : fila)
+        sub.falta += (solicita !== null ? Math.max(0, solicita - (l.tejido || 0)) : 0)
+        sub.solicita += solicita || 0
+        sub.tejido += l.tejido || 0
+        sub.sobranteTejido += (solicita !== null ? Math.max(0, (l.tejido || 0) - solicita) : 0)
+        sub.capturado += l.producido || 0
+        sub.sobran += (solicita !== null ? Math.max(0, (l.producido || 0) - solicita) : 0)
+        sub.enviadas += l.mandadoPdf || 0
+        sub.xEnvio += (solicita !== null ? Math.max(0, solicita - (l.mandadoPdf || 0)) : 0)
       }
       const ultimaFila = conc.rowCount
       if (ultimaFila < primeraFila) continue
+      for (const k of Object.keys(totalOrden)) totalOrden[k] += sub[k]
 
       // SUBTOTAL de la OT: sumas por formula sobre el rango del bloque, y los
       // porcentajes como DIVISION de totales.
-      const sub = new Array(encConc.length).fill('')
-      sub[off + 0] = `SUBTOTAL OT ${rama.ot}`
+      const filaSubArr = new Array(encConc.length).fill('')
+      filaSubArr[off + 0] = `SUBTOTAL OT ${rama.ot}`
       const filaSub = conc.rowCount + 1
-      const suma = (k) => ({ formula: `SUM(${col(k)}${primeraFila}:${col(k)}${ultimaFila})` })
-      sub[off + 8] = suma('falta')
-      sub[off + 9] = suma('solicita')
-      sub[off + 10] = suma('tejido')
-      sub[off + 11] = suma('sobranteTejido')
-      sub[off + 12] = { formula: `IF(${col('solicita')}${filaSub}=0,"",${col('tejido')}${filaSub}/${col('solicita')}${filaSub})` }
-      sub[off + 13] = suma('capturado')
-      sub[off + 14] = { formula: `IF(${col('solicita')}${filaSub}=0,"",${col('capturado')}${filaSub}/${col('solicita')}${filaSub})` }
-      sub[off + 15] = suma('sobran')
-      sub[off + 16] = suma('enviadas')
-      sub[off + 17] = suma('xEnvio')
-      sub[off + 18] = { formula: `IF(${col('solicita')}${filaSub}=0,"",${col('enviadas')}${filaSub}/${col('solicita')}${filaSub})` }
-      conc.addRow(sub)
+      const suma = (k) => ({
+        formula: `SUM(${col(k)}${primeraFila}:${col(k)}${ultimaFila})`,
+        result: Number(sub[k].toFixed(2))
+      })
+      const pctDe = (k) => ({
+        formula: `IF(${col('solicita')}${filaSub}=0,"",${col(k)}${filaSub}/${col('solicita')}${filaSub})`,
+        result: sub.solicita > 0 ? Number((sub[k] / sub.solicita).toFixed(4)) : ''
+      })
+      filaSubArr[off + 8] = suma('falta')
+      filaSubArr[off + 9] = suma('solicita')
+      filaSubArr[off + 10] = suma('tejido')
+      filaSubArr[off + 11] = suma('sobranteTejido')
+      filaSubArr[off + 12] = pctDe('tejido')
+      filaSubArr[off + 13] = suma('capturado')
+      filaSubArr[off + 14] = pctDe('capturado')
+      filaSubArr[off + 15] = suma('sobran')
+      filaSubArr[off + 16] = suma('enviadas')
+      filaSubArr[off + 17] = suma('xEnvio')
+      filaSubArr[off + 18] = pctDe('enviadas')
+      conc.addRow(filaSubArr)
       conc.getRow(conc.rowCount).font = { bold: true }
       filasDeSubtotal.push(conc.rowCount)
       conc.addRow([]) // aire entre bloques, como en el archivo del papa
@@ -229,18 +254,25 @@ export async function generarExcelOrdenCompra(ordenes, fallaron = []) {
       const tot = new Array(encConc.length).fill('')
       tot[off + 0] = varias ? `TOTAL OC ${orden.oc}` : 'TOTAL'
       const filaTot = conc.rowCount + 1
-      const sumaDeSub = (k) => ({ formula: filasDeSubtotal.map((f) => `${col(k)}${f}`).join('+') })
+      const sumaDeSub = (k) => ({
+        formula: filasDeSubtotal.map((f) => `${col(k)}${f}`).join('+'),
+        result: Number(totalOrden[k].toFixed(2))
+      })
+      const pctTot = (k) => ({
+        formula: `IF(${col('solicita')}${filaTot}=0,"",${col(k)}${filaTot}/${col('solicita')}${filaTot})`,
+        result: totalOrden.solicita > 0 ? Number((totalOrden[k] / totalOrden.solicita).toFixed(4)) : ''
+      })
       tot[off + 8] = sumaDeSub('falta')
       tot[off + 9] = sumaDeSub('solicita')
       tot[off + 10] = sumaDeSub('tejido')
       tot[off + 11] = sumaDeSub('sobranteTejido')
-      tot[off + 12] = { formula: `IF(${col('solicita')}${filaTot}=0,"",${col('tejido')}${filaTot}/${col('solicita')}${filaTot})` }
+      tot[off + 12] = pctTot('tejido')
       tot[off + 13] = sumaDeSub('capturado')
-      tot[off + 14] = { formula: `IF(${col('solicita')}${filaTot}=0,"",${col('capturado')}${filaTot}/${col('solicita')}${filaTot})` }
+      tot[off + 14] = pctTot('capturado')
       tot[off + 15] = sumaDeSub('sobran')
       tot[off + 16] = sumaDeSub('enviadas')
       tot[off + 17] = sumaDeSub('xEnvio')
-      tot[off + 18] = { formula: `IF(${col('solicita')}${filaTot}=0,"",${col('enviadas')}${filaTot}/${col('solicita')}${filaTot})` }
+      tot[off + 18] = pctTot('enviadas')
       conc.addRow(tot)
       const r = conc.getRow(conc.rowCount)
       r.font = { bold: true }
