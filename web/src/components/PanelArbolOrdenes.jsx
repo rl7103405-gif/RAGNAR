@@ -15,8 +15,12 @@ import { useAuth } from '../context/AuthContext'
 import { lineasDeOc, resumenDeOcs, versionActiva } from '../utils/planMaestro'
 import { armarArbolDeOc, esEnDocenas } from '../utils/arbolOrdenes'
 import { RETENCION_DIAS } from '../utils/ruteoEstado'
+import { porcentajeHonesto } from '../utils/porcentajes'
 
-const pct = (v) => (v === null ? '—' : `${v.toFixed(0)}%`)
+// El MISMO formato honesto que el Historial: 99.97% se ve "99.9%", nunca
+// "100%" con algo pendiente. Dos pantallas con redondeos distintos serian
+// dos numeros distintos para la misma orden.
+const pct = porcentajeHonesto
 
 /** Verde cuando va bien, ambar a medias, rojo cuando no ha arrancado. */
 function colorDe(porcentaje) {

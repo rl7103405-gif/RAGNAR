@@ -8,6 +8,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useDatosPeriodo } from '../hooks/useDatosPeriodo'
+import { porcentajeHonesto } from '../utils/porcentajes'
 import { compararAscendente, coincide } from '../utils/texto'
 import { reimprimirRegistro, ErrorReimpresion, docenasDeCaptura } from '../utils/reimprimir'
 import { agruparPorOt, etiquetaOt } from '../utils/agruparOt'
@@ -152,7 +153,6 @@ export default function PanelHistorial() {
   }, [gruposCapturas.map((g) => g.ot).join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const SIN_OC = '__sin_oc__'
-  const SEPARADOR_TERMINADAS = '__terminadas__'
 
   /**
    * EL HISTORIAL EN TRES NIVELES: orden de compra -> orden de trabajo -> folios.
@@ -296,12 +296,6 @@ export default function PanelHistorial() {
     return {
       abiertas,
       cerradas,
-      // Un marcador entre los dos grupos: la tabla lo convierte en el
-      // encabezado de "terminadas". Va aqui y no en el render para que la
-      // lista siga siendo una sola y el colapso de cada orden no cambie.
-      lista: cerradas.length
-        ? [...abiertas, { oc: SEPARADOR_TERMINADAS }, ...cerradas]
-        : [...abiertas],
       totalAbiertas: totalDe(abiertas),
       totalCerradas: totalDe(cerradas)
     }
@@ -449,6 +443,290 @@ export default function PanelHistorial() {
     }
   }
 
+  /**
+   * Una orden de compra con sus OT y folios adentro (tres niveles).
+   *
+   * Es funcion y no un map inline porque las MISMAS filas viven en DOS
+   * tarjetas: las ordenes sin terminar y las terminadas. Duplicar 300
+   * lineas de JSX garantiza que un dia se arregle una tabla y no la otra.
+   *
+   * conAvance=false en las terminadas: ya se mando todo (o se cerro a
+   * mano, y eso lo dice su etiqueta); repetir porcentajes ahi es ruido.
+   */
+  const filaDeOrden = (grupoOc, conAvance = true) => {
+                const ocAbierta = hayBusqueda || ocsAbiertas.has(grupoOc.oc)
+                const sinOc = grupoOc.oc === SIN_OC
+                return (
+                  <Fragment key={grupoOc.oc}>
+                    <tr
+                      onClick={() => toggleOc(grupoOc.oc)}
+                      style={{
+                        background: sinOc ? '#fffbeb' : '#dde6f2',
+                        borderTop: '3px solid #9db4cd',
+                        cursor: 'pointer'
+                      }}
+                      title={ocAbierta ? 'Cerrar esta orden de compra' : 'Abrir esta orden de compra'}
+                    >
+                      <td colSpan={8} style={{ fontWeight: 700, padding: '9px 4px', fontSize: 15 }}>
+                        {/* La casilla NO abre la orden: se para el clic para
+                            que marcar no colapse lo que estabas viendo. */}
+                        {!sinOc && (
+                          <input
+                            type="checkbox"
+                            checked={ocsMarcadas.has(grupoOc.oc)}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => marcarOc(grupoOc.oc)}
+                            title="Marcar esta orden para bajarla a Excel"
+                            style={{ marginRight: 8, cursor: 'pointer' }}
+                          />
+                        )}
+                        <span style={{ display: 'inline-block', width: 18 }}>
+                          {ocAbierta ? '▾' : '▸'}
+                        </span>
+                        {sinOc ? 'Sin orden de compra en el plan' : `Orden de compra ${grupoOc.oc}`}
+                        {grupoOc.destino && (
+                          <span
+                            style={{
+                              fontWeight: 400,
+                              marginLeft: 10,
+                              fontSize: 12,
+                              background: '#ecfdf5',
+                              color: '#065f46',
+                              borderRadius: 999,
+                              padding: '2px 10px'
+                            }}
+                          >
+                            {grupoOc.destino}
+                          </span>
+                        )}
+                        {!sinOc && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); bajarExcel([grupoOc.oc]) }}
+                            disabled={!!bajando}
+                            title="Bajar el Excel de esta orden completa (no solo lo del periodo que estas viendo)"
+                            style={{
+                              marginLeft: 10,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              padding: '3px 10px',
+                              borderRadius: 6,
+                              border: '1px solid #94a3b8',
+                              background: '#fff',
+                              cursor: bajando ? 'wait' : 'pointer'
+                            }}
+                          >
+                            {bajando === grupoOc.oc ? 'Armando...' : 'Excel'}
+                          </button>
+                        )}
+                        {/* CERRAR A MANO (Roberto, 25-08): una orden que ya
+                            quedo aunque no llegue al 100% contra el plan --
+                            al arrancar la app hubo capturas que no entraron.
+                            Solo direccion y embarques; reversible. */}
+                        {!sinOc && puedeEmbarcar && (() => {
+                          const cierre = cerradasManual.get(grupoOc.oc)
+                          if (cierre) {
+                            return (
+                              <>
+                                <span
+                                  style={{
+                                    marginLeft: 8,
+                                    fontSize: 12,
+                                    background: '#fef9c3',
+                                    color: '#854d0e',
+                                    borderRadius: 999,
+                                    padding: '2px 8px'
+                                  }}
+                                  title={`La cerro ${cierre.cerradaPorNombre || 'alguien'} a mano: el avance no llego al 100% pero se dio por terminada`}
+                                >
+                                  cerrada a mano
+                                </span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); reabrirOrden(grupoOc.oc) }}
+                                  style={{
+                                    marginLeft: 6,
+                                    fontSize: 12,
+                                    padding: '3px 10px',
+                                    borderRadius: 6,
+                                    border: '1px solid #94a3b8',
+                                    background: '#fff',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Reabrir
+                                </button>
+                              </>
+                            )
+                          }
+                          // Solo tiene sentido ofrecer el cierre en una orden
+                          // que NO llego sola al 100%: esa ya esta terminada.
+                          if ((avancesPorOc.get(grupoOc.oc)?.mandado ?? 0) >= 100) return null
+                          return (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); cerrarOrden(grupoOc.oc) }}
+                              title="Dar por terminada esta orden aunque no llegue al 100%: se va a la seccion de terminadas. Se puede reabrir."
+                              style={{
+                                marginLeft: 8,
+                                fontSize: 12,
+                                padding: '3px 10px',
+                                borderRadius: 6,
+                                border: '1px solid #16a34a',
+                                color: '#166534',
+                                background: '#fff',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Cerrar orden
+                            </button>
+                          )
+                        })()}
+                        {/* hecho = produccion capturada de la ORDEN COMPLETA
+                            (no solo el periodo en pantalla); mandado = lo
+                            encargado a maquila en docenas. Mismos numeros que
+                            la pestaña Ordenes, mismo arbol. Aparecen cuando
+                            terminan de calcularse. */}
+                        {/* El espacio esta SIEMPRE (Roberto, 25-08): mientras
+                            se calcula dice "calculando...", no desaparece. Un
+                            dato que aparece de la nada hace dudar de si va a
+                            llegar o si la fila no lo tiene. */}
+                        {!sinOc && conAvance && (() => {
+                          const a = avancesPorOc.get(grupoOc.oc)
+                          const base = { fontWeight: 600, marginLeft: 10, fontSize: 13 }
+                          if (!a) {
+                            return (
+                              <span style={{ ...base, fontWeight: 400, color: '#94a3b8' }}>
+                                calculando avance...
+                              </span>
+                            )
+                          }
+                          if (a.sinMeta) {
+                            return (
+                              <span
+                                style={{ ...base, fontWeight: 400, color: '#94a3b8' }}
+                                title="El plan maestro no trae cantidades para esta orden, asi que no hay contra que medir el avance"
+                              >
+                                sin meta en el plan
+                              </span>
+                            )
+                          }
+                          // Honesto: 99.97% se ve "99.9%", no "100%". Un
+                          // folio sin mandar no puede esconderse en redondeo.
+                          const pinta = porcentajeHonesto
+                          const completa = a.mandado >= 100
+                          return (
+                            <span style={base}>
+                              <span style={{ color: '#16a34a' }} title={`${grupoOc.docenas} docenas capturadas`}>
+                                hecho {pinta(a.hecho)}
+                              </span>
+                              <span
+                                style={{ color: '#1e40af', marginLeft: 8 }}
+                                title={`${grupoOc.docenasMandadas} docenas ya salieron en una remision`}
+                              >
+                                mandado {pinta(a.mandado)}
+                              </span>
+                              {/* Una orden mandada al 100% ya no pide atencion:
+                                  se marca para poder distinguirla de un golpe
+                                  de las que siguen abiertas. */}
+                              {completa && (
+                                <span
+                                  style={{
+                                    marginLeft: 8,
+                                    fontSize: 12,
+                                    background: '#dcfce7',
+                                    color: '#166534',
+                                    borderRadius: 999,
+                                    padding: '2px 8px'
+                                  }}
+                                  title="Todo lo que pide el plan ya salio en remision"
+                                >
+                                  completa
+                                </span>
+                              )}
+                            </span>
+                          )
+                        })()}
+                        <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
+                          {grupoOc.ots.length} OT - {grupoOc.folios} folio
+                          {grupoOc.folios === 1 ? '' : 's'} - {grupoOc.docenas} docenas -{' '}
+                          {grupoOc.kg.toFixed(2)} kg
+                        </span>
+                        {grupoOc.pendientes > 0 && (
+                          <span style={{ fontWeight: 400, color: '#8a5300', marginLeft: 10, fontSize: 13 }}>
+                            {grupoOc.pendientes} sin mandar a PDF
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                    {ocAbierta &&
+                      grupoOc.ots.map((grupo) => {
+                // Con una busqueda activa se abren todas: el operador ya
+                // acoto que quiere ver, no tiene sentido esconderselo.
+                const abierta = hayBusqueda || otsAbiertas.has(grupo.ot)
+                return (
+                  <Fragment key={grupo.ot}>
+                    <tr
+                      onClick={() => toggleOt(grupo.ot)}
+                      style={{
+                        background: '#eef2f7',
+                        borderTop: '2px solid #c6d0dc',
+                        cursor: 'pointer'
+                      }}
+                      title={abierta ? 'Cerrar esta OT' : 'Abrir esta OT'}
+                    >
+                      <td colSpan={8} style={{ fontWeight: 700, padding: '8px 4px' }}>
+                        <span style={{ display: 'inline-block', width: 18 }}>{abierta ? '▾' : '▸'}</span>
+                        {etiquetaOt(grupo.ot)}
+                        <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
+                          {grupo.folios} folio{grupo.folios === 1 ? '' : 's'} -{' '}
+                          {grupo.filas.reduce((a, f) => a + docenasDeCaptura(f), 0)} docenas -{' '}
+                          {grupo.kg.toFixed(2)} kg
+                        </span>
+                        {(() => {
+                          const pendientesOt = grupo.filas.filter((f) => !f.pdfGeneradoEn).length
+                          return pendientesOt > 0 ? (
+                            <span style={{ fontWeight: 400, color: '#8a5300', marginLeft: 10, fontSize: 13 }}>
+                              {pendientesOt} sin mandar a PDF
+                            </span>
+                          ) : (
+                            <span style={{ fontWeight: 400, color: '#1a7a3a', marginLeft: 10, fontSize: 13 }}>
+                              todo en PDF
+                            </span>
+                          )
+                        })()}
+                      </td>
+                    </tr>
+                    {abierta &&
+                      grupo.filas.map((c) => (
+                        <tr key={c.id}>
+                          <td>{c.folio}</td>
+                          <td>{c.producto?.codigo || (c.cruce === 'sin_ruteo' ? 'SIN RUTEO' : '-')}</td>
+                          <td>{c.producto?.descripcion || '-'}</td>
+                          <td>{docenasDeCaptura(c) || '-'}</td>
+                          <td>{(c.pesoGramos / 1000).toFixed(2)}</td>
+                          <td>{c.operadorNombre || '-'}</td>
+                          <td>{formatearFechaHora(c.creadoEn)}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            {c.pdfGeneradoEn ? (
+                              <span style={{ color: '#1a7a3a', fontSize: 13 }}>
+                                {c.pdfFolioInterno != null ? `#${c.pdfFolioInterno}` : 'Enviado'}
+                                {c.pdfGeneradoEn?.toDate
+                                  ? ` · ${c.pdfGeneradoEn.toDate().toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' })}`
+                                  : ''}
+                              </span>
+                            ) : (
+                              <span style={{ color: '#8a5300', fontSize: 13, fontWeight: 600 }}>
+                                Sin mandar
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                  </Fragment>
+                )
+              })}
+                  </Fragment>
+                )
+  }
+
   return (
     <>
       {datos.error && <div className="alerta-error" style={{ marginBottom: 12 }}>{datos.error}</div>}
@@ -472,16 +750,10 @@ export default function PanelHistorial() {
           Ordenes de compra sin terminar ({capturasOrdenadas.totalAbiertas.ordenes})
           <span style={{ fontWeight: 400, fontSize: 14, marginLeft: 10 }}>
             <span style={{ color: '#16a34a', fontWeight: 600 }}>
-              hecho{' '}
-              {capturasOrdenadas.totalAbiertas.hecho === null
-                ? '—'
-                : `${capturasOrdenadas.totalAbiertas.hecho.toFixed(0)}%`}
+              hecho {porcentajeHonesto(capturasOrdenadas.totalAbiertas.hecho)}
             </span>
             <span style={{ color: '#1e40af', fontWeight: 600, marginLeft: 8 }}>
-              mandado{' '}
-              {capturasOrdenadas.totalAbiertas.mandado === null
-                ? '—'
-                : `${capturasOrdenadas.totalAbiertas.mandado.toFixed(0)}%`}
+              mandado {porcentajeHonesto(capturasOrdenadas.totalAbiertas.mandado)}
             </span>
           </span>
           <span className="texto-suave" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
@@ -617,320 +889,10 @@ export default function PanelHistorial() {
                   y dentro de esas los folios. El dueno se queda en este
                   renglon; Lindbergh abre una OT; America llega al folio. */}
               {/* Abiertas primero, completas al final (ver capturasOrdenadas). */}
-              {capturasOrdenadas.lista.map((grupoOc) => {
-                // El encabezado del segundo grupo: las que ya se mandaron
-                // completas. Es su propia seccion, con su propio total y su
-                // propio colapso.
-                if (grupoOc.oc === SEPARADOR_TERMINADAS) {
-                  const t = capturasOrdenadas.totalCerradas
-                  return (
-                    <tr
-                      key={SEPARADOR_TERMINADAS}
-                      onClick={() => setTerminadasAbiertas((v) => !v)}
-                      style={{
-                        background: '#dcfce7',
-                        borderTop: '3px solid #86efac',
-                        cursor: 'pointer'
-                      }}
-                      title={terminadasAbiertas ? 'Cerrar las terminadas' : 'Ver las ordenes terminadas'}
-                    >
-                      <td colSpan={8} style={{ fontWeight: 700, padding: '9px 4px', fontSize: 15 }}>
-                        <span style={{ display: 'inline-block', width: 18 }}>
-                          {terminadasAbiertas ? '▾' : '▸'}
-                        </span>
-                        Ordenes de compra terminadas ({t.ordenes})
-                        <span style={{ fontWeight: 400, fontSize: 14, marginLeft: 10 }}>
-                          <span style={{ color: '#16a34a', fontWeight: 600 }}>
-                            hecho {t.hecho === null ? '—' : `${t.hecho.toFixed(0)}%`}
-                          </span>
-                          <span style={{ color: '#1e40af', fontWeight: 600, marginLeft: 8 }}>
-                            mandado {t.mandado === null ? '—' : `${t.mandado.toFixed(0)}%`}
-                          </span>
-                        </span>
-                        <span className="texto-suave" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
-                          mandadas al 100%, o cerradas a mano
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                }
-                const esTerminada =
-                  (avancesPorOc.get(grupoOc.oc)?.mandado ?? 0) >= 100 ||
-                  cerradasManual.has(grupoOc.oc)
-                // Una terminada solo se pinta si su seccion esta abierta. La
-                // busqueda manda sobre eso: si alguien busca un folio viejo,
-                // tiene que aparecer aunque su orden ya este cerrada.
-                if (esTerminada && !terminadasAbiertas && !hayBusqueda) return null
-                const ocAbierta = hayBusqueda || ocsAbiertas.has(grupoOc.oc)
-                const sinOc = grupoOc.oc === SIN_OC
-                return (
-                  <Fragment key={grupoOc.oc}>
-                    <tr
-                      onClick={() => toggleOc(grupoOc.oc)}
-                      style={{
-                        background: sinOc ? '#fffbeb' : '#dde6f2',
-                        borderTop: '3px solid #9db4cd',
-                        cursor: 'pointer'
-                      }}
-                      title={ocAbierta ? 'Cerrar esta orden de compra' : 'Abrir esta orden de compra'}
-                    >
-                      <td colSpan={8} style={{ fontWeight: 700, padding: '9px 4px', fontSize: 15 }}>
-                        {/* La casilla NO abre la orden: se para el clic para
-                            que marcar no colapse lo que estabas viendo. */}
-                        {!sinOc && (
-                          <input
-                            type="checkbox"
-                            checked={ocsMarcadas.has(grupoOc.oc)}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={() => marcarOc(grupoOc.oc)}
-                            title="Marcar esta orden para bajarla a Excel"
-                            style={{ marginRight: 8, cursor: 'pointer' }}
-                          />
-                        )}
-                        <span style={{ display: 'inline-block', width: 18 }}>
-                          {ocAbierta ? '▾' : '▸'}
-                        </span>
-                        {sinOc ? 'Sin orden de compra en el plan' : `Orden de compra ${grupoOc.oc}`}
-                        {grupoOc.destino && (
-                          <span
-                            style={{
-                              fontWeight: 400,
-                              marginLeft: 10,
-                              fontSize: 12,
-                              background: '#ecfdf5',
-                              color: '#065f46',
-                              borderRadius: 999,
-                              padding: '2px 10px'
-                            }}
-                          >
-                            {grupoOc.destino}
-                          </span>
-                        )}
-                        {!sinOc && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); bajarExcel([grupoOc.oc]) }}
-                            disabled={!!bajando}
-                            title="Bajar el Excel de esta orden completa (no solo lo del periodo que estas viendo)"
-                            style={{
-                              marginLeft: 10,
-                              fontSize: 12,
-                              fontWeight: 600,
-                              padding: '3px 10px',
-                              borderRadius: 6,
-                              border: '1px solid #94a3b8',
-                              background: '#fff',
-                              cursor: bajando ? 'wait' : 'pointer'
-                            }}
-                          >
-                            {bajando === grupoOc.oc ? 'Armando...' : 'Excel'}
-                          </button>
-                        )}
-                        {/* CERRAR A MANO (Roberto, 25-08): una orden que ya
-                            quedo aunque no llegue al 100% contra el plan --
-                            al arrancar la app hubo capturas que no entraron.
-                            Solo direccion y embarques; reversible. */}
-                        {!sinOc && puedeEmbarcar && (() => {
-                          const cierre = cerradasManual.get(grupoOc.oc)
-                          if (cierre) {
-                            return (
-                              <>
-                                <span
-                                  style={{
-                                    marginLeft: 8,
-                                    fontSize: 12,
-                                    background: '#fef9c3',
-                                    color: '#854d0e',
-                                    borderRadius: 999,
-                                    padding: '2px 8px'
-                                  }}
-                                  title={`La cerro ${cierre.cerradaPorNombre || 'alguien'} a mano: el avance no llego al 100% pero se dio por terminada`}
-                                >
-                                  cerrada a mano
-                                </span>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); reabrirOrden(grupoOc.oc) }}
-                                  style={{
-                                    marginLeft: 6,
-                                    fontSize: 12,
-                                    padding: '3px 10px',
-                                    borderRadius: 6,
-                                    border: '1px solid #94a3b8',
-                                    background: '#fff',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  Reabrir
-                                </button>
-                              </>
-                            )
-                          }
-                          // Solo tiene sentido ofrecer el cierre en una orden
-                          // que NO llego sola al 100%: esa ya esta terminada.
-                          if ((avancesPorOc.get(grupoOc.oc)?.mandado ?? 0) >= 100) return null
-                          return (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); cerrarOrden(grupoOc.oc) }}
-                              title="Dar por terminada esta orden aunque no llegue al 100%: se va a la seccion de terminadas. Se puede reabrir."
-                              style={{
-                                marginLeft: 8,
-                                fontSize: 12,
-                                padding: '3px 10px',
-                                borderRadius: 6,
-                                border: '1px solid #16a34a',
-                                color: '#166534',
-                                background: '#fff',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              Cerrar orden
-                            </button>
-                          )
-                        })()}
-                        {/* hecho = produccion capturada de la ORDEN COMPLETA
-                            (no solo el periodo en pantalla); mandado = lo
-                            encargado a maquila en docenas. Mismos numeros que
-                            la pestaña Ordenes, mismo arbol. Aparecen cuando
-                            terminan de calcularse. */}
-                        {/* El espacio esta SIEMPRE (Roberto, 25-08): mientras
-                            se calcula dice "calculando...", no desaparece. Un
-                            dato que aparece de la nada hace dudar de si va a
-                            llegar o si la fila no lo tiene. */}
-                        {!sinOc && (() => {
-                          const a = avancesPorOc.get(grupoOc.oc)
-                          const base = { fontWeight: 600, marginLeft: 10, fontSize: 13 }
-                          if (!a) {
-                            return (
-                              <span style={{ ...base, fontWeight: 400, color: '#94a3b8' }}>
-                                calculando avance...
-                              </span>
-                            )
-                          }
-                          if (a.sinMeta) {
-                            return (
-                              <span
-                                style={{ ...base, fontWeight: 400, color: '#94a3b8' }}
-                                title="El plan maestro no trae cantidades para esta orden, asi que no hay contra que medir el avance"
-                              >
-                                sin meta en el plan
-                              </span>
-                            )
-                          }
-                          const pinta = (v) => `${v.toFixed(0)}%`
-                          const completa = a.mandado >= 100
-                          return (
-                            <span style={base}>
-                              <span style={{ color: '#16a34a' }} title={`${grupoOc.docenas} docenas capturadas`}>
-                                hecho {pinta(a.hecho)}
-                              </span>
-                              <span
-                                style={{ color: '#1e40af', marginLeft: 8 }}
-                                title={`${grupoOc.docenasMandadas} docenas ya salieron en una remision`}
-                              >
-                                mandado {pinta(a.mandado)}
-                              </span>
-                              {/* Una orden mandada al 100% ya no pide atencion:
-                                  se marca para poder distinguirla de un golpe
-                                  de las que siguen abiertas. */}
-                              {completa && (
-                                <span
-                                  style={{
-                                    marginLeft: 8,
-                                    fontSize: 12,
-                                    background: '#dcfce7',
-                                    color: '#166534',
-                                    borderRadius: 999,
-                                    padding: '2px 8px'
-                                  }}
-                                  title="Todo lo que pide el plan ya salio en remision"
-                                >
-                                  completa
-                                </span>
-                              )}
-                            </span>
-                          )
-                        })()}
-                        <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
-                          {grupoOc.ots.length} OT - {grupoOc.folios} folio
-                          {grupoOc.folios === 1 ? '' : 's'} - {grupoOc.docenas} docenas -{' '}
-                          {grupoOc.kg.toFixed(2)} kg
-                        </span>
-                        {grupoOc.pendientes > 0 && (
-                          <span style={{ fontWeight: 400, color: '#8a5300', marginLeft: 10, fontSize: 13 }}>
-                            {grupoOc.pendientes} sin mandar a PDF
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                    {ocAbierta &&
-                      grupoOc.ots.map((grupo) => {
-                // Con una busqueda activa se abren todas: el operador ya
-                // acoto que quiere ver, no tiene sentido esconderselo.
-                const abierta = hayBusqueda || otsAbiertas.has(grupo.ot)
-                return (
-                  <Fragment key={grupo.ot}>
-                    <tr
-                      onClick={() => toggleOt(grupo.ot)}
-                      style={{
-                        background: '#eef2f7',
-                        borderTop: '2px solid #c6d0dc',
-                        cursor: 'pointer'
-                      }}
-                      title={abierta ? 'Cerrar esta OT' : 'Abrir esta OT'}
-                    >
-                      <td colSpan={8} style={{ fontWeight: 700, padding: '8px 4px' }}>
-                        <span style={{ display: 'inline-block', width: 18 }}>{abierta ? '▾' : '▸'}</span>
-                        {etiquetaOt(grupo.ot)}
-                        <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
-                          {grupo.folios} folio{grupo.folios === 1 ? '' : 's'} -{' '}
-                          {grupo.filas.reduce((a, f) => a + docenasDeCaptura(f), 0)} docenas -{' '}
-                          {grupo.kg.toFixed(2)} kg
-                        </span>
-                        {(() => {
-                          const pendientesOt = grupo.filas.filter((f) => !f.pdfGeneradoEn).length
-                          return pendientesOt > 0 ? (
-                            <span style={{ fontWeight: 400, color: '#8a5300', marginLeft: 10, fontSize: 13 }}>
-                              {pendientesOt} sin mandar a PDF
-                            </span>
-                          ) : (
-                            <span style={{ fontWeight: 400, color: '#1a7a3a', marginLeft: 10, fontSize: 13 }}>
-                              todo en PDF
-                            </span>
-                          )
-                        })()}
-                      </td>
-                    </tr>
-                    {abierta &&
-                      grupo.filas.map((c) => (
-                        <tr key={c.id}>
-                          <td>{c.folio}</td>
-                          <td>{c.producto?.codigo || (c.cruce === 'sin_ruteo' ? 'SIN RUTEO' : '-')}</td>
-                          <td>{c.producto?.descripcion || '-'}</td>
-                          <td>{docenasDeCaptura(c) || '-'}</td>
-                          <td>{(c.pesoGramos / 1000).toFixed(2)}</td>
-                          <td>{c.operadorNombre || '-'}</td>
-                          <td>{formatearFechaHora(c.creadoEn)}</td>
-                          <td style={{ whiteSpace: 'nowrap' }}>
-                            {c.pdfGeneradoEn ? (
-                              <span style={{ color: '#1a7a3a', fontSize: 13 }}>
-                                {c.pdfFolioInterno != null ? `#${c.pdfFolioInterno}` : 'Enviado'}
-                                {c.pdfGeneradoEn?.toDate
-                                  ? ` · ${c.pdfGeneradoEn.toDate().toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' })}`
-                                  : ''}
-                              </span>
-                            ) : (
-                              <span style={{ color: '#8a5300', fontSize: 13, fontWeight: 600 }}>
-                                Sin mandar
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                  </Fragment>
-                )
-              })}
-                  </Fragment>
-                )
-              })}
+              {/* Solo las SIN TERMINAR: las terminadas tienen su propia
+                  tarjeta abajo (Roberto, 25-08: 'no quiero que esten en el
+                  mismo cuadro'). */}
+              {capturasOrdenadas.abiertas.map((g) => filaDeOrden(g))}
             </tbody>
           </table>
           {capturasFiltradas.length === 0 && !datos.cargando && (
@@ -953,6 +915,50 @@ export default function PanelHistorial() {
           </>
         )}
       </div>
+
+      {/* LA TARJETA DE LAS TERMINADAS: su propio recuadro, no un renglon
+          dentro de la tabla de arriba (Roberto, 25-08: "no quiero que esten
+          en el mismo cuadro"). Arranca cerrada -- ya no piden atencion -- y
+          una busqueda la abre sola, porque quien busca un folio viejo tiene
+          que poder encontrarlo aunque su orden ya este cerrada. */}
+      {capturasOrdenadas.cerradas.length > 0 && (
+        <div className="tarjeta" style={{ marginBottom: 18 }}>
+          <h2
+            onClick={() => setTerminadasAbiertas((v) => !v)}
+            style={{ cursor: 'pointer', userSelect: 'none' }}
+            title={terminadasAbiertas ? 'Cerrar esta seccion' : 'Ver las ordenes terminadas'}
+          >
+            <span style={{ display: 'inline-block', width: 22 }}>
+              {terminadasAbiertas || hayBusqueda ? '▾' : '▸'}
+            </span>
+            Ordenes de compra terminadas ({capturasOrdenadas.cerradas.length})
+            <span className="texto-suave" style={{ fontWeight: 400, fontSize: 13, marginLeft: 10 }}>
+              mandadas al 100%, o cerradas a mano
+            </span>
+          </h2>
+          {(terminadasAbiertas || hayBusqueda) && (
+            <table className="tabla-datos">
+              <thead>
+                <tr>
+                  <th>Folio</th>
+                  <th>Codigo</th>
+                  <th>Producto</th>
+                  <th>Docenas</th>
+                  <th>Peso (kg)</th>
+                  <th>Capturo</th>
+                  <th>Fecha y hora</th>
+                  <th>PDF</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Sin porcentajes por fila (conAvance=false): ya se mando
+                    todo, o la etiqueta "cerrada a mano" dice lo que paso. */}
+                {capturasOrdenadas.cerradas.map((g) => filaDeOrden(g, false))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       <div className="tarjeta">
         <h2
