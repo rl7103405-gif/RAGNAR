@@ -30,7 +30,19 @@ const MAX_FALTANTES_LISTADOS = 30
 // Un salto asi de grande no es un hueco real sino un cambio de serie o un
 // archivo equivocado: se avisa como salto anormal en vez de listar millones.
 const SALTO_ANORMAL = 100000
-export const RETENCION_DIAS = 15
+// Cuanto vive un folio del ruteo sin volver a aparecer en ningun Excel.
+//
+// Subido de 15 a 60 dias el 2026-08-25, a peticion de Roberto. La razon: una
+// ORDEN DE COMPRA vive semanas o meses, y con 15 dias el rastro de sus
+// primeros folios desaparecia antes de que la orden cerrara -- el arbol y el
+// Historial dejaban de poder ubicar produccion que si existio, y tenian que
+// avisar "no se sabe" en vez de dar el dato.
+//
+// Costo de tenerlo mas tiempo (medido el 25-08): el ruteo pesa ~406 bytes por
+// folio y andaba en ~4,900 folios (~2 MB) con 15 dias. A 60 dias son cuatro
+// veces eso, del orden de 20,000 folios y ~8 MB, que la app ya descarga una
+// sola vez por sesion y cachea. Sigue siendo chico.
+export const RETENCION_DIAS = 60
 
 function folioANumero(folio) {
   return /^\d+$/.test(folio) && folio.length <= 15 ? Number(folio) : null

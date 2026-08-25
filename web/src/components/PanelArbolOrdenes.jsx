@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { lineasDeOc, resumenDeOcs, versionActiva } from '../utils/planMaestro'
 import { armarArbolDeOc, esEnDocenas } from '../utils/arbolOrdenes'
+import { RETENCION_DIAS } from '../utils/ruteoEstado'
 
 const pct = (v) => (v === null ? '—' : `${v.toFixed(0)}%`)
 
@@ -433,7 +434,7 @@ export default function PanelArbolOrdenes() {
                   })}
 
                   {/* Si la consulta por el campo congelado fallo, lo unico que
-                      se esta viendo es lo que alcanza el ruteo: 15 dias. Los
+                      se esta viendo es lo que alcanza el ruteo: {RETENCION_DIAS} dias. Los
                       numeros se verian completos estando cortados, y eso es
                       justo lo que no puede pasar sin avisar. */}
                   {arbol.soloRuteo && (
@@ -449,14 +450,14 @@ export default function PanelArbolOrdenes() {
                     >
                       <strong>Estos numeros pueden estar incompletos.</strong> No se pudo consultar
                       por la orden de trabajo guardada en el bulto, asi que solo se esta viendo lo
-                      que sigue en el ruteo (los ultimos 15 dias). Avisale a Beto: falta un indice en
+                      que sigue en el ruteo (los ultimos {RETENCION_DIAS} dias). Avisale a Beto: falta un indice en
                       la base.
                     </div>
                   )}
 
                   {/* OT del plan sin UN SOLO folio. Es la señal que separa
                       "no se ha producido" de "ya se produjo pero el rastro se
-                      purgo": el ruteo se borra a los 15 dias y una orden de
+                      purgo": el ruteo se borra a los {RETENCION_DIAS} dias y una orden de
                       compra tarda semanas. Sin este aviso, las dos cosas se
                       ven identicas: 0%. */}
                   {arbol.otsSinProduccion.length > 0 && (
@@ -476,7 +477,7 @@ export default function PanelArbolOrdenes() {
                       {arbol.otsSinProduccion.slice(0, 12).join(', ')}
                       {arbol.otsSinProduccion.length > 12 && ` y ${arbol.otsSinProduccion.length - 12} mas`}
                       <div className="texto-suave" style={{ fontSize: 12, marginTop: 2 }}>
-                        O todavia no se producen, o se produjeron hace mas de 15 dias y ya salieron
+                        O todavia no se producen, o se produjeron hace mas de {RETENCION_DIAS} dias y ya salieron
                         del ruteo. Los bultos capturados desde el 17-08 se encuentran siempre.
                       </div>
                     </div>

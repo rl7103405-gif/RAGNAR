@@ -57,7 +57,7 @@ export function otDeBulto(bulto) {
  * Bultos de unas OT consultando el campo `producto.ot` que se congela al
  * capturar.
  *
- * Es la via BUENA: no depende de 'foliosRuteo', que se purga a los 15 dias
+ * Es la via BUENA: no depende de 'foliosRuteo', que se purga a los 60 dias
  * mientras una orden de compra tarda semanas. Solo encuentra los bultos
  * capturados desde que existe el campo (2026-08-17); para los de antes sigue
  * haciendo falta el ruteo, que es lo que hace la otra via.
@@ -423,7 +423,7 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
   //   1. Por el campo 'producto.ot' del bulto: encuentra todo lo capturado
   //      desde el 2026-08-17, sin importar cuanto tiempo haya pasado.
   //   2. Por el ruteo: es la unica que alcanza a los bultos ANTERIORES a esa
-  //      fecha, pero solo mientras el folio siga en foliosRuteo (15 dias).
+  //      fecha, pero solo mientras el folio siga en foliosRuteo (60 dias).
   // Se unen por folio para no contar dos veces el mismo bulto.
   const porCampo = await bultosPorOtGuardada(ots)
   const folios = await foliosDeLasOts(ots)
@@ -522,7 +522,7 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
         folios: conFolios,
         ...avance,
         // ⚠️ Sin un solo folio NO se puede afirmar que no se produjo nada: puede
-        // que no haya arrancado, o puede que se produjera hace mas de 15 dias y
+        // que no haya arrancado, o puede que se produjera hace mas de 60 dias y
         // el ruteo ya se purgo. Son cosas distintas y la app no puede
         // distinguirlas, asi que no finge un 0%.
         sinDatos: conFolios === 0,
@@ -564,7 +564,7 @@ export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {
     // o que su rastro se purgo. La pantalla lo dice con esas palabras.
     otsSinProduccion: ramas.filter((r) => r.sinDatos).map((r) => r.ot),
     // Si la consulta por 'producto.ot' fallo, el arbol solo esta viendo lo que
-    // alcanza el ruteo (15 dias). Hay que decirlo o los numeros parecen
+    // alcanza el ruteo (60 dias). Hay que decirlo o los numeros parecen
     // completos estando cortados.
     soloRuteo: porCampo === null,
     fueraDelPlan: fueraDelPlan.sort((a, b) => b.docenas - a.docenas),
