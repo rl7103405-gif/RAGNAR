@@ -41,6 +41,9 @@ export default function PanelHistorial() {
   // OC marcadas para bajar a Excel. Lo pidio el papa de Roberto el 24-08:
   // una orden, o varias marcadas, en un solo archivo.
   const [ocsMarcadas, setOcsMarcadas] = useState(new Set())
+  // Las ordenes ya terminadas arrancan CERRADAS: son las que ya no piden
+  // atencion. Se abren con un clic cuando alguien quiere consultarlas.
+  const [terminadasAbiertas, setTerminadasAbiertas] = useState(false)
   const [bajando, setBajando] = useState('')
   const [busquedaPdf, setBusquedaPdf] = useState({ maquila: '', folio: '', genero: '', numero: '' })
   // Con cientos de folios por periodo, las OT arrancan CERRADAS: se ve el
@@ -99,6 +102,7 @@ export default function PanelHistorial() {
   }, [gruposCapturas.map((g) => g.ot).join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const SIN_OC = '__sin_oc__'
+  const SEPARADOR_TERMINADAS = '__terminadas__'
 
   /**
    * EL HISTORIAL EN TRES NIVELES: orden de compra -> orden de trabajo -> folios.
@@ -214,8 +218,43 @@ export default function PanelHistorial() {
     const completa = (g) => (avancesPorOc.get(g.oc)?.mandado ?? 0) >= 100
     const abiertas = arbolCapturas.filter((g) => !completa(g))
     const cerradas = arbolCapturas.filter((g) => completa(g))
-    return { abiertas, cerradas, lista: [...abiertas, ...cerradas] }
-  }, [arbolCapturas, avancesPorOc])
+    // El avance de UN GRUPO de ordenes: se suman docenas contra docenas, no se
+    // promedian porcentajes. Promediarlos daria el mismo peso a una orden de
+    // 50 docenas que a una de 5,000, y el numero de arriba dejaria de cuadrar
+    // con las ordenes de abajo.
+    const totalDe = (grupo) => {
+      let meta = 0
+      let hechas = 0
+      let mandadas = 0
+      let sinMeta = 0
+      for (const g of grupo) {
+        if (g.oc === SIN_OC) continue
+        const a = avancesPorOc.get(g.oc)
+        if (!a || a.sinMeta) { sinMeta += 1; continue }
+        meta += planeadoPorOc?.get(g.oc) || 0
+        hechas += g.docenas
+        mandadas += g.docenasMandadas
+      }
+      return {
+        ordenes: grupo.filter((g) => g.oc !== SIN_OC).length,
+        hecho: meta > 0 ? Math.min(100, (hechas / meta) * 100) : null,
+        mandado: meta > 0 ? Math.min(100, (mandadas / meta) * 100) : null,
+        sinMeta
+      }
+    }
+    return {
+      abiertas,
+      cerradas,
+      // Un marcador entre los dos grupos: la tabla lo convierte en el
+      // encabezado de "terminadas". Va aqui y no en el render para que la
+      // lista siga siendo una sola y el colapso de cada orden no cambie.
+      lista: cerradas.length
+        ? [...abiertas, { oc: SEPARADOR_TERMINADAS }, ...cerradas]
+        : [...abiertas],
+      totalAbiertas: totalDe(abiertas),
+      totalCerradas: totalDe(cerradas)
+    }
+  }, [arbolCapturas, avancesPorOc, planeadoPorOc])
 
   // Precalienta la libreria de Excel en cuanto la pantalla respira: pesa como
   // 1 MB y bajarla al momento del clic era parte del "tarda un buen".
@@ -375,20 +414,27 @@ export default function PanelHistorial() {
           <span style={{ display: 'inline-block', width: 22 }}>
             {seccionesAbiertas.capturas ? '▾' : '▸'}
           </span>
-          Capturas ({capturasFiltradas.length}
-          {hayBusqueda ? ` de ${datos.capturas.length}` : ''}
-          {datos.capturasParcial ? '+' : ''}) - {totalDocenas} docenas - {totalKg.toFixed(2)} kg
-          {/* Se dice que son TODAS: sin el aviso, quien recuerda los botones
-              de dia/semana puede pensar que se quedo un filtro puesto. */}
-          <span className="texto-suave" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
-            (todas las ordenes, sin filtro de fecha)
-          </span>
+          {/* El encabezado habla de ORDENES DE COMPRA, no de capturas sueltas
+              (Roberto, 25-08): "nada mas tienes orden de compras, cuantas hay,
+              y en total cuanto vamos de todas esas". El conteo de folios y
+              docenas sigue estando, dentro de cada orden. */}
+          Ordenes de compra sin terminar ({capturasOrdenadas.totalAbiertas.ordenes})
           <span style={{ fontWeight: 400, fontSize: 14, marginLeft: 10 }}>
-            <span style={{ color: '#1a7a3a' }}>{enPdf}{datos.capturasParcial ? '+' : ''} en PDF</span>
-            {' · '}
-            <span style={{ color: sinPdf > 0 ? '#8a5300' : '#556' }}>
-              {sinPdf}{datos.capturasParcial ? '+' : ''} sin mandar
+            <span style={{ color: '#16a34a', fontWeight: 600 }}>
+              hecho{' '}
+              {capturasOrdenadas.totalAbiertas.hecho === null
+                ? '—'
+                : `${capturasOrdenadas.totalAbiertas.hecho.toFixed(0)}%`}
             </span>
+            <span style={{ color: '#1e40af', fontWeight: 600, marginLeft: 8 }}>
+              mandado{' '}
+              {capturasOrdenadas.totalAbiertas.mandado === null
+                ? '—'
+                : `${capturasOrdenadas.totalAbiertas.mandado.toFixed(0)}%`}
+            </span>
+          </span>
+          <span className="texto-suave" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
+            (todas, sin filtro de fecha)
           </span>
         </h2>
         {seccionesAbiertas.capturas && (
@@ -521,6 +567,47 @@ export default function PanelHistorial() {
                   renglon; Lindbergh abre una OT; America llega al folio. */}
               {/* Abiertas primero, completas al final (ver capturasOrdenadas). */}
               {capturasOrdenadas.lista.map((grupoOc) => {
+                // El encabezado del segundo grupo: las que ya se mandaron
+                // completas. Es su propia seccion, con su propio total y su
+                // propio colapso.
+                if (grupoOc.oc === SEPARADOR_TERMINADAS) {
+                  const t = capturasOrdenadas.totalCerradas
+                  return (
+                    <tr
+                      key={SEPARADOR_TERMINADAS}
+                      onClick={() => setTerminadasAbiertas((v) => !v)}
+                      style={{
+                        background: '#dcfce7',
+                        borderTop: '3px solid #86efac',
+                        cursor: 'pointer'
+                      }}
+                      title={terminadasAbiertas ? 'Cerrar las terminadas' : 'Ver las ordenes terminadas'}
+                    >
+                      <td colSpan={8} style={{ fontWeight: 700, padding: '9px 4px', fontSize: 15 }}>
+                        <span style={{ display: 'inline-block', width: 18 }}>
+                          {terminadasAbiertas ? '▾' : '▸'}
+                        </span>
+                        Ordenes de compra terminadas ({t.ordenes})
+                        <span style={{ fontWeight: 400, fontSize: 14, marginLeft: 10 }}>
+                          <span style={{ color: '#16a34a', fontWeight: 600 }}>
+                            hecho {t.hecho === null ? '—' : `${t.hecho.toFixed(0)}%`}
+                          </span>
+                          <span style={{ color: '#1e40af', fontWeight: 600, marginLeft: 8 }}>
+                            mandado {t.mandado === null ? '—' : `${t.mandado.toFixed(0)}%`}
+                          </span>
+                        </span>
+                        <span className="texto-suave" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
+                          todo lo que pide el plan ya salio en remision
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                }
+                const esTerminada = (avancesPorOc.get(grupoOc.oc)?.mandado ?? 0) >= 100
+                // Una terminada solo se pinta si su seccion esta abierta. La
+                // busqueda manda sobre eso: si alguien busca un folio viejo,
+                // tiene que aparecer aunque su orden ya este cerrada.
+                if (esTerminada && !terminadasAbiertas && !hayBusqueda) return null
                 const ocAbierta = hayBusqueda || ocsAbiertas.has(grupoOc.oc)
                 const sinOc = grupoOc.oc === SIN_OC
                 return (
