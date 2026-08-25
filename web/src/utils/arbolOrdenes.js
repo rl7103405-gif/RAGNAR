@@ -24,7 +24,7 @@
 import { collection, documentId, getDocs, orderBy, query, where } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { docenasDeCaptura } from './reimprimir'
-import { MAX_IN, normalizarCodigo, normalizarOt, normalizarPedido } from './planMaestro'
+import { MAX_IN, lineasDeOc, normalizarCodigo, normalizarOt, normalizarPedido, versionActiva } from './planMaestro'
 import { ordenDeCaptura, SIN_ORDEN } from './pdf'
 import { otDelTexto, resolverVarios } from './otResuelta'
 
@@ -356,6 +356,50 @@ async function enviosDeLasOts(ots, esPrueba) {
     }
   }
   return { envios: salida, maquilasNoLeidas, sinPermiso }
+}
+
+// El arbol de una OC, cacheado por sesion con la MISMA vigencia corta que las
+// tareas. Dos consumidores lo comparten a proposito: los porcentajes que el
+// Historial pinta junto a cada orden, y el Excel de esa orden. Asi pintar el
+// porcentaje PRECALIENTA lo que la descarga necesita (ruteo, tareas, bultos),
+// y el Excel de una orden que ya esta en pantalla sale casi al instante --
+// Roberto reporto el 25-08 que la primera descarga "tarda un buen": era bajar
+// el ruteo completo (~5,000 folios) y la libreria de Excel en ese momento.
+const VIGENCIA_CACHE_ARBOL_MS = 60_000
+const cacheArbol = new Map()
+
+/**
+ * Devuelve { arbol } para una OC, o { arbol: null } si la orden no tiene
+ * renglones en el plan vigente (que NO es lo mismo que un arbol vacio).
+ */
+export async function arbolDeOcCacheado(oc, esPrueba = false) {
+  const version = await versionActiva()
+  if (!version) throw new Error('No hay plan maestro cargado.')
+  const clave = `${version}||${oc}||${!!esPrueba}`
+  const guardado = cacheArbol.get(clave)
+  if (guardado && Date.now() - guardado.cuando < VIGENCIA_CACHE_ARBOL_MS) {
+    return guardado.promesa
+  }
+  // Se cachea la PROMESA, no el resultado: asi dos consumidores que piden la
+  // misma OC casi a la vez (el % de la fila y un clic en Excel, o dos pasadas
+  // del efecto por un tecleo) comparten UNA consulta en vez de disparar dos
+  // descargas del ruteo en paralelo con el cache todavia frio.
+  const promesa = (async () => {
+    const lineasDelPlan = await lineasDeOc(version, oc)
+    return lineasDelPlan.length
+      ? { arbol: await armarArbolDeOc({ lineasDelPlan, esPrueba }) }
+      : { arbol: null }
+  })()
+  // Si la consulta FALLA no se deja envenenado el cache: el siguiente intento
+  // vuelve a preguntar en vez de recibir el mismo error un minuto entero.
+  promesa.catch(() => cacheArbol.delete(clave))
+  // Poda perezosa: las entradas vencidas se van al meter una nueva, para que
+  // una sesion larga no acumule arboles muertos.
+  for (const [k, v] of cacheArbol) {
+    if (Date.now() - v.cuando >= VIGENCIA_CACHE_ARBOL_MS) cacheArbol.delete(k)
+  }
+  cacheArbol.set(clave, { cuando: Date.now(), promesa })
+  return promesa
 }
 
 export async function armarArbolDeOc({ lineasDelPlan, esPrueba = false }) {

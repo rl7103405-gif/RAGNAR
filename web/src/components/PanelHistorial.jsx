@@ -15,8 +15,7 @@ import { ubicarOts } from '../utils/ubicacionEnPlan'
 import { normalizarOt } from '../utils/planMaestro'
 import { useMaquilas } from './Maquilas'
 import { useAuth } from '../context/AuthContext'
-import { armarArbolDeOc } from '../utils/arbolOrdenes'
-import { lineasDeOc, versionActiva } from '../utils/planMaestro'
+import { arbolDeOcCacheado } from '../utils/arbolOrdenes'
 import { generarExcelOrdenCompra, nombreDelExcel } from '../utils/excelOrdenCompra'
 import { descargarArchivo } from '../utils/excelSalida'
 import CorregirPdfModal from './CorregirPdfModal'
@@ -40,6 +39,12 @@ export default function PanelHistorial() {
   // una orden, o varias marcadas, en un solo archivo.
   const [ocsMarcadas, setOcsMarcadas] = useState(new Set())
   const [bajando, setBajando] = useState('')
+  // Los porcentajes hecho/mandado de cada OC visible. Los pidio el papa de
+  // Roberto para el Historial (25-08); se calculan DESPUES de pintar la
+  // lista, uno por uno, para no atorar la tabla. Calcularlos ademas
+  // precalienta el ruteo y las tareas, que es justo lo que la descarga del
+  // Excel necesita: la primera bajada tardaba "un buen" por eso.
+  const [avancesPorOc, setAvancesPorOc] = useState(new Map())
   const [busquedaPdf, setBusquedaPdf] = useState({ maquila: '', folio: '', genero: '', numero: '' })
   // Con cientos de folios por periodo, las OT arrancan CERRADAS: se ve el
   // resumen de cada una y se abre solo la que interesa, sin scrollear todo.
@@ -131,6 +136,51 @@ export default function PanelHistorial() {
     })
   }, [gruposCapturas, ubicaciones])
 
+  // Calcula hecho/mandado por cada OC de la lista, en orden y cancelable: si
+  // el usuario cambia de periodo a media pasada, la pasada vieja se abandona
+  // en vez de pisar el estado con datos de otra lista.
+  useEffect(() => {
+    const ocs = arbolCapturas.map((g) => g.oc).filter((oc) => oc !== SIN_OC)
+    if (!ocs.length) return undefined
+    let vigente = true
+    ;(async () => {
+      for (const oc of ocs) {
+        try {
+          const { arbol } = await arbolDeOcCacheado(oc, esPrueba)
+          if (!vigente) return
+          if (!arbol) continue
+          setAvancesPorOc((prev) => {
+            const nueva = new Map(prev)
+            nueva.set(oc, {
+              hecho: arbol.total.porcentaje,
+              mandado: arbol.totalEnvio?.porcentaje ?? null
+            })
+            return nueva
+          })
+        } catch (err) {
+          // Sin plan maestro (o sin red) no hay porcentaje que pintar; la
+          // fila simplemente no lo muestra. No es un error de la lista.
+          console.warn(`[Historial] Sin avance para la OC ${oc}:`, err?.message)
+          if (!vigente) return
+        }
+      }
+    })()
+    return () => { vigente = false }
+    // La clave es la LISTA de OCs, no la referencia del arbol: cada tecla del
+    // buscador crea un arbol nuevo con las mismas OCs, y con la referencia
+    // como dependencia el loop se reiniciaba en cada tecleo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arbolCapturas.map((g) => g.oc).join(','), esPrueba])
+
+  // Precalienta la libreria de Excel en cuanto la pantalla respira: pesa como
+  // 1 MB y bajarla al momento del clic era parte del "tarda un buen".
+  useEffect(() => {
+    const t = setTimeout(() => {
+      import('../utils/excelJs.js').then((m) => m.cargarWorkbook()).catch(() => {})
+    }, 3000)
+    return () => clearTimeout(t)
+  }, [])
+
   const marcarOc = (oc) =>
     setOcsMarcadas((prev) => {
       const nueva = new Set(prev)
@@ -152,8 +202,6 @@ export default function PanelHistorial() {
     setErrorLocal('')
     setBajando(ocs.length === 1 ? ocs[0] : 'varias')
     try {
-      const version = await versionActiva()
-      if (!version) throw new Error('No hay plan maestro cargado: sin el no se sabe que pide cada orden.')
       // Si una orden falla, NO se tira el trabajo de las demas: se arma el
       // archivo con las que si salieron y se dice cuales no. Con 14 ordenes
       // seguidas un tropiezo de red es normal, y perder las 13 buenas por la
@@ -162,14 +210,15 @@ export default function PanelHistorial() {
       const fallaron = []
       for (const oc of ocs) {
         try {
-          const lineasDelPlan = await lineasDeOc(version, oc)
+          // El MISMO arbol (cacheado 1 min) que pinto el porcentaje de la
+          // fila: si la OC esta en pantalla, esto ya no consulta nada.
+          const { arbol } = await arbolDeOcCacheado(oc, esPrueba)
           // Sin renglones en el plan vigente no hay que exportar: un archivo
           // con las hojas vacias se lee como "no hay nada que reportar",
           // cuando la verdad es que esta orden ya no esta en el plan.
-          if (!lineasDelPlan.length) {
+          if (!arbol) {
             throw new Error('no esta en el plan maestro vigente')
           }
-          const arbol = await armarArbolDeOc({ lineasDelPlan, esPrueba })
           ordenes.push({ oc, arbol })
         } catch (err) {
           console.error(`[Historial] Fallo la orden ${oc}:`, err)
@@ -367,25 +416,35 @@ export default function PanelHistorial() {
               <button className="btn-secundario" onClick={() => setOtsAbiertas(new Set())}>
                 Cerrar todas
               </button>
-              {/* Solo aparece cuando hay algo marcado: un boton que casi
-                  siempre esta apagado es ruido en una pantalla que ya tiene
-                  mucho. */}
+              {/* SIEMPRE visible (Roberto, 25-08): sin marcas va apagado en
+                  gris, y se enciende azul cuando eliges que bajar. Un boton
+                  que aparece y desaparece hace dudar de donde estaba. */}
+              <button
+                className="btn-primario"
+                onClick={() => bajarExcel([...ocsMarcadas])}
+                disabled={ocsMarcadas.size === 0 || !!bajando}
+                title={
+                  ocsMarcadas.size === 0
+                    ? 'Marca una o varias ordenes con su casilla para bajarlas en un Excel'
+                    : undefined
+                }
+                style={{
+                  marginLeft: 'auto',
+                  ...(ocsMarcadas.size === 0 && !bajando
+                    ? { background: '#e5e7eb', color: '#6b7280', cursor: 'not-allowed', border: '1px solid #d1d5db', opacity: 1 }
+                    : {})
+                }}
+              >
+                {bajando === 'varias'
+                  ? 'Armando el Excel...'
+                  : ocsMarcadas.size === 0
+                    ? 'Bajar Excel (marca las ordenes)'
+                    : `Bajar Excel de ${ocsMarcadas.size} orden${ocsMarcadas.size === 1 ? '' : 'es'}`}
+              </button>
               {ocsMarcadas.size > 0 && (
-                <>
-                  <button
-                    className="btn-primario"
-                    onClick={() => bajarExcel([...ocsMarcadas])}
-                    disabled={!!bajando}
-                    style={{ marginLeft: 'auto' }}
-                  >
-                    {bajando === 'varias'
-                      ? 'Armando el Excel...'
-                      : `Bajar Excel de ${ocsMarcadas.size} orden${ocsMarcadas.size === 1 ? '' : 'es'}`}
-                  </button>
-                  <button className="btn-secundario" onClick={() => setOcsMarcadas(new Set())}>
-                    Desmarcar
-                  </button>
-                </>
+                <button className="btn-secundario" onClick={() => setOcsMarcadas(new Set())}>
+                  Desmarcar
+                </button>
               )}
             </div>
           )}
@@ -482,6 +541,27 @@ export default function PanelHistorial() {
                           >
                             {bajando === grupoOc.oc ? 'Armando...' : 'Excel'}
                           </button>
+                        )}
+                        {/* hecho = produccion capturada de la ORDEN COMPLETA
+                            (no solo el periodo en pantalla); mandado = lo
+                            encargado a maquila en docenas. Mismos numeros que
+                            la pestaña Ordenes, mismo arbol. Aparecen cuando
+                            terminan de calcularse. */}
+                        {avancesPorOc.has(grupoOc.oc) && (
+                          <span style={{ fontWeight: 600, marginLeft: 10, fontSize: 13 }}>
+                            <span style={{ color: '#16a34a' }}>
+                              hecho{' '}
+                              {avancesPorOc.get(grupoOc.oc).hecho === null
+                                ? '—'
+                                : `${avancesPorOc.get(grupoOc.oc).hecho.toFixed(0)}%`}
+                            </span>
+                            <span style={{ color: '#1e40af', marginLeft: 8 }}>
+                              mandado{' '}
+                              {avancesPorOc.get(grupoOc.oc).mandado === null
+                                ? '—'
+                                : `${avancesPorOc.get(grupoOc.oc).mandado.toFixed(0)}%`}
+                            </span>
+                          </span>
                         )}
                         <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
                           {grupoOc.ots.length} OT - {grupoOc.folios} folio
