@@ -246,9 +246,22 @@ export default function PanelHistorial() {
         salida.set(g.oc, { sinMeta: true })
         continue
       }
+      // ⚠️ "MANDADO 100%" SOLO si de verdad no falta nada por mandar.
+      //
+      // El porcentaje mide contra el PLAN, y una orden puede capturarse DE
+      // MAS: la 2449 lleva 5,782 docenas contra 5,562 planeadas, asi que lo
+      // mandado ya rebasa la meta y el numero se topaba en 100 con 5 folios
+      // todavia sin PDF. Roberto, 26-08: "aunque sea el 99.99999%, no le
+      // pongas que es el cien, se van a confundir".
+      //
+      // Con folios pendientes el mandado se tope en 99.9: sigue siendo la
+      // verdad (falta algo) y no puede leerse como terminado. HECHO si puede
+      // llegar a 100 -- capturar todo lo que pide el plan es un hecho, y no
+      // es lo que decide si la orden termino.
+      const pctMandado = (g.docenasMandadas / meta) * 100
       salida.set(g.oc, {
         hecho: Math.min(100, (g.docenas / meta) * 100),
-        mandado: Math.min(100, (g.docenasMandadas / meta) * 100)
+        mandado: g.pendientes > 0 ? Math.min(99.9, pctMandado) : Math.min(100, pctMandado)
       })
     }
     return salida
