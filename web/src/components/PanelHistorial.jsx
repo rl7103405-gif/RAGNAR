@@ -265,8 +265,16 @@ export default function PanelHistorial() {
    * busca un folio viejo crea que se perdio.
    */
   const capturasOrdenadas = useMemo(() => {
+    // TERMINADA SOLA = 100% contra el plan Y NI UN folio sin mandar a PDF.
+    // Las dos condiciones, no una (Roberto, 26-08): la 2449 se capturo DE MAS
+    // (5,782 contra 5,562 del plan), las docenas mandadas ya superaban la
+    // meta y el % llego a 100 con 5 folios sin mandar -- y se fue a
+    // terminadas. Una orden con pendientes NO esta terminada aunque el
+    // porcentaje diga 100: el porcentaje mide contra el plan, los pendientes
+    // miden contra lo capturado, y terminar exige las dos cosas.
     const completa = (g) =>
-      (avancesPorOc.get(g.oc)?.mandado ?? 0) >= 100 || cerradasManual.has(g.oc)
+      ((avancesPorOc.get(g.oc)?.mandado ?? 0) >= 100 && g.pendientes === 0) ||
+      cerradasManual.has(g.oc)
     const abiertas = arbolCapturas.filter((g) => !completa(g))
     const cerradas = arbolCapturas.filter((g) => completa(g))
     // El avance de UN GRUPO de ordenes: se suman docenas contra docenas, no se
@@ -559,7 +567,10 @@ export default function PanelHistorial() {
                           }
                           // Solo tiene sentido ofrecer el cierre en una orden
                           // que NO llego sola al 100%: esa ya esta terminada.
-                          if ((avancesPorOc.get(grupoOc.oc)?.mandado ?? 0) >= 100) return null
+                          if (
+                            (avancesPorOc.get(grupoOc.oc)?.mandado ?? 0) >= 100 &&
+                            grupoOc.pendientes === 0
+                          ) return null
                           return (
                             <button
                               onClick={(e) => { e.stopPropagation(); cerrarOrden(grupoOc.oc) }}
@@ -611,7 +622,11 @@ export default function PanelHistorial() {
                           // Honesto: 99.97% se ve "99.9%", no "100%". Un
                           // folio sin mandar no puede esconderse en redondeo.
                           const pinta = porcentajeHonesto
-                          const completa = a.mandado >= 100
+                          // El chip verde exige lo MISMO que la seccion de
+                          // terminadas: 100% y cero folios sin PDF. Dos
+                          // criterios distintos pondrian el chip en una orden
+                          // que sigue arriba, o al reves.
+                          const completa = a.mandado >= 100 && grupoOc.pendientes === 0
                           return (
                             <span style={base}>
                               <span style={{ color: '#16a34a' }} title={`${grupoOc.docenas} docenas capturadas`}>
