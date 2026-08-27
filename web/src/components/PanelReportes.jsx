@@ -6,7 +6,7 @@
 //
 // La fuente de los totales son los PDFs generados (pdfsGenerados), que traen
 // su contenido CONGELADO: es lo que realmente salio en papel a cada maquila.
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useDatosRango } from '../hooks/useDatosRango'
 import { descargarArchivo } from '../utils/excelSalida'
 import { generarExcelReporte } from '../utils/excelReporte'
@@ -518,7 +518,8 @@ export default function PanelReportes() {
           </thead>
           <tbody>
             {pdfsFiltrados.map((p) => (
-              <tr key={p.id}>
+              <Fragment key={p.id}>
+              <tr>
                 <td>{formatearFechaHora(p.creadoEn)}</td>
                 <td style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
                   {p.encabezado?.folioInterno != null && p.encabezado.folioInterno !== ''
@@ -534,67 +535,6 @@ export default function PanelReportes() {
                   >
                     {p.totalFolios} folios {abierto === p.id ? '▾' : '▸'}
                   </button>
-                  {abierto === p.id && (
-                    /* EL DESGLOSE DEL DOCUMENTO (Roberto, 27-08): lo mismo que
-                       trae el papel -- codigo, producto, docenas y OT -- sin
-                       tener que reimprimirlo para verlo. Sale de 'capturas',
-                       la copia CONGELADA que se guardo al emitir, asi que es
-                       lo que dice ese documento y no lo que digan hoy los
-                       bultos. Si no hay copia (documentos viejos), se cae a
-                       la lista de folios de siempre. */
-                    <div style={{ fontSize: 12, marginTop: 6, maxWidth: 620 }}>
-                      {(p.capturas || []).length === 0 ? (
-                        <div className="texto-suave">
-                          {[...(p.folios || [])].sort((a, b) => compararAscendente(a, b)).join(', ')}
-                        </div>
-                      ) : (
-                        <table className="tabla-datos" style={{ fontSize: 12 }}>
-                          <thead>
-                            <tr className="texto-suave">
-                              <th style={{ textAlign: 'left' }}>Folio</th>
-                              <th style={{ textAlign: 'left' }}>Codigo</th>
-                              <th style={{ textAlign: 'left' }}>Producto</th>
-                              <th style={{ textAlign: 'right' }}>Docenas</th>
-                              <th style={{ textAlign: 'right' }}>Peso</th>
-                              <th style={{ textAlign: 'left' }}>OT</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {[...(p.capturas || [])]
-                              .sort((a, b) => compararAscendente(a.folio, b.folio))
-                              .map((c) => {
-                                const pr = c.producto || {}
-                                const doc = docenasDeCaptura(c)
-                                return (
-                                  <tr key={c.folio}>
-                                    <td>{c.folio}</td>
-                                    <td>{pr.codigo || <span className="texto-suave">SIN RUTEO</span>}</td>
-                                    <td>
-                                      {pr.descripcion || <span className="texto-suave">-</span>}
-                                      {pr.modelo && <span className="texto-suave"> · {pr.modelo}</span>}
-                                      {pr.color && <span className="texto-suave"> · {pr.color}</span>}
-                                    </td>
-                                    <td style={{ textAlign: 'right' }}>
-                                      {doc ? doc.toFixed(2) : <span className="texto-suave">-</span>}
-                                    </td>
-                                    <td style={{ textAlign: 'right' }}>
-                                      {((c.pesoGramos || 0) / 1000).toFixed(2)}
-                                    </td>
-                                    <td>{pr.ot || <span className="texto-suave">-</span>}</td>
-                                  </tr>
-                                )
-                              })}
-                          </tbody>
-                        </table>
-                      )}
-                      {p.capturasOriginales && (
-                        <p className="texto-suave" style={{ fontSize: 11, marginTop: 4 }}>
-                          Este documento se completo despues de emitirse (re-cruce): arriba van los
-                          datos corregidos. El papel original se conserva registrado.
-                        </p>
-                      )}
-                    </div>
-                  )}
                 </td>
                 <td>{((p.pesoTotalGramos || 0) / 1000).toFixed(2)}</td>
                 <td>
@@ -603,6 +543,63 @@ export default function PanelReportes() {
                   </button>
                 </td>
               </tr>
+              {/* EL DESGLOSE VA EN SU PROPIA FILA, a todo el ancho. Antes
+                  vivia DENTRO de la celda de folios y el nombre del producto
+                  se partia en cuatro renglones, estirando la fila entera
+                  (Roberto, 27-08: "se ve muy feo"). */}
+              {abierto === p.id && (
+                <tr>
+                  <td colSpan={7} style={{ background: '#f8fafc', padding: '4px 12px 12px' }}>
+                    {(p.capturas || []).length === 0 ? (
+                      <div className="texto-suave" style={{ fontSize: 12 }}>
+                        {[...(p.folios || [])].sort((a, b) => compararAscendente(a, b)).join(', ')}
+                      </div>
+                    ) : (
+                      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr className="texto-suave">
+                            {['Folio', 'Codigo', 'Producto', 'Modelo', 'Color'].map((t) => (
+                              <th key={t} style={{ textAlign: 'left', padding: '4px 8px', whiteSpace: 'nowrap' }}>{t}</th>
+                            ))}
+                            <th style={{ textAlign: 'right', padding: '4px 8px', whiteSpace: 'nowrap' }}>Docenas</th>
+                            <th style={{ textAlign: 'right', padding: '4px 8px', whiteSpace: 'nowrap' }}>Peso</th>
+                            <th style={{ textAlign: 'left', padding: '4px 8px', whiteSpace: 'nowrap' }}>OT</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...(p.capturas || [])]
+                            .sort((a, b) => compararAscendente(a.folio, b.folio))
+                            .map((c) => {
+                              const pr = c.producto || {}
+                              const doc = docenasDeCaptura(c)
+                              const celda = { padding: '3px 8px', borderTop: '1px solid #eef2f7' }
+                              const nw = { ...celda, whiteSpace: 'nowrap' }
+                              return (
+                                <tr key={c.folio}>
+                                  <td style={nw}>{c.folio}</td>
+                                  <td style={nw}>{pr.codigo || <span className="texto-suave">SIN RUTEO</span>}</td>
+                                  <td style={celda}>{pr.descripcion || '-'}</td>
+                                  <td style={celda} className="texto-suave">{pr.modelo || '-'}</td>
+                                  <td style={celda} className="texto-suave">{pr.color || '-'}</td>
+                                  <td style={{ ...nw, textAlign: 'right' }}>{doc ? doc.toFixed(2) : '-'}</td>
+                                  <td style={{ ...nw, textAlign: 'right' }}>{((c.pesoGramos || 0) / 1000).toFixed(2)}</td>
+                                  <td style={nw}>{pr.ot || '-'}</td>
+                                </tr>
+                              )
+                            })}
+                        </tbody>
+                      </table>
+                    )}
+                    {p.capturasOriginales && (
+                      <p className="texto-suave" style={{ fontSize: 11, marginTop: 6 }}>
+                        Este documento se completo despues de emitirse (re-cruce): arriba van los
+                        datos corregidos. El papel original se conserva registrado.
+                      </p>
+                    )}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>

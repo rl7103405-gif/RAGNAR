@@ -1122,7 +1122,7 @@ export default function PanelHistorial() {
                          sin tener que reimprimirlo para verlo. Sale de
                          'capturas', la copia CONGELADA que se guardo al
                          emitir, asi que es lo que dice ese documento. */
-                      <div style={{ fontSize: 12, marginTop: 6, maxWidth: 560 }}>
+                      <div style={{ fontSize: 12, marginTop: 6, minWidth: 520 }}>
                         {(p.capturas || []).length === 0 ? (
                           <div className="texto-suave">
                             {[...(p.folios || [])].sort((a, b) => compararAscendente(a, b)).join(', ')}
@@ -1134,6 +1134,8 @@ export default function PanelHistorial() {
                                 <th style={{ textAlign: 'left' }}>Folio</th>
                                 <th style={{ textAlign: 'left' }}>Codigo</th>
                                 <th style={{ textAlign: 'left' }}>Producto</th>
+                                <th style={{ textAlign: 'left' }}>Modelo</th>
+                                <th style={{ textAlign: 'left' }}>Color</th>
                                 <th style={{ textAlign: 'right' }}>Docenas</th>
                                 <th style={{ textAlign: 'right' }}>Peso</th>
                                 <th style={{ textAlign: 'left' }}>OT</th>
@@ -1149,13 +1151,9 @@ export default function PanelHistorial() {
                                     <tr key={c.folio}>
                                       <td>{c.folio}</td>
                                       <td>{pr.codigo || <span className="texto-suave">SIN RUTEO</span>}</td>
-                                      <td>
-                                        {pr.descripcion || <span className="texto-suave">-</span>}
-                                        {pr.modelo && (
-                                          <span className="texto-suave"> · {pr.modelo}</span>
-                                        )}
-                                        {pr.color && <span className="texto-suave"> · {pr.color}</span>}
-                                      </td>
+                                      <td>{pr.descripcion || '-'}</td>
+                                      <td className="texto-suave">{pr.modelo || '-'}</td>
+                                      <td className="texto-suave">{pr.color || '-'}</td>
                                       <td style={{ textAlign: 'right' }}>
                                         {doc ? doc.toFixed(2) : <span className="texto-suave">-</span>}
                                       </td>
