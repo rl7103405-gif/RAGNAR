@@ -1117,10 +1117,67 @@ export default function PanelHistorial() {
                       {p.totalFolios} folios {pdfAbierto === p.id ? '▾' : '▸'}
                     </button>
                     {pdfAbierto === p.id && (
-                      <div className="texto-suave" style={{ fontSize: 12, marginTop: 4, maxWidth: 380 }}>
-                        {[...(p.folios || [])]
-                          .sort((a, b) => compararAscendente(a, b))
-                          .join(', ')}
+                      /* EL DESGLOSE DEL DOCUMENTO (Roberto, 27-08): lo mismo
+                         que trae el papel -- codigo, producto, docenas y OT --
+                         sin tener que reimprimirlo para verlo. Sale de
+                         'capturas', la copia CONGELADA que se guardo al
+                         emitir, asi que es lo que dice ese documento. */
+                      <div style={{ fontSize: 12, marginTop: 6, maxWidth: 560 }}>
+                        {(p.capturas || []).length === 0 ? (
+                          <div className="texto-suave">
+                            {[...(p.folios || [])].sort((a, b) => compararAscendente(a, b)).join(', ')}
+                          </div>
+                        ) : (
+                          <table className="tabla-datos" style={{ fontSize: 12 }}>
+                            <thead>
+                              <tr className="texto-suave">
+                                <th style={{ textAlign: 'left' }}>Folio</th>
+                                <th style={{ textAlign: 'left' }}>Codigo</th>
+                                <th style={{ textAlign: 'left' }}>Producto</th>
+                                <th style={{ textAlign: 'right' }}>Docenas</th>
+                                <th style={{ textAlign: 'right' }}>Peso</th>
+                                <th style={{ textAlign: 'left' }}>OT</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[...(p.capturas || [])]
+                                .sort((a, b) => compararAscendente(a.folio, b.folio))
+                                .map((c) => {
+                                  const pr = c.producto || {}
+                                  const doc = docenasDeCaptura(c)
+                                  return (
+                                    <tr key={c.folio}>
+                                      <td>{c.folio}</td>
+                                      <td>{pr.codigo || <span className="texto-suave">SIN RUTEO</span>}</td>
+                                      <td>
+                                        {pr.descripcion || <span className="texto-suave">-</span>}
+                                        {pr.modelo && (
+                                          <span className="texto-suave"> · {pr.modelo}</span>
+                                        )}
+                                        {pr.color && <span className="texto-suave"> · {pr.color}</span>}
+                                      </td>
+                                      <td style={{ textAlign: 'right' }}>
+                                        {doc ? doc.toFixed(2) : <span className="texto-suave">-</span>}
+                                      </td>
+                                      <td style={{ textAlign: 'right' }}>
+                                        {((c.pesoGramos || 0) / 1000).toFixed(2)}
+                                      </td>
+                                      <td>{pr.ot || <span className="texto-suave">-</span>}</td>
+                                    </tr>
+                                  )
+                                })}
+                            </tbody>
+                          </table>
+                        )}
+                        {p.capturasOriginales && (
+                          /* Si el documento se re-cruzo despues de emitirse, se
+                             dice: lo de arriba es el dato corregido, no
+                             literalmente lo que se imprimio aquel dia. */
+                          <p className="texto-suave" style={{ fontSize: 11, marginTop: 4 }}>
+                            Este documento se completo despues de emitirse (re-cruce): arriba van los
+                            datos corregidos. El papel original se conserva registrado.
+                          </p>
+                        )}
                       </div>
                     )}
                   </td>
