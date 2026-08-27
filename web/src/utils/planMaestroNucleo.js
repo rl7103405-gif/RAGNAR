@@ -52,7 +52,17 @@ export function normalizarOc(valor) {
  * armar la remision y quien lo compara en pantalla.
  */
 export function normalizarModelo(valor) {
-  return String(valor ?? '').trim().toUpperCase().replace(/\s+/g, ' ')
+  return String(valor ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    // La DIAGONAL se cambia por guion. El modelo es el ID del documento de
+    // precio en Firestore, y ahi la diagonal separa rutas: "SPARTAN NEGRO
+    // L/XL" reventaba la carga con "documentPath must point to a document".
+    // Se hace AQUI y no al guardar para que los cuatro puntos que tocan la
+    // llave la vean igual; si se escapara solo al escribir, la remision
+    // buscaria "L/XL" y el precio estaria guardado como otra cosa.
+    .replace(/\//g, '-')
 }
 
 export function normalizarCodigo(valor) {
