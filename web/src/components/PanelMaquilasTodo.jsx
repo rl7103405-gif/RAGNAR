@@ -57,12 +57,15 @@ export default function PanelMaquilasTodo() {
   // que no tenerlo.
   const mueveMaterial = esAdmin || soloAlmacen
 
-  // El FLUJO de material (quien lo pide y a quien se le manda). No es de PT.
-  const flujoMaterial = mueveMaterial || soloConsulta || puedeCrearTareas
+  // El FLUJO de material (quien lo pide y a quien se le manda). Es de quien lo
+  // surte (Alvaro) y de quien encarga las tareas (Lindbergh). NO de Cielo ni
+  // de Valeria: Cielo lleva los pagos y Valeria recibe, y ninguna de las dos
+  // atiende una peticion de plastiflecha. Roberto lo acoto el 28-08.
+  const flujoMaterial = mueveMaterial || puedeCrearTareas
 
   // El ESTADO del material: que tiene hoy cada maquila. Esto si lo necesita
   // Producto Terminado para saber con que estan trabajando.
-  const inventario = flujoMaterial || soloPT
+  const inventario = flujoMaterial || soloPT || soloConsulta
 
   const catalogo = esAdmin || soloAlmacen || soloConsulta || soloPT || puedeCrearTareas
 
