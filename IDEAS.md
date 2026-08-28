@@ -140,3 +140,93 @@ Lo que cuelga de una OC y habria que decidir uno por uno:
 Mientras tanto el volumen esta lejos de ser problema: 2,341 bultos y ~1 MB
 para todo el historico (medido el 25-08), con el tope del hook en 300,000
 capturas.
+
+---
+
+# ⭐ RECEPCION EN PT: la maquila imprime un codigo de barras y PT lo lee
+
+**Lo pidio Roberto el 2026-08-27**, corrigiendo el supuesto anterior:
+
+> "PT no va a pesar, pero si van a verificar/corroborar manualmente lo que les
+> llega, pero que tengan un apartado de recepcion para que ellos lean el codigo
+> de barras (nueva cosa que la remision de las maquilas van a tener que
+> generar) y ya les va a aparecer todo lo que mando la maquila y ellos van a
+> tener que verificar."
+
+Queda descartada la idea de la **bascula para PT** y del cruce por peso contra
+lo que peso America. PT **verifica contra el papel**, no pesa.
+
+## El hallazgo que manda sobre todo lo demas
+
+**Hoy lo que la maquila declara NO SE GUARDA.** En
+`TareasEnsambleMaquila.jsx`, la captura de entrega (packs, docenas, caja,
+observaciones) vive en el estado de React, se imprime en el PDF y **se pierde**:
+`declararTareaEnsambleTerminada()` (`utils/tareasEnsamble.js:344`) solo cambia
+el estado de la tarea a `declarada` y guarda quien y cuando. La remision
+tampoco se persiste, y sale con **`folio: ''`** (`TareasEnsambleMaquila.jsx:154`).
+
+Consecuencia: **las cifras con las que la maquila cobra existen solo en papel.**
+Y sin ellas guardadas, un codigo de barras no tiene a que apuntar: PT lo leeria
+y no habria nada que mostrarle.
+
+## El orden en que hay que construirlo
+
+1. **Persistir la entrega declarada** — el primer ladrillo, y vale por si solo
+   aunque PT tarde. Al declarar, se escribe un documento de **remision** con
+   su **folio consecutivo** y sus renglones congelados (codigo, descripcion,
+   modelo, talla, packs, docenas, caja, precio unitario y total). Congelado,
+   como `pdfsGenerados.capturas[]`: es el papel con el que se cobra, y no debe
+   cambiar si manana cambia una tarifa o el catalogo.
+2. **El codigo de barras en la remision** — Code128 con el folio de esa
+   remision. `jspdf` ya esta; **no hay libreria de barras** en `package.json`,
+   hay que meter una o dibujar Code128 a mano.
+3. **La pantalla de Recepcion de PT** — lee el folio, trae la remision,
+   muestra sus renglones y PT palomea uno por uno: **llego completo /
+   faltante / sobrante**, con cantidad y nota. Firma con nombre y hora.
+4. **El acta y el reclamo** — lo que no cuadra es lo que se le regresa a la
+   maquila. Conecta con la devolucion de tareas que YA existe
+   (`devolverTareaEnsamble`).
+5. **El inventario de PT** — lo que ingresa, lo que se entrega en cada
+   parcialidad y lo que queda.
+
+## Preguntas antes de codear
+
+- **¿El folio de la remision lo pone la maquila o Quini?** Si lo pone la
+  maquila desde su portal, dos maquilas podrian chocar en el consecutivo. Lo
+  seguro es un consecutivo **por maquila** (`E-658` de Munguia ya tiene esa
+  forma) o uno global emitido por Quini al declarar.
+- **¿PT puede corregir cantidades, o solo palomear?** Cambia quien es el dueño
+  del dato. Lo mas limpio: PT **no** edita lo que dice la maquila; declara
+  **lo que el conto**, y la diferencia es el hallazgo.
+- **¿Una remision por tarea, o puede una entrega traer varias tareas?** La
+  remision de papel de Munguia traia tres OT en un viaje.
+- **Reglas de Firestore:** PT (rol `consulta`) hoy no escribe nada. La
+  recepcion es su primera escritura y hay que abrirle exactamente eso, sin
+  darle acceso al resto del portal de maquilas.
+
+---
+
+# LIBERAR LA REMISION ANTES DE QUE CUENTE COMO COBRO
+
+**Lo pidio Roberto el 2026-08-27:** *"cuando se genere la remision es que se
+mande la remision pero que Lindbergh, Cielo y mi papa lo liberen"*. Lo quiere
+**semiautomatico a proposito**: el sistema calcula y propone, pero el cobro no
+queda en firme hasta que tres personas lo aprueban. Es para que no haya
+malentendidos **de los dos lados** — ni la maquila cobra de mas, ni Quini le
+regatea despues de que ya entrego.
+
+Los tres que liberan miran cosas distintas, y por eso son tres y no uno:
+
+- **Lindbergh** — ¿esto es lo que yo le encargue?
+- **Cielo** — ¿la tarifa aplicada es la correcta?
+- **Direccion** — el visto bueno del dinero.
+
+Depende de que **la entrega declarada se guarde primero** (ver la idea de
+Recepcion en PT): sin la remision persistida no hay nada que liberar.
+
+Ojo con el diseño: si la remision solo cuenta cuando esta liberada, hay que
+decidir **que ve la maquila mientras tanto** — lo peor seria que entregue
+mercancia y su papel quede en un limbo sin que ella sepa quien falta de
+firmar. Deberia ver el avance de las tres firmas, como ya ve el estado de sus
+tareas. Existe `PanelAutorizaciones.jsx`, que ya resuelve aprobaciones en la
+app; conviene revisarlo antes de inventar otro mecanismo.

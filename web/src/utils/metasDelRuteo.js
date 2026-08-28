@@ -11,6 +11,7 @@
 // ESTIMADA para que quien importa decida si la acepta o la corrige a mano.
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { bultoEsDePrueba } from './mundoDatos'
 // El MISMO criterio de texto que usa ordenDeCaptura: si aqui una OT se lee
 // distinto que alla, la meta se calcula sobre folios que la tarea no cuenta.
 import { otDelTexto } from './planMaestroNucleo.js'
@@ -64,7 +65,7 @@ const DIAS_RUTEO_VIGENTE = 10
  * { foliosRespaldo, otsSinRuteo }.
  *   origenMeta: 'excel' | 'ruteo' | 'falta'
  */
-export async function rellenarMetasDesdeRuteo(tareas) {
+export async function rellenarMetasDesdeRuteo(tareas, esPrueba = false) {
   const faltantes = tareas.filter((t) => t.origenMeta !== 'excel' && t.metaDocenas == null)
   if (faltantes.length === 0) return { tareas, derivadas: 0, sinRuteo: 0 }
 
@@ -77,6 +78,14 @@ export async function rellenarMetasDesdeRuteo(tareas) {
     const lote = codigos.slice(i, i + LOTE_IN)
     const snap = await getDocs(query(collection(db, 'foliosRuteo'), where('codigo', 'in', lote)))
     snap.docs.forEach((d) => {
+      // Cada mundo deriva su meta con SUS folios. Los codigos del ensayo son
+      // codigos REALES del catalogo (es lo que hace que la prueba se vea de
+      // verdad), asi que sin este filtro los folios ZZTEST sumarian a la meta
+      // de una tarea real que compartiera codigo. Hoy no pasa porque la meta
+      // se acota tambien por OT y las del ensayo no existen en lo real -- pero
+      // eso es suerte, no un candado, y basta que alguien reutilice un numero
+      // de OT para que un dato inventado se vuelva una meta de produccion.
+      if (bultoEsDePrueba(d.id) !== !!esPrueba) return
       const f = { folio: d.id, ...d.data() }
       const clave = String(f.codigo || '').toUpperCase()
       if (!porCodigo.has(clave)) porCodigo.set(clave, [])

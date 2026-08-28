@@ -1,3 +1,9 @@
+// ⚠️ AISLAMIENTO: una cuenta de PRUEBA no ve nada de esto. La bitacora es de
+// la operacion real (una cuenta de prueba ni siquiera puede crear una carga),
+// asi que el servidor le niega la lectura -- ver `soloCuentaReal()` en
+// firestore.rules. Aqui ni se suscribe: sin esto la consola tiraria un
+// permission-denied y la pantalla mostraria un error rojo en medio de una
+// demostracion. En su lugar se explica por que esta vacio.
 // BITACORA DE SUBIDAS DEL PLAN MAESTRO: qué archivo se subió, cuándo, quién y
 // qué cambió con él.
 //
@@ -12,14 +18,17 @@
 import { useEffect, useState } from 'react'
 import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { useAuth } from '../context/AuthContext'
 
 const ULTIMAS = 15
 
 export default function HistorialPlanes() {
   const [versiones, setVersiones] = useState([])
   const [error, setError] = useState('')
+  const { esPrueba } = useAuth()
 
   useEffect(() => {
+    if (esPrueba) return undefined
     const q = query(collection(db, 'planMaestroVersiones'), orderBy('creadoEn', 'desc'), limit(ULTIMAS))
     const unsub = onSnapshot(
       q,
@@ -30,7 +39,7 @@ export default function HistorialPlanes() {
       }
     )
     return unsub
-  }, [])
+  }, [esPrueba])
 
   const fechaHora = (t) =>
     t?.toDate
@@ -40,6 +49,14 @@ export default function HistorialPlanes() {
   return (
     <div className="tarjeta">
       <h2>Ultimas subidas del plan</h2>
+      {esPrueba ? (
+        <p className="texto-suave">
+          Estas en una cuenta de <strong>prueba</strong>: aqui no se muestra
+          nada de la operacion real. El servidor te niega la lectura, no es
+          que la pantalla lo esconda.
+        </p>
+      ) : (
+        <>
       <p className="texto-suave" style={{ fontSize: 13, marginTop: 2 }}>
         Cada vez que se sube un plan queda anotado aqui con lo que trajo. El plan es{' '}
         <strong>acumulativo</strong>: cada archivo agrega o corrige lo suyo y lo que no menciona se
@@ -117,6 +134,8 @@ export default function HistorialPlanes() {
             })}
           </tbody>
         </table>
+      )}
+        </>
       )}
     </div>
   )

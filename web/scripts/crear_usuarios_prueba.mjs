@@ -94,6 +94,16 @@ const CUENTAS = [
     ve: 'Solo la pestana Captura'
   },
   {
+    // PRODUCTO TERMINADO (Valeria). Hoy va con rol 'consulta' porque su
+    // modulo todavia no existe: recibe lo que devuelve la maquila, lo pesa y
+    // lo cruza contra lo que peso America. Cuando ese modulo se construya,
+    // esta cuenta es la que sirve para probarlo sin tocar la de Valeria.
+    usuario: 'demo_pt',
+    nombre: 'PRUEBA - producto terminado (como Valeria)',
+    rol: 'consulta',
+    ve: 'Solo lectura: Ordenes, Historial, Reportes, Indicadores, Registros, Maquilas'
+  },
+  {
     usuario: 'demo_maquila',
     nombre: 'PRUEBA - maquila externa',
     rol: 'maquila',

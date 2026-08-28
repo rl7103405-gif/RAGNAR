@@ -825,7 +825,9 @@ service cloud.firestore {
     // La subida entera. Nace en 'borrador' y solo se marca 'activa' cuando ya
     // se escribieron todas sus lineas: asi nadie lee un plan a medio cargar.
     match /planMaestroVersiones/{versionId} {
-      allow read: if esInterno();
+      // Mismo criterio que cargasRuteo: la bitacora de subidas del plan es
+      // de la operacion real, y una cuenta de prueba no puede crearla.
+      allow read: if esInterno() && soloCuentaReal();
       allow create: if puedeSubirPlanMaestro()
         && soloCuentaReal()
         && request.resource.data.keys().hasAll(['archivo', 'totalLineas', 'estado', 'subidoPorUid', 'subidoPorNombre', 'creadoEn', 'activadaEn'])
@@ -1233,7 +1235,12 @@ service cloud.firestore {
     // cuando, quien lo subio y que trajo. Nunca se edita ni se borra desde
     // el cliente (igual que pdfsGenerados).
     match /cargasRuteo/{registroId} {
-      allow read: if esInterno();
+      // Una cuenta de prueba NO ve las cargas reales. Es la contraparte de
+      // que no pueda crearlas: si no puede escribir aqui, todo lo que hay es
+      // del mundo real y no tiene por que verlo -- el 28-08 Roberto abrio el
+      // ensayo con la cuenta demo y le aparecieron las subidas de America,
+      // con nombres y volumenes de la operacion.
+      allow read: if esInterno() && soloCuentaReal();
       // Va con foliosRuteo: si una cuenta de prueba no puede cargar el Excel,
       // tampoco puede escribir la bitacora de esa carga.
       allow create: if puedeEmbarcar()

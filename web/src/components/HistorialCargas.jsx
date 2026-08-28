@@ -1,17 +1,26 @@
+// ⚠️ AISLAMIENTO: una cuenta de PRUEBA no ve nada de esto. La bitacora es de
+// la operacion real (una cuenta de prueba ni siquiera puede crear una carga),
+// asi que el servidor le niega la lectura -- ver `soloCuentaReal()` en
+// firestore.rules. Aqui ni se suscribe: sin esto la consola tiraria un
+// permission-denied y la pantalla mostraria un error rojo en medio de una
+// demostracion. En su lugar se explica por que esta vacio.
 // Bitacora de cargas del Excel de folios: que archivo se subio, cuando y
 // quien, con el resumen de lo que trajo. Es INMUTABLE (nadie la edita ni la
 // borra desde la app), igual que la bitacora de PDFs generados.
 import { useEffect, useState } from 'react'
 import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { useAuth } from '../context/AuthContext'
 
 const ULTIMAS = 15
 
 export default function HistorialCargas() {
   const [cargas, setCargas] = useState([])
   const [error, setError] = useState('')
+  const { esPrueba } = useAuth()
 
   useEffect(() => {
+    if (esPrueba) return undefined
     const q = query(collection(db, 'cargasRuteo'), orderBy('creadoEn', 'desc'), limit(ULTIMAS))
     const unsub = onSnapshot(
       q,
@@ -22,7 +31,7 @@ export default function HistorialCargas() {
       }
     )
     return unsub
-  }, [])
+  }, [esPrueba])
 
   const fechaHora = (t) =>
     t?.toDate
@@ -32,6 +41,14 @@ export default function HistorialCargas() {
   return (
     <div className="tarjeta">
       <h2>Ultimas subidas del Excel</h2>
+      {esPrueba ? (
+        <p className="texto-suave">
+          Estas en una cuenta de <strong>prueba</strong>: aqui no se muestra
+          nada de la operacion real. El servidor te niega la lectura, no es
+          que la pantalla lo esconda.
+        </p>
+      ) : (
+        <>
       {error && <div className="alerta-error">{error}</div>}
       {cargas.length === 0 && !error && (
         <p className="texto-suave">Todavia no se ha subido ningun archivo.</p>
@@ -77,6 +94,8 @@ export default function HistorialCargas() {
             ))}
           </tbody>
         </table>
+      )}
+        </>
       )}
     </div>
   )

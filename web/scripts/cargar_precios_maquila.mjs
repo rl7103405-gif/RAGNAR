@@ -57,8 +57,42 @@ const val = (c) => { let x = c.value; if (x && typeof x === 'object') x = x.resu
 // espacios colapsados y la diagonal a guion, porque el modelo es el ID del
 // documento y Firestore usa la diagonal como separador de ruta.
 const norm = (s) => String(s ?? '').toUpperCase().replace(/\s+/g, ' ').trim().replace(/\//g, '-')
-const esNormal = (maq, pro) =>
-  pro === 'PAREADO SENCILLO' || (pro === 'ETIQUETADO' && (maq === 'HUGO MARTINEZ' || maq === 'RODA TEXTIL'))
+// EL PROCESO NORMAL ES EL DE CADA MAQUILA, NO UNO GLOBAL (corregido 28-08).
+//
+// La primera version fijaba 'PAREADO SENCILLO' como la tarifa normal de todos,
+// con una excepcion a mano para Hugo y Roda porque Cielo dijo que su
+// "ETIQUETADO" en realidad es pareado sencillo. El resultado fue que TRES
+// maquilas se quedaron sin un solo precio -- y Roberto lo cazo: "no hace
+// sentido que no tengamos los precios de esas maquilas".
+//
+// Tenia razon, y el histórico lo confirma: Eduardo Rodriguez tiene 111
+// renglones de ETIQUETADO, TODOS a $5.50. El precio siempre estuvo ahi; lo
+// tapaba mi filtro.
+//
+// La regla correcta es una sola y explica a las seis: la tarifa normal de una
+// maquila es EL PROCESO QUE ESA MAQUILA DE VERDAD HACE, o sea el que domina
+// sus renglones. Reproduce sin excepciones a mano lo que Cielo dijo (Edgar
+// domina en pareado sencillo; Hugo y Roda en etiquetado) y ademas le da precio
+// a las tres que faltaban.
+function procesoNormalPorMaquila(ws, val, norm) {
+  const cuenta = new Map()
+  for (let r = 2; r <= ws.rowCount; r++) {
+    const g = ws.getRow(r)
+    const maq = norm(val(g.getCell(2)))
+    const pro = norm(val(g.getCell(7)))
+    const pre = Number(val(g.getCell(8))) || 0
+    if (!maq || !pro || pre <= 0) continue
+    if (!cuenta.has(maq)) cuenta.set(maq, new Map())
+    const c = cuenta.get(maq)
+    c.set(pro, (c.get(pro) || 0) + 1)
+  }
+  const normal = new Map()
+  for (const [maq, c] of cuenta) {
+    const [pro] = [...c.entries()].sort((a, b) => b[1] - a[1])[0]
+    normal.set(maq, pro)
+  }
+  return normal
+}
 const numSemana = (s) => Number(String(s).match(/\d+/)?.[0] ?? 0)
 
 async function main() {
@@ -77,6 +111,12 @@ async function main() {
   // Historico de pagos, solo tarifa normal
   const wb = new ExcelJS.Workbook(); await wb.xlsx.readFile(RUTA_PAGOS)
   const ws = wb.worksheets[0]
+  const PROCESO_NORMAL = procesoNormalPorMaquila(ws, val, norm)
+  console.log('')
+  console.log('proceso normal de cada maquila (el que mas hace):')
+  ;[...PROCESO_NORMAL.entries()].sort().forEach(([m, p]) => console.log(`  ${m.padEnd(18)} ${p}`))
+  const esNormal = (maq, pro) => PROCESO_NORMAL.get(maq) === pro
+
   const acum = new Map() // maquila||modelo -> { porSemana: Map(sem -> Set(precio)), confirmado, docenas }
   for (let r = 2; r <= ws.rowCount; r++) {
     const g = ws.getRow(r)

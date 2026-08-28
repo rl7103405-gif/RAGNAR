@@ -569,7 +569,7 @@ export default function PanelTareas() {
       // las metas sin derivar en vez de decir que fallo la lectura.
       let conMetas = { tareas: leido.tareas, derivadas: 0, sinRuteo: 0 }
       try {
-        conMetas = await rellenarMetasDesdeRuteo(leido.tareas)
+        conMetas = await rellenarMetasDesdeRuteo(leido.tareas, esPrueba)
       } catch (err) {
         console.error('[PanelTareas] No se pudo consultar el ruteo para estimar metas:', err)
         setAviso(

@@ -10,6 +10,7 @@
 // ensamble, material y pedir — NINGUNA es "Mi perfil". Quitarselo a ellas
 // tambien las dejaria sin ninguna forma de cambiar su contraseña.
 import { useAuth } from '../context/AuthContext'
+import Novedades from './Novedades'
 import AjustesCuenta from './AjustesCuenta'
 
 export default function Layout({ titulo, children }) {
@@ -43,6 +44,10 @@ export default function Layout({ titulo, children }) {
             {perfil?.nombreCompleto || 'Estacion'}
             <span className="usuario-rol">Embarques</span>
           </span>
+          {/* La campana va ANTES de Salir: es lo que se mira al entrar, no al
+              irse. Se le muestra a todos, incluidas las maquilas: tambien les
+              cambia la pantalla y tambien tienen derecho a saber que cambio. */}
+          <Novedades />
           {!esInterno && <AjustesCuenta />}
           <button className="btn-salir" onClick={cerrarSesion}>
             Salir

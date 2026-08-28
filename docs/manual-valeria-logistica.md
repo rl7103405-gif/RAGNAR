@@ -110,15 +110,19 @@ puede ser", ha aparecido algo real que arreglar. No te quedes con la duda.
 
 ## Lo que viene: Producto Terminado
 
-Cuando termine la parte de maquilas, sigue tu área. La idea que se está
-trabajando:
+Cuando termine la parte de maquilas, sigue tu área. Esto es lo que se está
+trabajando, y **tu trabajo aquí es verificar, no pesar**:
 
-- **Recepción del producto que devuelve la maquila**, ya armado y en cajas.
-- Se **pesa** al recibirlo y se **cruza contra lo que pesó América** al
-  inicio, para detectar diferencias.
-- Si no cuadra, **se le hace saber a la maquila y se le regresa**: tiene que
-  cuadrar.
-- Y de ahí, el **inventario de PT**: lo que ingresa, lo que se entrega en
+- La maquila devuelve el producto ya armado, en cajas, con su **remisión**.
+  Esa remisión va a traer un **código de barras** (hoy todavía no lo trae).
+- En tu pestaña de **Recepción**, lees ese código y te aparece en pantalla
+  **todo lo que mandó la maquila** en ese documento: códigos, packs, docenas
+  y cajas. No tecleas nada.
+- Tú **corroboras contra lo físico** y vas palomeando renglón por renglón:
+  lo que llegó completo, lo que falta, lo que sobra.
+- Lo que no cuadre queda registrado con tu nombre y la hora, y eso es lo que
+  se le reclama a la maquila.
+- De ahí sale el **inventario de PT**: lo que ingresa, lo que se entrega en
   cada parcialidad y lo que queda.
 
 Tu experiencia es la que va a definir cómo queda. Cuando lo veas funcionando,

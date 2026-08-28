@@ -16,6 +16,7 @@ import Layout from '../components/Layout'
 import PanelCaptura from '../components/PanelCaptura'
 import CargaRuteo from '../components/CargaRuteo'
 import PanelHistorial from '../components/PanelHistorial'
+import PanelPorLlegar from '../components/PanelPorLlegar'
 import PanelReportes from '../components/PanelReportes'
 import PanelIndicadores from '../components/PanelIndicadores'
 import PanelAutorizaciones from '../components/PanelAutorizaciones'
@@ -47,6 +48,7 @@ const TABS = [
   // nombre de negocio, no tecnico: el vocabulario en pantalla es parte del
   // sistema.
   { id: 'ordenes', label: 'Ordenes de compra' },
+  { id: 'porllegar', label: 'Por llegar' },
   { id: 'registros', label: 'Registros' },
   // Copiadas de captura-mecanicos, que ya las tenia (Roberto, 19-08). Van al
   // final: se consultan de vez en cuando, no son trabajo diario.
@@ -62,7 +64,12 @@ const TABS_CAPTURA = ['captura']
 // desde el 2026-08-13 ADMINISTRA EL CATALOGO DE AVIOS (pestana Avios; el alta
 // se gatea con su flag administraCatalogoAvios). Sigue sin capturar, sin
 // cargar el Excel del dia y sin crear tareas.
-const TABS_CONSULTA = ['ordenes', 'historial', 'reportes', 'indicadores', 'registros', 'maquilas']
+// 'porllegar' es el aviso para PRODUCTO TERMINADO: que le va a caer y cuando.
+// Va en 'consulta' porque es el rol de Valeria (PT) -- y de paso lo ve Cielo,
+// que es justo lo que Roberto pidio el 28-08 ("que ella le pueda estar dando
+// seguimiento a todo lo demas"). No abre ningun permiso nuevo: las tareas de
+// ensamble ya eran legibles para este rol desde el 24-08.
+const TABS_CONSULTA = ['ordenes', 'porllegar', 'historial', 'reportes', 'indicadores', 'registros', 'maquilas']
 
 // Alvaro (rol 'almacen') maneja los AVIOS que se mandan: solicitudes, envios
 // e inventario de las maquilas (SOLO avios: bultos y embarques no son suyos).
@@ -214,6 +221,7 @@ export default function Estacion() {
       {tabActiva === 'captura' && <PanelCaptura />}
       {tabActiva === 'tareas' && <PanelTareas />}
       {tabActiva === 'folios' && <CargaRuteo />}
+      {tabActiva === 'porllegar' && <PanelPorLlegar />}
       {tabActiva === 'historial' && <PanelHistorial />}
       {tabActiva === 'reportes' && <PanelReportes />}
       {tabActiva === 'indicadores' && <PanelIndicadores />}

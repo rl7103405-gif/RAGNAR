@@ -33,6 +33,7 @@ export default function PanelPreciosMaquila() {
   const { perfil, authUser, esAdmin, soloConsulta } = useAuth()
   const maquilas = useMaquilas()
   const [maquilaId, setMaquilaId] = useState('')
+  const [cargando, setCargando] = useState(false)
   const [precios, setPrecios] = useState([])
   const [busqueda, setBusqueda] = useState('')
   const [nuevo, setNuevo] = useState({ modelo: '', precio: '' })
@@ -45,20 +46,30 @@ export default function PanelPreciosMaquila() {
   useEffect(() => {
     if (!maquilaId) {
       setPrecios([])
+      setCargando(false)
       return
     }
+    // Sin este estado la pantalla AFIRMA "todavia no tiene precios" durante el
+    // instante en que la suscripcion no ha respondido -- y con 50 modelos ese
+    // instante se ve. Roberto lo cazo el 28-08: Hugo Martinez le salia vacio
+    // teniendo sus 50 precios cargados. Una pantalla que dice algo falso
+    // mientras carga es peor que una que no dice nada.
+    setCargando(true)
     const unsub = onSnapshot(
       collection(db, 'portalMaquila', maquilaId, 'preciosEnsamble'),
       // Se descartan los documentos SIN modelo: son del esquema viejo (la
       // llave era el codigo) y no pueden amarrarse a ningun renglon. Pintarlos
       // seria mostrar una fila en blanco que nadie puede corregir ni borrar.
-      (snap) =>
+      (snap) => {
         setPrecios(
           snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((p) => p.modelo)
-        ),
+        )
+        setCargando(false)
+      },
       (err) => {
         console.error('[Precios] No se pudieron leer:', err)
         setError('No se pudieron leer los precios: ' + (err.message || err))
+        setCargando(false)
       }
     )
     return unsub
@@ -247,7 +258,9 @@ export default function PanelPreciosMaquila() {
           />
 
           <p className="texto-suave" style={{ fontSize: 13 }}>
-            {precios.length === 0
+            {cargando
+              ? 'Cargando precios...'
+              : precios.length === 0
               ? `${nombreMaquila} todavia no tiene precios. Los modelos sin precio salen en blanco en su remision, para escribirlos a mano.`
               : `${filtrados.length} de ${precios.length} modelos con precio.`}
           </p>
