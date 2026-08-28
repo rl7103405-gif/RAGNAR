@@ -32,11 +32,6 @@ export default function PanelIndicadores() {
       const clave = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
       porDia.set(clave, (porDia.get(clave) || 0) + 1)
     })
-    const capturasPorDia = [...porDia.entries()]
-      .map(([clave, valor]) => ({ clave, valor }))
-      .reverse()
-      .slice(-31)
-
     // RITMO Y PROYECCION. Roberto lo pidio el 2026-08-28: "cuantos bultos en
     // promedio capturamos al dia, cual ha sido el maximo, cuando el minimo...
     // para sacar cuantas etiquetas necesitamos en un mes".
@@ -70,16 +65,6 @@ export default function PanelIndicadores() {
       diasMes: DIAS_MES
     }
 
-    const porCodigo = new Map()
-    capturas.forEach((c) => {
-      const codigo = c.producto?.codigo || 'SIN RUTEO'
-      porCodigo.set(codigo, (porCodigo.get(codigo) || 0) + 1)
-    })
-    const topCodigos = [...porCodigo.entries()]
-      .map(([clave, valor]) => ({ clave, valor }))
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 8)
-
     const porOperador = new Map()
     capturas.forEach((c) => {
       const quien = c.operadorNombre || '-'
@@ -107,9 +92,7 @@ export default function PanelIndicadores() {
       sinRuteo,
       kgEnPdfs,
       foliosEnPdfs,
-      capturasPorDia,
       ritmo,
-      topCodigos,
       capturasPorOperador,
       kgPorMaquila
     }
@@ -221,18 +204,17 @@ export default function PanelIndicadores() {
         </div>
       </div>
 
+      {/* Se quitaron "Capturas por dia" y "Codigos mas capturados" el 28-08.
+          La primera era una lista de 31 barras que nadie leia: lo que de esa
+          serie importa —el promedio, el dia mas alto y el mas bajo— ya lo dice
+          la tarjeta de Ritmo en dos numeros. La segunda contaba BULTOS por
+          codigo, que no es produccion ni dinero: un codigo que viaja en bultos
+          chicos salia arriba de otro que mueve el triple de docenas.
+          Roberto: "no tiene sentido tenerlo, .de que nos sirve?". */}
       <div className="grid-paneles">
-        <div className="tarjeta">
-          <h2>Capturas por dia</h2>
-          <BarraKpi datos={ind.capturasPorDia} color="#1d4ed8" />
-        </div>
         <div className="tarjeta">
           <h2>Capturas por persona</h2>
           <BarraKpi datos={ind.capturasPorOperador} color="#059669" />
-        </div>
-        <div className="tarjeta">
-          <h2>Codigos mas capturados</h2>
-          <BarraKpi datos={ind.topCodigos} color="#0e7490" />
         </div>
         <div className="tarjeta">
           <h2>Kg salidos por maquila</h2>
