@@ -24,11 +24,18 @@ import {
   ETIQUETA_ESTADO,
   escucharRecepcionesPT,
   estadoDelRenglon,
-  etiquetaDeSalida,
+  mapaOtAOc,
+  olvidarCacheDeSalidas,
+  otsYOcsDeSalida,
   registrarRecepcionPT,
   renglonesDeLaSalida,
-  salidasParaRecibir
+  salidasParaRecibir,
+  textoBuscableDeSalida
 } from '../utils/recepcionPT'
+
+// Cuantos resultados se pintan. Con mas, la lista deja de ayudar y hay que
+// afinar la busqueda; el contador dice cuantos quedaron fuera.
+const MAX_RESULTADOS = 12
 
 const ESTADOS_EN_MAQUILA = [
   { estado: 'declarada', titulo: 'Ya avisaron que terminaron', fecha: 'declaradaEn' },
@@ -64,6 +71,8 @@ export default function PanelPorLlegar() {
   // las pidio el 28-08: en una sola columna, registrar una entrega quedaba
   // revuelto con el historial y con la referencia de las maquilas.
   const [seccion, setSeccion] = useState('registrar')
+  const [busqueda, setBusqueda] = useState('')
+  const [otAOc, setOtAOc] = useState(() => new Map())
 
   useEffect(() => {
     let vivo = true
@@ -94,6 +103,16 @@ export default function PanelPorLlegar() {
     [esPrueba]
   )
 
+  // El mapa OT -> OC del plan vigente: una lectura, y con ella se puede
+  // buscar por orden de compra aunque la salida no la traiga guardada.
+  useEffect(() => {
+    let vivo = true
+    mapaOtAOc().then((m) => vivo && setOtAOc(m))
+    return () => {
+      vivo = false
+    }
+  }, [])
+
   const idsMaquilas = maquilas.map((m) => m.id).join(',')
   useEffect(() => {
     const ids = idsMaquilas ? idsMaquilas.split(',') : []
@@ -101,6 +120,19 @@ export default function PanelPorLlegar() {
       console.warn('[Recibir] No se pudieron leer las tareas:', err?.message)
     )
   }, [idsMaquilas])
+
+  const indexadas = useMemo(
+    () => salidas.map((x) => ({ salida: x, buscable: textoBuscableDeSalida(x, otAOc) })),
+    [salidas, otAOc]
+  )
+
+  const encontradas = useMemo(() => {
+    // Cada palabra por separado y todas tienen que estar: asi "302 rober" o
+    // "7976 lopez" encuentran, sin obligar a teclearlo en el mismo orden.
+    const palabras = busqueda.trim().toUpperCase().split(/\s+/).filter(Boolean)
+    if (palabras.length === 0) return indexadas
+    return indexadas.filter((x) => palabras.every((w) => x.buscable.includes(w)))
+  }, [indexadas, busqueda])
 
   const salida = salidas.find((s) => s.id === salidaId) || null
   const renglones = useMemo(() => (salida ? renglonesDeLaSalida(salida) : []), [salida])
@@ -138,7 +170,9 @@ export default function PanelPorLlegar() {
       setAviso(
         `Quedó registrada la recepción del folio ${salida?.encabezado?.folioInterno || ''}.`
       )
+      olvidarCacheDeSalidas()
       elegirSalida('')
+      setBusqueda('')
     } catch (err) {
       console.error('[Recibir] No se pudo registrar:', err)
       setError('No se pudo registrar: ' + (err.message || err))
@@ -158,24 +192,103 @@ export default function PanelPorLlegar() {
       {error && <div className="alerta-error">{error}</div>}
       {aviso && <div className="alerta-exito">{aviso}</div>}
 
-      <label className="campo" style={{ maxWidth: 640 }}>
-        <span>¿De qué salida es lo que llegó?</span>
-        <select value={salidaId} onChange={(e) => elegirSalida(e.target.value)}>
-          <option value="">{cargandoSalidas ? 'Cargando salidas...' : 'Elige la salida'}</option>
-          {salidas.map((s) => (
-            <option key={s.id} value={s.id}>
-              {etiquetaDeSalida(s)}
-              {yaRecibidas.has(s.id) ? ' — ya tiene recepción' : ''}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {!cargandoSalidas && salidas.length === 0 && (
+      {cargandoSalidas ? (
+        <p className="texto-suave">Cargando salidas...</p>
+      ) : salidas.length === 0 ? (
         <p className="texto-suave">
           Todavía no hay salidas a maquilas registradas. Van a aparecer aquí en cuanto
           se emita la primera.
         </p>
+      ) : (
+        <>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              margin: '14px 0 6px'
+            }}
+          >
+            <strong>¿De qué salida es lo que llegó?</strong>
+            <input
+              type="search"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por folio, bulto, OT, OC o maquila"
+              style={{ flex: '1 1 280px', maxWidth: 420, padding: '7px 10px' }}
+            />
+          </div>
+
+          <p className="texto-suave" style={{ fontSize: 13, marginTop: 0 }}>
+            {encontradas.length === salidas.length
+              ? `Las más recientes de ${salidas.length}. Si la tuya no está a la vista, búscala.`
+              : `${encontradas.length} de ${salidas.length} salidas coinciden.`}
+          </p>
+
+          {encontradas.length === 0 ? (
+            <p className="texto-suave">
+              Nada con eso. Prueba con el folio interno de la salida, el folio de
+              alguno de los bultos, la orden de trabajo o el nombre de la maquila.
+            </p>
+          ) : (
+            <table className="tabla-datos">
+              <thead>
+                <tr>
+                  <th>Folio</th>
+                  <th>Maquila</th>
+                  <th>Salió</th>
+                  <th>Bultos</th>
+                  <th>OT</th>
+                  <th>OC</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {encontradas.slice(0, MAX_RESULTADOS).map(({ salida: x }) => {
+                  const { ots, ocs } = otsYOcsDeSalida(x, otAOc)
+                  const elegida = x.id === salidaId
+                  return (
+                    <tr
+                      key={x.id}
+                      style={elegida ? { background: '#eef2f7', fontWeight: 600 } : undefined}
+                    >
+                      <td>
+                        <strong>{x.encabezado?.folioInterno || '—'}</strong>
+                        {yaRecibidas.has(x.id) && (
+                          <div className="texto-suave" style={{ fontSize: 12 }}>
+                            ya recibida
+                          </div>
+                        )}
+                      </td>
+                      <td>{x.maquila?.nombre || x.maquila?.id}</td>
+                      <td>{x.fechaTexto || '—'}</td>
+                      <td>{x.totalFolios ?? (x.capturas || []).length}</td>
+                      <td>{ots.join(', ') || '—'}</td>
+                      <td>{ocs.join(', ') || '—'}</td>
+                      <td>
+                        <button
+                          className={elegida ? '' : 'btn-primario'}
+                          onClick={() => elegirSalida(elegida ? '' : x.id)}
+                        >
+                          {elegida ? 'Quitar' : 'Es esta'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+
+          {encontradas.length > MAX_RESULTADOS && (
+            <p className="texto-suave" style={{ fontSize: 13 }}>
+              Se muestran las {MAX_RESULTADOS} más recientes de {encontradas.length}.
+              Afina la búsqueda para ver el resto.
+            </p>
+          )}
+        </>
       )}
 
       {salida && (

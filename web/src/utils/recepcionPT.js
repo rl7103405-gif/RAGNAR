@@ -24,6 +24,8 @@
 import {
   addDoc,
   collection,
+  doc,
+  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -36,8 +38,11 @@ import { db } from '../firebase/config'
 
 export class ErrorRecepcion extends Error {}
 
-/** Cuantas salidas se ofrecen para elegir. */
-const SALIDAS_RECIENTES = 60
+// Cuantas salidas se traen. Son 304 en total al 28-08 y hay que poder buscar
+// entre ellas por folio de bulto, asi que se leen TODAS y se guardan por un
+// rato: filtrar en memoria es gratis, releer 300 documentos en cada tecla no.
+const VIGENCIA_CACHE_MS = 120000
+let cacheSalidas = null // { esPrueba, en, promesa }
 
 const texto = (v, max) => String(v ?? '').trim().slice(0, max)
 const numero = (v) => {
@@ -95,19 +100,105 @@ export function renglonesDeLaSalida(salida) {
   return [...porCodigo.values()].sort((a, b) => a.codigo.localeCompare(b.codigo))
 }
 
-/** Las ultimas salidas del mundo que corresponde, para elegir cual llego. */
+/**
+ * Las salidas a maquilas del mundo que corresponde.
+ *
+ * Se guarda la PROMESA, no el resultado: si la pantalla pide dos veces antes
+ * de que llegue la primera, las dos esperan la misma lectura en vez de lanzar
+ * dos. Es el mismo patron que el cache del ruteo y el del arbol.
+ */
 export async function salidasParaRecibir(esPrueba) {
-  const snap = await getDocs(
-    query(collection(db, 'pdfsGenerados'), orderBy('creadoEn', 'desc'), limit(200))
+  const ahora = Date.now()
+  if (
+    cacheSalidas &&
+    cacheSalidas.esPrueba === (esPrueba === true) &&
+    ahora - cacheSalidas.en < VIGENCIA_CACHE_MS
+  ) {
+    return cacheSalidas.promesa
+  }
+  const promesa = getDocs(
+    query(collection(db, 'pdfsGenerados'), orderBy('creadoEn', 'desc'), limit(500))
+  ).then((snap) =>
+    snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      // El corral: cada mundo ve sus salidas. Se filtra en memoria y no con un
+      // where porque los documentos viejos (anteriores a las cuentas de
+      // prueba) no traen el campo, y un where los dejaria fuera a todos.
+      .filter((x) => (x.esPrueba === true) === (esPrueba === true))
+      .filter((x) => x.maquila?.id)
   )
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    // El corral: cada mundo ve sus salidas. Se filtra en memoria y no con un
-    // where porque los documentos viejos (anteriores a las cuentas de prueba)
-    // no traen el campo, y un where los dejaria fuera a todos.
-    .filter((s) => (s.esPrueba === true) === (esPrueba === true))
-    .filter((s) => s.maquila?.id)
-    .slice(0, SALIDAS_RECIENTES)
+  cacheSalidas = { esPrueba: esPrueba === true, en: ahora, promesa }
+  promesa.catch(() => {
+    cacheSalidas = null
+  })
+  return promesa
+}
+
+/** Se olvida el cache: al guardar una recepcion conviene refrescar la lista. */
+export function olvidarCacheDeSalidas() {
+  cacheSalidas = null
+}
+
+/**
+ * El mapa OT -> OC del plan vigente, en UNA sola lectura.
+ *
+ * El documento de salida no trae la orden de compra (los bultos guardan la OT
+ * y el pedido), pero Roberto pidio poder buscar por OC. El resumen del plan
+ * vigente ya trae `ocs: [{ oc, ots: [...] }]`, asi que se arma de ahi en vez
+ * de consultar el plan orden por orden.
+ */
+export async function mapaOtAOc() {
+  try {
+    const snap = await getDoc(doc(db, 'config', 'planMaestroActivo'))
+    const ocs = snap.exists() ? snap.data().ocs : null
+    const m = new Map()
+    if (Array.isArray(ocs)) {
+      ocs.forEach((o) => (o.ots || []).forEach((ot) => m.set(String(ot).trim(), o.oc)))
+    }
+    return m
+  } catch (err) {
+    // Sin plan se busca igual por todo lo demas: quedarse sin buscador porque
+    // el plan no cargo seria peor que no poder buscar por OC.
+    console.warn('[Recibir] No se pudo leer el plan para las OC:', err?.message)
+    return new Map()
+  }
+}
+
+/** Todo lo que se puede teclear para encontrar una salida. */
+export function textoBuscableDeSalida(salida, otAOc) {
+  const partes = [
+    salida?.encabezado?.folioInterno,
+    salida?.maquila?.nombre,
+    salida?.maquila?.id,
+    salida?.fechaTexto
+  ]
+  const ots = new Set()
+  ;(salida?.capturas || []).forEach((c) => {
+    const pr = c.producto || {}
+    partes.push(c.folio, pr.codigo, pr.ot, pr.pedido, pr.descripcion, pr.modelo)
+    if (pr.ot) ots.add(String(pr.ot).trim())
+  })
+  // La OC no viaja en el documento: se resuelve por la OT con el plan vigente.
+  ots.forEach((ot) => {
+    const oc = otAOc?.get?.(ot)
+    if (oc) partes.push(oc)
+  })
+  return partes.filter(Boolean).join(' ').toUpperCase()
+}
+
+/** Las OT y las OC que trae una salida, para enseñarlas en el resultado. */
+export function otsYOcsDeSalida(salida, otAOc) {
+  const ots = new Set()
+  ;(salida?.capturas || []).forEach((c) => {
+    const ot = c.producto?.ot
+    if (ot) ots.add(String(ot).trim())
+  })
+  const ocs = new Set()
+  ots.forEach((ot) => {
+    const oc = otAOc?.get?.(ot)
+    if (oc) ocs.add(oc)
+  })
+  return { ots: [...ots], ocs: [...ocs] }
 }
 
 /** Como se le presenta una salida a Valeria para que la reconozca. */
