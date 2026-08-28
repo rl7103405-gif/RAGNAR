@@ -1,33 +1,54 @@
 // RECEPCION EN PRODUCTO TERMINADO: lo que Valeria cuenta cuando la mercancia
-// llega de la maquila.
+// regresa de la maquila, comparado contra LO QUE SALIO.
 //
-// Roberto, 2026-08-28: "la principal funcion de Valeria es recibir esto... que
-// si ahorita le llega algo, que lo registre".
+// Roberto, 2026-08-28: "quiero que pueda decir 'acabo de recibir un pedido',
+// pongo mis especificaciones, se compara con los folios, con lo que ha salido,
+// y ya se saca lo que entro".
 //
-// ⚠️ POR QUE ESTO SE PUEDE CONSTRUIR HOY, aunque lo que la maquila declara
-// todavia no se guarde. La recepcion NO necesita el dato de la maquila: es el
-// acta de PT, y su valor esta justo en ser INDEPENDIENTE. PT declara lo que
-// SUS OJOS contaron; lo encargado sale de la tarea (que si esta guardada) y la
-// diferencia entre ambos es el hallazgo. El dia que se persista lo que la
-// maquila declaro, seran TRES columnas —encargado, declarado, recibido— sin
-// que haya que rehacer nada de aqui.
+// ⚠️ CONTRA QUE SE COMPARA, Y POR QUE NO CONTRA LA TAREA. La primera version
+// colgaba de las tareas de ensamble, y en produccion NO HAY NINGUNA viva: las
+// maquilas todavia no tienen cuenta y nadie las esta creando. La pantalla
+// quedaba correcta y vacia, que para quien la usa es lo mismo que rota.
 //
-// Por eso PT no edita la tarea ni corrige a la maquila: escribe su propio
-// documento. Si un dia hay pleito, existen las dos versiones, cada una con su
-// nombre y su hora.
+// Lo que si existe son los DOCUMENTOS DE SALIDA (`pdfsGenerados`): 304 al
+// 28-08, con folio interno, maquila y la lista congelada de bultos que se le
+// mandaron, cada uno con su codigo y sus docenas. Eso es exactamente "lo que
+// salio", y contra eso se compara lo que vuelve.
 //
-// La recepcion es INMUTABLE una vez guardada, como la bitacora de PDFs: es el
-// acta de lo que se conto ese dia. Si algo salio mal se registra otra vez y se
-// explica en la nota; lo que no se hace es reescribir el pasado.
-import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp, where } from 'firebase/firestore'
+// El dia que las maquilas declaren su entrega habra una tercera columna
+// (enviado / declarado / recibido) sin rehacer nada de aqui: por eso el acta
+// guarda `origenTipo`.
+//
+// La recepcion es INMUTABLE: es el acta de lo que se conto ese dia, con nombre
+// y hora. Si algo salio mal se levanta otra y se explica en la nota.
+import {
+  addDoc,
+  collection,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  where
+} from 'firebase/firestore'
 import { db } from '../firebase/config'
 
 export class ErrorRecepcion extends Error {}
 
+/** Cuantas salidas se ofrecen para elegir. */
+const SALIDAS_RECIENTES = 60
+
+const texto = (v, max) => String(v ?? '').trim().slice(0, max)
+const numero = (v) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
 /** Los tres desenlaces de un renglon. El estado se DERIVA de las cantidades:
  *  no se le pide a nadie que lo teclee y que ademas cuadre con el numero. */
-export function estadoDelRenglon(esperada, recibida) {
-  const e = Number(esperada)
+export function estadoDelRenglon(enviada, recibida) {
+  const e = Number(enviada)
   const r = Number(recibida)
   if (!Number.isFinite(r)) return 'sin_contar'
   if (!Number.isFinite(e) || e <= 0) return 'sin_referencia'
@@ -40,65 +61,109 @@ export const ETIQUETA_ESTADO = {
   faltante: 'Faltó',
   sobrante: 'Llegó de más',
   sin_contar: 'Sin contar',
-  sin_referencia: 'Sin cantidad encargada'
+  sin_referencia: 'Sin referencia de salida'
 }
 
-const texto = (v, max) => String(v ?? '').trim().slice(0, max)
+/**
+ * Convierte un documento de salida en la lista de lo que se mando, AGRUPADO
+ * POR CODIGO.
+ *
+ * Se agrupa a proposito: el papel viaja por folios (un bulto es un folio),
+ * pero la maquila devuelve producto armado en cajas, no los mismos bultos. A
+ * Valeria le sirve "de este codigo salieron 24 docenas", no la lista de los
+ * seis folios que las traian. Los folios se conservan aparte por si hace falta
+ * rastrear uno.
+ */
+export function renglonesDeLaSalida(salida) {
+  const porCodigo = new Map()
+  ;(salida?.capturas || []).forEach((c) => {
+    const p = c.producto || {}
+    const codigo = texto(p.codigo, 60) || '(sin codigo)'
+    if (!porCodigo.has(codigo)) {
+      porCodigo.set(codigo, {
+        codigo,
+        descripcion: texto(p.descripcion, 200),
+        ot: texto(p.ot, 40),
+        docenasEnviadas: 0,
+        folios: []
+      })
+    }
+    const r = porCodigo.get(codigo)
+    r.docenasEnviadas += numero(p.docenas)
+    r.folios.push(String(c.folio))
+  })
+  return [...porCodigo.values()].sort((a, b) => a.codigo.localeCompare(b.codigo))
+}
+
+/** Las ultimas salidas del mundo que corresponde, para elegir cual llego. */
+export async function salidasParaRecibir(esPrueba) {
+  const snap = await getDocs(
+    query(collection(db, 'pdfsGenerados'), orderBy('creadoEn', 'desc'), limit(200))
+  )
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    // El corral: cada mundo ve sus salidas. Se filtra en memoria y no con un
+    // where porque los documentos viejos (anteriores a las cuentas de prueba)
+    // no traen el campo, y un where los dejaria fuera a todos.
+    .filter((s) => (s.esPrueba === true) === (esPrueba === true))
+    .filter((s) => s.maquila?.id)
+    .slice(0, SALIDAS_RECIENTES)
+}
+
+/** Como se le presenta una salida a Valeria para que la reconozca. */
+export function etiquetaDeSalida(s) {
+  const folio = s?.encabezado?.folioInterno || String(s?.id || '').slice(0, 6) || '?'
+  const maquila = s?.maquila?.nombre || s?.maquila?.id || 'sin maquila'
+  const fecha = s?.fechaTexto || ''
+  const bultos = s?.totalFolios ?? (s?.capturas || []).length
+  return `Folio ${folio} · ${maquila} · ${fecha} · ${bultos} bultos`
+}
 
 /**
- * Guarda el acta de recepcion de una tarea.
+ * Guarda el acta de recepcion.
  *
- * tarea:     la tarea de ensamble tal como la ve PT (trae maquilaId, titulo,
- *            ot y renglones con lo ENCARGADO).
- * contado:   { [codigo]: { cantidad, nota } } — lo que PT conto de verdad.
+ * salida:  el documento de salida contra el que se compara.
+ * contado: { [codigo]: { docenas, nota } } — lo que PT conto de verdad.
  */
-export async function registrarRecepcionPT({ tarea, contado, nota, usuario, esPrueba }) {
+export async function registrarRecepcionPT({ salida, contado, nota, usuario, esPrueba }) {
   if (!usuario?.uid || !usuario?.nombre) {
     throw new ErrorRecepcion('Tu cuenta no tiene nombre configurado.')
   }
-  if (!tarea?.id || !tarea?.maquilaId) throw new ErrorRecepcion('Falta la tarea.')
+  if (!salida?.id || !salida?.maquila?.id) {
+    throw new ErrorRecepcion('Elige de qué salida es lo que llegó.')
+  }
 
-  const renglones = (tarea.renglones || []).map((r) => {
+  const renglones = renglonesDeLaSalida(salida).map((r) => {
     const c = contado?.[r.codigo] || {}
-    const recibida = c.cantidad === '' || c.cantidad == null ? null : Number(c.cantidad)
-    const esperada = Number(r.cantidad)
+    const recibida = c.docenas === '' || c.docenas == null ? null : Number(c.docenas)
     return {
-      codigo: texto(r.codigo, 60),
-      descripcion: texto(r.descripcion, 200),
-      unidad: texto(r.unidad || 'packs', 30),
-      cantidadEncargada: Number.isFinite(esperada) ? esperada : null,
-      cantidadRecibida: Number.isFinite(recibida) && recibida >= 0 ? recibida : null,
-      estado: estadoDelRenglon(esperada, recibida),
+      codigo: r.codigo,
+      descripcion: r.descripcion,
+      docenasEnviadas: r.docenasEnviadas,
+      docenasRecibidas: Number.isFinite(recibida) && recibida >= 0 ? recibida : null,
+      estado: estadoDelRenglon(r.docenasEnviadas, recibida),
       nota: texto(c.nota, 200)
     }
   })
 
-  if (renglones.length === 0) throw new ErrorRecepcion('La tarea no trae renglones.')
-  // Se exige contar AL MENOS uno. Guardar un acta con todo vacio no dice
-  // "llego cero": dice que nadie conto, y despues nadie sabe distinguirlo.
-  if (!renglones.some((r) => r.cantidadRecibida !== null)) {
-    throw new ErrorRecepcion('Escribe cuánto llegó de al menos un código.')
+  if (renglones.length === 0) throw new ErrorRecepcion('Esa salida no trae bultos.')
+  // Se exige contar AL MENOS uno. Un acta con todo vacio no dice "llego cero":
+  // dice que nadie conto, y despues nadie sabe distinguirlo.
+  if (!renglones.some((r) => r.docenasRecibidas !== null)) {
+    throw new ErrorRecepcion('Escribe cuántas docenas llegaron de al menos un código.')
   }
 
   const conProblema = renglones.filter((r) => r.estado === 'faltante' || r.estado === 'sobrante')
 
   await addDoc(collection(db, 'recepcionesPT'), {
-    maquilaId: texto(tarea.maquilaId, 60),
-    tareaId: texto(tarea.id, 60),
-    tareaTitulo: texto(tarea.titulo, 200),
-    ot: texto(tarea.ot, 40),
-    // En que estado estaba la tarea cuando PT la recibio. Importa: hoy las
-    // maquilas todavia no tienen cuenta, asi que muchas entregas van a
-    // registrarse SIN que la maquila haya avisado que termino. Guardarlo
-    // distingue "la maquila lo declaro y coincidimos" de "lo recibimos sin
-    // que nadie lo declarara", que no valen lo mismo en una aclaracion.
-    estadoTareaAlRecibir: texto(tarea.estado, 30),
-    // En que estado estaba la tarea cuando PT la recibio. Importa: hoy las
-    // maquilas todavia no tienen cuenta, asi que muchas entregas van a
-    // registrarse SIN que la maquila haya avisado que termino. Guardarlo
-    // distingue "la maquila lo declaro y coincidimos" de "lo recibimos sin
-    // que nadie lo declarara", que no valen lo mismo en una aclaracion.
-    estadoTareaAlRecibir: texto(tarea.estado, 30),
+    // Deja lugar a un segundo origen (lo que la maquila declare) sin rehacer
+    // la coleccion el dia que exista.
+    origenTipo: 'salida',
+    documentoId: texto(salida.id, 60),
+    folioInterno: texto(salida.encabezado?.folioInterno, 40),
+    maquilaId: texto(salida.maquila.id, 60),
+    maquilaNombre: texto(salida.maquila.nombre, 120),
+    fechaSalidaTexto: texto(salida.fechaTexto, 40),
     renglones,
     // Se guarda ya resuelto para no recalcularlo en cada pantalla que lo lea,
     // y para poder filtrar "las que no cuadraron" sin abrir cada documento.

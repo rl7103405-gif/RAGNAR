@@ -1,31 +1,21 @@
-// LO QUE VIENE PARA PRODUCTO TERMINADO.
+// RECIBIR (Producto Terminado).
 //
-// Lo pidio Roberto el 2026-08-28 con estas palabras: "es importante que ella
-// tenga como un aviso de que, oye, ya estan haciendo esto, tal vez preparate
-// en x dias para recibir esto, o hoy te va a llegar esto y vete preparando".
+// Aqui Valeria registra lo que le llega de vuelta de la maquila. El flujo es el
+// que pidio Roberto el 2026-08-28: "acabo de recibir un pedido, pongo mis
+// especificaciones, se compara con los folios, con lo que ha salido, y ya se
+// saca lo que entro".
 //
-// El problema real que resuelve: hoy PT se entera de que llega mercancia
-// cuando el camion ya esta afuera. Todo lo que hace falta para avisarle YA
-// EXISTE en las tareas de ensamble -- solo que nadie se lo estaba enseñando.
+// Elige la SALIDA (el documento con el que se le mando la mercancia a la
+// maquila), la pantalla trae lo que salio de cada codigo, ella escribe lo que
+// conto, y el acta queda con la diferencia.
 //
-// Desde el 28-08 tambien RECIBE, y se puede recibir CUALQUIER tarea viva, no
-// solo las que la maquila declaro terminadas. Roberto: "que ya pueda recibir
-// en cualquier momento, la maquila no tiene que terminar" -- y tiene razon
-// practica: las maquilas todavia no tienen cuenta, asi que nadie esta marcando
-// nada. Esperar un aviso que nadie va a dar dejaria a PT sin poder trabajar.
-// El acta guarda en que estado estaba la tarea, para no confundir despues una
-// entrega que la maquila declaro con una que solo vio PT. No hizo falta esperar a que se persista lo que la maquila
-// declara, porque el acta de PT es independiente a proposito -- lo encargado
-// sale de la tarea, lo recibido lo cuenta Valeria, y la diferencia es el
-// hallazgo. Ver utils/recepcionPT.js.
+// ⚠️ Esta pantalla es del rol 'pt'. Cielo NO la ve: ella lleva los pagos, no
+// recibe mercancia.
 //
-// Lo que TODAVIA no hay es el codigo de barras en la remision (para no teclear
-// nada) ni el inventario acumulado. Eso sigue en IDEAS.md.
-//
-// Esta pantalla es del rol 'pt' (Valeria). Cielo NO la ve: ella lleva los
-// pagos, no recibe mercancia. Las dos compartieron el rol 'consulta' hasta
-// el 28-08, y mientras lo compartieron todo lo que se le daba a una le
-// aparecia a la otra.
+// Abajo, como referencia, lo que las maquilas tienen en sus manos segun las
+// tareas de ensamble. Hoy sale vacio porque las maquilas todavia no tienen
+// cuenta y nadie esta creando tareas; se deja porque sera informacion real en
+// cuanto empiecen, y porque recibir NO depende de eso.
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
@@ -34,318 +24,252 @@ import {
   ETIQUETA_ESTADO,
   escucharRecepcionesPT,
   estadoDelRenglon,
-  registrarRecepcionPT
+  etiquetaDeSalida,
+  registrarRecepcionPT,
+  renglonesDeLaSalida,
+  salidasParaRecibir
 } from '../utils/recepcionPT'
 
-// Los tres avisos, en el orden en que le importan a PT: primero lo que esta a
-// punto de llegar. 'preparando' no aparece: es un borrador que la maquila ni
-// siquiera ha visto, avisarlo seria anunciar algo que todavia puede cancelarse.
-const GRUPOS = [
-  {
-    estado: 'declarada',
-    titulo: 'Por llegar',
-    detalle: 'La maquila ya avisó que terminó. Esto es lo próximo en entrar.',
-    clase: 'alerta-exito',
-    fecha: 'declaradaEn'
-  },
-  {
-    estado: 'iniciada',
-    titulo: 'La maquila lo está armando',
-    detalle: 'Ya empezaron. Falta que avisen que terminaron.',
-    clase: 'alerta-aviso',
-    fecha: 'iniciadaEn'
-  },
-  {
-    estado: 'abierta',
-    titulo: 'Encargado, sin empezar',
-    detalle: 'La tarea ya se le mandó a la maquila, pero todavía no la inicia.',
-    clase: '',
-    fecha: 'publicadaEn'
-  }
+const ESTADOS_EN_MAQUILA = [
+  { estado: 'declarada', titulo: 'Ya avisaron que terminaron', fecha: 'declaradaEn' },
+  { estado: 'iniciada', titulo: 'Lo están armando', fecha: 'iniciadaEn' },
+  { estado: 'abierta', titulo: 'Encargado, sin empezar', fecha: 'publicadaEn' }
 ]
 
-const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—')
-
-/** Cuantos dias han pasado desde ese timestamp. Sirve para "lleva 3 dias". */
-function diasDesde(t) {
-  if (!t?.toDate) return null
-  const ms = Date.now() - t.toDate().getTime()
-  return Math.max(0, Math.floor(ms / 86400000))
+const COLOR_ESTADO = {
+  completo: '#16a34a',
+  faltante: '#dc2626',
+  sobrante: '#d97706',
+  sin_contar: '#64748b',
+  sin_referencia: '#64748b'
 }
+
+const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—')
 
 export default function PanelPorLlegar() {
   const { authUser, perfil, esPrueba } = useAuth()
   const maquilas = useMaquilas()
-  const [tareas, setTareas] = useState([])
-  const [error, setError] = useState('')
-  const [aviso, setAviso] = useState('')
-  const [recibiendo, setRecibiendo] = useState(null) // la tarea que se esta contando
+
+  const [salidas, setSalidas] = useState([])
+  const [cargandoSalidas, setCargandoSalidas] = useState(true)
+  const [salidaId, setSalidaId] = useState('')
   const [contado, setContado] = useState({})
   const [notaGeneral, setNotaGeneral] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [recepciones, setRecepciones] = useState([])
+  const [tareas, setTareas] = useState([])
+  const [error, setError] = useState('')
+  const [aviso, setAviso] = useState('')
 
-  // Se escucha maquila por maquila, igual que PanelTareasMaquila: useMaquilas
-  // ya viene filtrado por mundo, asi que una cuenta de prueba solo se suscribe
-  // a la maquila ficticia y una real nunca ve lo de prueba.
+  useEffect(() => {
+    let vivo = true
+    setCargandoSalidas(true)
+    salidasParaRecibir(esPrueba)
+      .then((s) => {
+        if (!vivo) return
+        setSalidas(s)
+        setCargandoSalidas(false)
+      })
+      .catch((err) => {
+        if (!vivo) return
+        console.error('[Recibir] No se pudieron leer las salidas:', err)
+        setError('No se pudieron cargar las salidas: ' + (err.message || err))
+        setCargandoSalidas(false)
+      })
+    return () => {
+      vivo = false
+    }
+  }, [esPrueba])
+
+  useEffect(
+    () =>
+      escucharRecepcionesPT(esPrueba, setRecepciones, (err) => {
+        console.error('[Recibir] Error escuchando recepciones:', err)
+        setError('No se pudo cargar lo ya recibido: ' + (err.message || err))
+      }),
+    [esPrueba]
+  )
+
   const idsMaquilas = maquilas.map((m) => m.id).join(',')
   useEffect(() => {
     const ids = idsMaquilas ? idsMaquilas.split(',') : []
-    return escucharTareasEnsambleDeVarias(ids, setTareas, (err) => {
-      console.error('[PorLlegar] Error escuchando tareas:', err)
-      setError('No se pudieron cargar los avisos: ' + (err.message || err))
-    })
+    return escucharTareasEnsambleDeVarias(ids, setTareas, (err) =>
+      console.warn('[Recibir] No se pudieron leer las tareas:', err?.message)
+    )
   }, [idsMaquilas])
 
-  useEffect(() => {
-    return escucharRecepcionesPT(esPrueba, setRecepciones, (err) => {
-      console.error('[PorLlegar] Error escuchando recepciones:', err)
-    })
-  }, [esPrueba])
+  const salida = salidas.find((s) => s.id === salidaId) || null
+  const renglones = useMemo(() => (salida ? renglonesDeLaSalida(salida) : []), [salida])
+  const yaRecibidas = useMemo(
+    () => new Set(recepciones.map((r) => r.documentoId)),
+    [recepciones]
+  )
 
   const nombreMaquila = (id) => maquilas.find((m) => m.id === id)?.nombre || id
-
-  const abrirRecepcion = (t) => {
-    setError('')
-    setAviso('')
-    setRecibiendo(t)
-    // Se abre VACIO, no con lo encargado ya escrito. Prellenarlo invitaria a
-    // guardar sin contar, que es justo lo que el acta tiene que evitar.
-    setContado({})
-    setNotaGeneral('')
-  }
 
   const ponContado = (codigo, campo, valor) =>
     setContado((prev) => ({ ...prev, [codigo]: { ...(prev[codigo] || {}), [campo]: valor } }))
 
-  const onGuardarRecepcion = async () => {
+  const elegirSalida = (id) => {
+    setSalidaId(id)
+    // Se abre VACIO, no con lo que salio ya escrito: prellenarlo invitaria a
+    // guardar sin contar, que es justo lo que el acta debe evitar.
+    setContado({})
+    setNotaGeneral('')
+    setError('')
+    setAviso('')
+  }
+
+  const onGuardar = async () => {
     setError('')
     setGuardando(true)
     try {
       await registrarRecepcionPT({
-        tarea: recibiendo,
+        salida,
         contado,
         nota: notaGeneral,
         usuario: { uid: authUser?.uid, nombre: perfil?.nombreCompleto || '' },
         esPrueba
       })
-      setAviso(`Quedo registrada la recepcion de "${recibiendo.titulo || recibiendo.ot}".`)
-      setRecibiendo(null)
-      setContado({})
-      setNotaGeneral('')
+      setAviso(
+        `Quedó registrada la recepción del folio ${salida?.encabezado?.folioInterno || ''}.`
+      )
+      elegirSalida('')
     } catch (err) {
-      console.error('[PorLlegar] No se pudo registrar:', err)
+      console.error('[Recibir] No se pudo registrar:', err)
       setError('No se pudo registrar: ' + (err.message || err))
     } finally {
       setGuardando(false)
     }
   }
 
-  const porGrupo = useMemo(() => {
-    const m = new Map(GRUPOS.map((g) => [g.estado, []]))
-    tareas.forEach((t) => {
-      if (m.has(t.estado)) m.get(t.estado).push(t)
-    })
-    return m
-  }, [tareas])
-
-  const porLlegar = porGrupo.get('declarada') || []
-
-  /** Lo encargado en esa tarea, sumado por unidad (packs y docenas conviven). */
-  const resumenCantidades = (t) => {
-    const porUnidad = new Map()
-    ;(t.renglones || []).forEach((r) => {
-      const u = String(r.unidad || 'packs')
-      porUnidad.set(u, (porUnidad.get(u) || 0) + (Number(r.cantidad) || 0))
-    })
-    return [...porUnidad.entries()].map(([u, n]) => `${n} ${u}`).join(' · ') || '—'
-  }
-
   return (
     <div className="tarjeta">
       <h2>Recibir</h2>
+      <p className="texto-suave">
+        Cuando te llegue algo de una maquila, elige aquí con qué documento salió y
+        escribe lo que contaste. La pantalla lo compara sola contra lo que se mandó.
+      </p>
 
       {error && <div className="alerta-error">{error}</div>}
       {aviso && <div className="alerta-exito">{aviso}</div>}
 
-      {porLlegar.length > 0 && (
-        <div className="alerta-exito">
-          <strong>
-            {porLlegar.length === 1
-              ? 'Hay 1 entrega por llegar.'
-              : `Hay ${porLlegar.length} entregas por llegar.`}
-          </strong>{' '}
-          Las maquilas ya avisaron que terminaron.
-        </div>
+      <label className="campo" style={{ maxWidth: 640 }}>
+        <span>¿De qué salida es lo que llegó?</span>
+        <select value={salidaId} onChange={(e) => elegirSalida(e.target.value)}>
+          <option value="">{cargandoSalidas ? 'Cargando salidas...' : 'Elige la salida'}</option>
+          {salidas.map((s) => (
+            <option key={s.id} value={s.id}>
+              {etiquetaDeSalida(s)}
+              {yaRecibidas.has(s.id) ? ' — ya tiene recepción' : ''}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {!cargandoSalidas && salidas.length === 0 && (
+        <p className="texto-suave">
+          Todavía no hay salidas a maquilas registradas. Van a aparecer aquí en cuanto
+          se emita la primera.
+        </p>
       )}
 
-      {GRUPOS.filter((g) => g.estado === 'declarada').map((g) => {
-        const lista = porGrupo.get(g.estado) || []
-        return (
-          <div key={g.estado} style={{ marginTop: 18 }}>
-            <h3 style={{ marginBottom: 2 }}>
-              {g.titulo} {lista.length > 0 && <span className="texto-suave">({lista.length})</span>}
-            </h3>
-            <p className="texto-suave" style={{ marginTop: 0 }}>
-              {g.detalle}
-            </p>
-
-            {lista.length === 0 ? (
-              <p className="texto-suave">
-                No hay nada esperando a que lo recibas. Aquí van a aparecer las
-                entregas en cuanto la maquila avise que terminó.
-              </p>
-            ) : (
-              <table className="tabla-datos">
-                <thead>
-                  <tr>
-                    <th>Maquila</th>
-                    <th>Pedido / cliente</th>
-                    <th>OT</th>
-                    <th>Códigos</th>
-                    <th>Cantidad encargada</th>
-                    <th>Desde</th>
-                    {g.estado === 'declarada' && <th></th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {lista.map((t) => {
-                    const dias = diasDesde(t[g.fecha])
-                    return (
-                      <tr key={`${t.maquilaId || ''}-${t.id}`}>
-                        <td>{nombreMaquila(t.maquilaId)}</td>
-                        <td>{t.titulo || '—'}</td>
-                        <td>{t.ot || '—'}</td>
-                        <td>{(t.renglones || []).length}</td>
-                        <td>{resumenCantidades(t)}</td>
-                        <td>
-                          {fecha(t[g.fecha])}
-                          {dias !== null && (
-                            <span className="texto-suave">
-                              {' '}
-                              {dias === 0 ? '(hoy)' : dias === 1 ? '(ayer)' : `(hace ${dias} días)`}
-                            </span>
-                          )}
-                        </td>
-                        {g.estado === 'declarada' && (
-                          <td>
-                            <button className="btn-primario" onClick={() => abrirRecepcion(t)}>
-                              Registrar lo que llego
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+      {salida && (
+        <>
+          <p className="texto-suave">
+            Salió el <strong>{salida.fechaTexto || '—'}</strong> a{' '}
+            <strong>{salida.maquila?.nombre}</strong>, con{' '}
+            <strong>{(salida.capturas || []).length} bultos</strong>.
+            {yaRecibidas.has(salida.id) && (
+              <>
+                {' '}
+                <strong style={{ color: '#d97706' }}>
+                  Ojo: esta salida ya tiene una recepción registrada.
+                </strong>
+              </>
             )}
+          </p>
+
+          <table className="tabla-datos">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Descripción</th>
+                <th>OT</th>
+                <th style={{ textAlign: 'right' }}>Salieron</th>
+                <th style={{ textAlign: 'right' }}>Llegaron</th>
+                <th>Cómo quedó</th>
+                <th>Nota</th>
+              </tr>
+            </thead>
+            <tbody>
+              {renglones.map((r) => {
+                const c = contado[r.codigo] || {}
+                const est = estadoDelRenglon(r.docenasEnviadas, c.docenas)
+                return (
+                  <tr key={r.codigo}>
+                    <td>
+                      <strong>{r.codigo}</strong>
+                      <div className="texto-suave" style={{ fontSize: 12 }}>
+                        {r.folios.length} {r.folios.length === 1 ? 'bulto' : 'bultos'}
+                      </div>
+                    </td>
+                    <td>{r.descripcion || '—'}</td>
+                    <td>{r.ot || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{r.docenasEnviadas} doc</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        style={{ width: 90, textAlign: 'right' }}
+                        value={c.docenas ?? ''}
+                        onChange={(e) => ponContado(r.codigo, 'docenas', e.target.value)}
+                      />
+                    </td>
+                    <td style={{ color: COLOR_ESTADO[est] }}>{ETIQUETA_ESTADO[est]}</td>
+                    <td>
+                      <input
+                        type="text"
+                        placeholder="opcional"
+                        value={c.nota ?? ''}
+                        onChange={(e) => ponContado(r.codigo, 'nota', e.target.value)}
+                      />
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          <label className="campo" style={{ marginTop: 12, maxWidth: 640 }}>
+            <span>Nota de la entrega (opcional)</span>
+            <input
+              type="text"
+              value={notaGeneral}
+              onChange={(e) => setNotaGeneral(e.target.value)}
+              placeholder="Cajas mojadas, quién la trajo, llegó incompleto..."
+            />
+          </label>
+
+          <p className="texto-suave">
+            Escribe <strong>lo que contaste tú</strong>, no lo que diga el papel. Una vez
+            guardada <strong>no se puede editar</strong>: queda con tu nombre y la hora.
+            Si te equivocas, registra otra y explícalo en la nota.
+          </p>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn-primario" onClick={onGuardar} disabled={guardando}>
+              {guardando ? 'Guardando...' : 'Guardar recepción'}
+            </button>
+            <button onClick={() => elegirSalida('')} disabled={guardando}>
+              Cancelar
+            </button>
           </div>
-        )
-      })}
-
-      {recibiendo && (
-        <div className="modal-fondo" onClick={() => !guardando && setRecibiendo(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-cabecera">
-              <h2>Recibir: {recibiendo.titulo || recibiendo.ot || 'tarea'}</h2>
-              <button className="btn-cerrar" onClick={() => setRecibiendo(null)} disabled={guardando}>
-                ×
-              </button>
-            </div>
-            <p className="texto-suave">
-              De <strong>{nombreMaquila(recibiendo.maquilaId)}</strong>
-              {recibiendo.ot ? ` · orden de trabajo ${recibiendo.ot}` : ''}. Escribe{' '}
-              <strong>lo que contaste</strong>, no lo que dice el papel. Si algo no
-              cuadra, así queda registrado.
-            </p>
-
-            <table className="tabla-datos">
-              <thead>
-                <tr>
-                  <th>Código</th>
-                  <th>Descripción</th>
-                  <th style={{ textAlign: 'right' }}>Encargado</th>
-                  <th style={{ textAlign: 'right' }}>Llegó</th>
-                  <th>Cómo quedó</th>
-                  <th>Nota</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(recibiendo.renglones || []).map((r) => {
-                  const c = contado[r.codigo] || {}
-                  const est = estadoDelRenglon(r.cantidad, c.cantidad)
-                  const color =
-                    est === 'completo'
-                      ? '#16a34a'
-                      : est === 'faltante'
-                        ? '#dc2626'
-                        : est === 'sobrante'
-                          ? '#d97706'
-                          : '#64748b'
-                  return (
-                    <tr key={r.codigo}>
-                      <td>
-                        <strong>{r.codigo}</strong>
-                      </td>
-                      <td>{r.descripcion || '—'}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        {r.cantidad} {r.unidad || 'packs'}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          style={{ width: 90, textAlign: 'right' }}
-                          value={c.cantidad ?? ''}
-                          onChange={(e) => ponContado(r.codigo, 'cantidad', e.target.value)}
-                        />
-                      </td>
-                      <td style={{ color }}>{ETIQUETA_ESTADO[est]}</td>
-                      <td>
-                        <input
-                          type="text"
-                          placeholder="opcional"
-                          value={c.nota ?? ''}
-                          onChange={(e) => ponContado(r.codigo, 'nota', e.target.value)}
-                        />
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-
-            <label className="campo" style={{ marginTop: 12 }}>
-              <span>Nota de la entrega (opcional)</span>
-              <input
-                type="text"
-                value={notaGeneral}
-                onChange={(e) => setNotaGeneral(e.target.value)}
-                placeholder="Cajas mojadas, llegó incompleto, quién la trajo..."
-              />
-            </label>
-
-            <p className="texto-suave">
-              Una vez guardada <strong>no se puede editar</strong>: es el acta de lo que
-              contaste, con tu nombre y la hora. Si te equivocas, levanta otra y explícalo
-              en la nota.
-            </p>
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button className="btn-primario" onClick={onGuardarRecepcion} disabled={guardando}>
-                {guardando ? 'Guardando...' : 'Guardar recepción'}
-              </button>
-              <button onClick={() => setRecibiendo(null)} disabled={guardando}>
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
+        </>
       )}
 
-      <div style={{ marginTop: 26 }}>
+      <div style={{ marginTop: 30, paddingTop: 6, borderTop: '1px solid #e2e8f0' }}>
         <h3 style={{ marginBottom: 2 }}>
           Lo que ya recibiste{' '}
           {recepciones.length > 0 && <span className="texto-suave">({recepciones.length})</span>}
@@ -357,9 +281,8 @@ export default function PanelPorLlegar() {
             <thead>
               <tr>
                 <th>Cuándo</th>
+                <th>Folio de salida</th>
                 <th>Maquila</th>
-                <th>Pedido</th>
-                <th>OT</th>
                 <th>¿Cuadró?</th>
                 <th>Quién recibió</th>
               </tr>
@@ -368,9 +291,8 @@ export default function PanelPorLlegar() {
               {recepciones.map((r) => (
                 <tr key={r.id}>
                   <td>{fecha(r.recibidoEn)}</td>
-                  <td>{nombreMaquila(r.maquilaId)}</td>
-                  <td>{r.tareaTitulo || '—'}</td>
-                  <td>{r.ot || '—'}</td>
+                  <td>{r.folioInterno || '—'}</td>
+                  <td>{r.maquilaNombre || nombreMaquila(r.maquilaId)}</td>
                   <td style={{ color: r.cuadro ? '#16a34a' : '#dc2626' }}>
                     {r.cuadro
                       ? 'Sí, todo completo'
@@ -387,74 +309,35 @@ export default function PanelPorLlegar() {
       </div>
 
       <div style={{ marginTop: 30, paddingTop: 6, borderTop: '1px solid #e2e8f0' }}>
-        <h3 style={{ marginBottom: 2 }}>Lo demás que está en las maquilas</h3>
+        <h3 style={{ marginBottom: 2 }}>Lo que las maquilas tienen en sus manos</h3>
         <p className="texto-suave" style={{ marginTop: 0 }}>
-          Todavía no avisan que terminaron. <strong>Si algo de esto ya te llegó,
-          regístralo igual</strong>: no tienes que esperar a que la maquila lo marque.
+          Solo como referencia, según las tareas que se les encargaron. Para recibir no
+          hace falta que algo aparezca aquí.
         </p>
-        {GRUPOS.filter((g) => g.estado !== 'declarada').map((g) => {
-          const lista = porGrupo.get(g.estado) || []
+        {ESTADOS_EN_MAQUILA.map((g) => {
+          const lista = tareas.filter((t) => t.estado === g.estado)
           return (
-            <div key={g.estado} style={{ marginTop: 14 }}>
+            <div key={g.estado} style={{ marginTop: 10 }}>
               <strong>{g.titulo}</strong>{' '}
               {lista.length > 0 && <span className="texto-suave">({lista.length})</span>}
-              <p className="texto-suave" style={{ margin: '2px 0 6px' }}>
-                {g.detalle}
-              </p>
               {lista.length === 0 ? (
-                <p className="texto-suave">Nada por ahora.</p>
+                <p className="texto-suave" style={{ margin: '2px 0' }}>
+                  Nada por ahora.
+                </p>
               ) : (
-                <table className="tabla-datos">
-                  <thead>
-                    <tr>
-                      <th>Maquila</th>
-                      <th>Pedido / cliente</th>
-                      <th>OT</th>
-                      <th>Códigos</th>
-                      <th>Cantidad encargada</th>
-                      <th>Desde</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lista.map((t) => {
-                      const dias = diasDesde(t[g.fecha])
-                      return (
-                        <tr key={`${t.maquilaId || ''}-${t.id}`}>
-                          <td>{nombreMaquila(t.maquilaId)}</td>
-                          <td>{t.titulo || '—'}</td>
-                          <td>{t.ot || '—'}</td>
-                          <td>{(t.renglones || []).length}</td>
-                          <td>{resumenCantidades(t)}</td>
-                          <td>
-                            {fecha(t[g.fecha])}
-                            {dias !== null && (
-                              <span className="texto-suave">
-                                {' '}
-                                {dias === 0 ? '(hoy)' : dias === 1 ? '(ayer)' : `(hace ${dias} días)`}
-                              </span>
-                            )}
-                          </td>
-                          <td>
-                            <button onClick={() => abrirRecepcion(t)}>Registrar lo que llegó</button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                <ul className="texto-suave" style={{ margin: '4px 0' }}>
+                  {lista.map((t) => (
+                    <li key={`${t.maquilaId || ''}-${t.id}`}>
+                      {nombreMaquila(t.maquilaId)} · {t.titulo || 'sin título'}
+                      {t.ot ? ` · OT ${t.ot}` : ''} · desde {fecha(t[g.fecha])}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           )
         })}
       </div>
-
-      <p className="texto-suave" style={{ marginTop: 22 }}>
-        Todavía se cuenta a mano. Falta que la remisión de la maquila traiga su{' '}
-        <strong>código de barras</strong> para que al leerlo aparezca solo todo lo que
-        mandó, sin teclear nada.
-      </p>
-
     </div>
   )
 }

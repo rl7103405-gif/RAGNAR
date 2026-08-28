@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-12',
+    fecha: '2026-08-28',
+    tipo: 'nuevo',
+    titulo: 'Recibir de verdad: se compara contra lo que salio',
+    detalle:
+      'En Recibir eliges con que documento salio la mercancia a la maquila (folio interno, maquila y fecha) y la pantalla trae lo que salio de cada codigo, con sus bultos. Escribes las docenas que contaste y te va diciendo si llego completo, falto o llego de mas. Al guardar queda el acta, con tu nombre y la hora, y ya no se puede editar. No hay que esperar a nada: las salidas ya estan ahi.'
+  },
+  {
     id: '2026-08-28-11',
     fecha: '2026-08-28',
     tipo: 'mejorado',

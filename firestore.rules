@@ -1261,23 +1261,28 @@ service cloud.firestore {
 
     function recepcionValida() {
       let d = request.resource.data;
-      return d.keys().hasAll(['maquilaId', 'tareaId', 'tareaTitulo', 'ot', 'estadoTareaAlRecibir', 'renglones', 'cuadro', 'renglonesConProblema', 'nota', 'recibidoEn', 'recibidoPorUid', 'recibidoPorNombre', 'esPrueba'])
-        && d.keys().hasOnly(['maquilaId', 'tareaId', 'tareaTitulo', 'ot', 'estadoTareaAlRecibir', 'renglones', 'cuadro', 'renglonesConProblema', 'nota', 'recibidoEn', 'recibidoPorUid', 'recibidoPorNombre', 'esPrueba'])
+      return d.keys().hasAll(['origenTipo', 'documentoId', 'folioInterno', 'maquilaId', 'maquilaNombre', 'fechaSalidaTexto', 'renglones', 'cuadro', 'renglonesConProblema', 'nota', 'recibidoEn', 'recibidoPorUid', 'recibidoPorNombre', 'esPrueba'])
+        && d.keys().hasOnly(['origenTipo', 'documentoId', 'folioInterno', 'maquilaId', 'maquilaNombre', 'fechaSalidaTexto', 'renglones', 'cuadro', 'renglonesConProblema', 'nota', 'recibidoEn', 'recibidoPorUid', 'recibidoPorNombre', 'esPrueba'])
+        // De donde sale la referencia contra la que se conto. Hoy solo existe
+        // 'salida' (el documento con el que se le mando la mercancia a la
+        // maquila). Se acota desde ahora para que el dia que se agregue el
+        // origen 'maquila' sea una decision y no un descuido.
+        && d.origenTipo == 'salida'
+        && d.documentoId is string
+        && d.documentoId.size() > 0
+        && d.documentoId.size() <= 60
+        && d.folioInterno is string
+        && d.folioInterno.size() <= 40
         && d.maquilaId is string
         && d.maquilaId.size() > 0
         && d.maquilaId.size() <= 60
         // El corral, en las dos direcciones: una cuenta de prueba solo levanta
         // actas de la maquila ficticia, y una real nunca de la de prueba.
         && mismoMundoMaquila(d.maquilaId)
-        && d.tareaId is string
-        && d.tareaId.size() > 0
-        && d.tareaId.size() <= 60
-        && d.tareaTitulo is string
-        && d.tareaTitulo.size() <= 200
-        && d.ot is string
-        && d.ot.size() <= 40
-        && d.estadoTareaAlRecibir is string
-        && d.estadoTareaAlRecibir.size() <= 30
+        && d.maquilaNombre is string
+        && d.maquilaNombre.size() <= 120
+        && d.fechaSalidaTexto is string
+        && d.fechaSalidaTexto.size() <= 40
         && d.renglones is list
         && d.renglones.size() > 0
         && d.renglones.size() <= 300
