@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-15',
+    fecha: '2026-08-28',
+    tipo: 'nuevo',
+    titulo: 'En Captura se ve la orden de compra de cada OT',
+    detalle:
+      'Cada grupo de OT en "Pendientes de PDF" dice ahora su orden de compra, y si no la tiene lo dice en ambar. Arriba sale el resumen: cuantas OT pendientes van sin OC. Cuando falta, lo que hay que actualizar es el plan maestro, no la captura.'
+  },
+  {
     id: '2026-08-28-14',
     fecha: '2026-08-28',
     tipo: 'nuevo',

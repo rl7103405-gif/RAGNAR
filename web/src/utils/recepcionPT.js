@@ -24,8 +24,6 @@
 import {
   addDoc,
   collection,
-  doc,
-  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -35,6 +33,7 @@ import {
   where
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
+export { mapaOtAOc } from './planMaestro'
 
 export class ErrorRecepcion extends Error {}
 
@@ -137,56 +136,6 @@ export async function salidasParaRecibir(esPrueba) {
 /** Se olvida el cache: al guardar una recepcion conviene refrescar la lista. */
 export function olvidarCacheDeSalidas() {
   cacheSalidas = null
-}
-
-/**
- * El mapa OT -> OC del plan vigente, en UNA sola lectura.
- *
- * El documento de salida no trae la orden de compra (los bultos guardan la OT
- * y el pedido), pero Roberto pidio poder buscar por OC. El resumen del plan
- * vigente ya trae `ocs: [{ oc, ots: [...] }]`, asi que se arma de ahi en vez
- * de consultar el plan orden por orden.
- */
-export async function mapaOtAOc() {
-  try {
-    const snap = await getDoc(doc(db, 'config', 'planMaestroActivo'))
-    const ocs = snap.exists() ? snap.data().ocs : null
-    const m = new Map()
-    if (Array.isArray(ocs)) {
-      ocs.forEach((o) => (o.ots || []).forEach((ot) => m.set(String(ot).trim(), o.oc)))
-    }
-    return m
-  } catch (err) {
-    // Sin plan se busca igual por todo lo demas: quedarse sin buscador porque
-    // el plan no cargo seria peor que no poder buscar por OC.
-    console.warn('[Recibir] No se pudo leer el plan para las OC:', err?.message)
-    return new Map()
-  }
-}
-
-/**
- * La OT de un bulto. Si el campo no esta, se saca del PEDIDO.
- *
- * ⚠️ Medido el 2026-08-28: de las 302 salidas reales, solo 89 traian la OT en
- * su campo -- las otras 213 la tienen dentro del texto del pedido
- * ("7993_BARBIE RUN 2026_DAMA_UNI PACK CAL. DEP._AGO") pero se capturaron
- * antes de que el cruce la extrajera. El dato SIEMPRE estuvo ahi.
- *
- * Sacandola del pedido, las 302 quedan con OT y las que se pueden amarrar a
- * una orden de compra pasan de 76 a 198.
- *
- * Es la MISMA extraccion que usa la captura (otDelTexto en el re-cruce): si
- * cada lugar la sacara a su manera, la misma salida tendria una OT distinta
- * segun quien la mire.
- */
-export function otDelBultoDeSalida(producto) {
-  const guardada = String(producto?.ot || '').trim()
-  if (guardada) return guardada
-  const t = String(producto?.pedido || '').toUpperCase()
-  const conEtiqueta = t.match(/OT[:\s-]*(\d{3,6})/)
-  if (conEtiqueta) return conEtiqueta[1]
-  const alInicio = t.match(/^(\d{3,6})[_\s-]/)
-  return alInicio ? alInicio[1] : ''
 }
 
 /** Todo lo que se puede teclear para encontrar una salida. */

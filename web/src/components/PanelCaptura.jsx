@@ -20,6 +20,7 @@ import { imprimirEtiqueta } from '../utils/zebraBridge'
 import { leerPesoBascula, motivoLecturaInvalida } from '../utils/basculaBridge'
 import { resolverProductoEnTx, CRUCE_COMPLETO, CRUCE_SIN_RUTEO } from '../utils/cruceProducto'
 import { agruparPorOt, etiquetaOt } from '../utils/agruparOt'
+import { mapaOtAOc } from '../utils/planMaestro'
 import { docenasDeCaptura } from '../utils/reimprimir'
 import {
   registrarCambio,
@@ -263,6 +264,20 @@ export default function PanelCaptura() {
   )
 
   const kgDe = (lista) => lista.reduce((acc, c) => acc + (c.pesoGramos || 0), 0) / 1000
+  // La ORDEN DE COMPRA de cada OT, del plan vigente. Roberto la pidio el
+  // 28-08: "en los pendientes, dividirlo por OC, para ver si los que estan
+  // capturando estan ligados a una OC o no". Una sola lectura, y si no hay
+  // plan se enseña "sin OC", que es justo el dato que hay que ver.
+  const [otAOc, setOtAOc] = useState(() => new Map())
+  useEffect(() => {
+    let vivo = true
+    mapaOtAOc().then((m) => vivo && setOtAOc(m))
+    return () => {
+      vivo = false
+    }
+  }, [])
+  const ocDeOt = (ot) => otAOc.get(String(ot || '').trim()) || ''
+
   const gruposPendientes = useMemo(() => agruparPorOt(pendientes), [pendientes])
   const gruposEnviados = useMemo(() => agruparPorOt(enviados), [enviados])
 
@@ -450,6 +465,19 @@ export default function PanelCaptura() {
                   >
                     <span style={{ display: 'inline-block', width: 18 }}>{abierta ? '▾' : '▸'}</span>
                     {etiquetaOt(ot)}
+                    {/* La ORDEN DE COMPRA de esta OT. Cuando falta se dice en
+                        ambar y con todas sus letras: no es un adorno, quiere
+                        decir que esa OT no esta en el plan vigente y hay que
+                        subirlo. */}
+                    {ocDeOt(ot) ? (
+                      <span style={{ fontWeight: 400, color: '#334155', marginLeft: 10, fontSize: 13 }}>
+                        · OC {ocDeOt(ot)}
+                      </span>
+                    ) : (
+                      <span style={{ fontWeight: 600, color: '#d97706', marginLeft: 10, fontSize: 13 }}>
+                        · sin orden de compra
+                      </span>
+                    )}
                     <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
                       {filas.length} folio{filas.length === 1 ? '' : 's'}
                       {docenasOt > 0 ? ` - ${docenasOt} docenas` : ''} - {kg.toFixed(2)} kg
@@ -1036,6 +1064,31 @@ export default function PanelCaptura() {
             OT. <strong>Los de dias anteriores se quedan aqui</strong> hasta que se les genere su
             documento; la columna &quot;Dia&quot; dice cuando se capturo cada uno.
           </p>
+          {/* Cuantas OT pendientes no estan amarradas a una orden de compra.
+              Roberto lo pidio el 28-08 para ver de un golpe si lo que se esta
+              capturando cuelga de una OC o no. Cuando falta, el que hay que
+              actualizar es el PLAN MAESTRO, no la captura. */}
+          {gruposPendientes.length > 0 &&
+            (() => {
+              const sinOc = gruposPendientes.filter((g) => !ocDeOt(g.ot))
+              const foliosSinOc = sinOc.reduce((a, g) => a + g.filas.length, 0)
+              if (sinOc.length === 0) {
+                return (
+                  <p className="texto-suave" style={{ fontSize: 13, color: '#16a34a' }}>
+                    Todas las OT pendientes estan amarradas a una orden de compra.
+                  </p>
+                )
+              }
+              return (
+                <p style={{ fontSize: 13, color: '#8a5300', margin: '4px 0 0' }}>
+                  <strong>
+                    {sinOc.length} de {gruposPendientes.length} OT sin orden de compra
+                  </strong>{' '}
+                  ({foliosSinOc} folio{foliosSinOc === 1 ? '' : 's'}): esas OT no estan en el
+                  plan maestro vigente. Hay que subir el plan actualizado.
+                </p>
+              )
+            })()}
           {!datosConfirmados && (
             <div className="alerta-error" style={{ marginBottom: 12 }}>
               Datos no confirmados, verifica tu conexion.

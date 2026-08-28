@@ -477,3 +477,31 @@ export async function guardarPlanMaestro({
     cambios
   }
 }
+
+/**
+ * El mapa OT -> OC del plan vigente, en UNA sola lectura.
+ *
+ * Ni el bulto ni el documento de salida guardan la orden de compra: guardan la
+ * OT y el pedido. El resumen del plan vigente ya trae `ocs: [{ oc, ots }]`,
+ * asi que la relacion se arma de ahi en vez de consultar el plan orden por
+ * orden.
+ *
+ * NUNCA lanza: quien captura o quien recibe no se puede quedar sin pantalla
+ * porque el plan no este subido. Sin plan devuelve un mapa vacio y cada
+ * pantalla enseña "sin OC", que es la verdad.
+ */
+export async function mapaOtAOc() {
+  try {
+    const vigente = await planVigente()
+    const m = new Map()
+    if (Array.isArray(vigente?.ocs)) {
+      vigente.ocs.forEach((o) =>
+        (o.ots || []).forEach((ot) => m.set(String(ot).trim(), o.oc))
+      )
+    }
+    return m
+  } catch (err) {
+    console.warn('[planMaestro] No se pudo leer el resumen de OCs:', err?.message)
+    return new Map()
+  }
+}
