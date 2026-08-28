@@ -41,6 +41,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "recepcionesPT",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "esPrueba",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "recibidoEn",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

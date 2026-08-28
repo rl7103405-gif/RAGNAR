@@ -87,6 +87,18 @@ export async function registrarRecepcionPT({ tarea, contado, nota, usuario, esPr
     tareaId: texto(tarea.id, 60),
     tareaTitulo: texto(tarea.titulo, 200),
     ot: texto(tarea.ot, 40),
+    // En que estado estaba la tarea cuando PT la recibio. Importa: hoy las
+    // maquilas todavia no tienen cuenta, asi que muchas entregas van a
+    // registrarse SIN que la maquila haya avisado que termino. Guardarlo
+    // distingue "la maquila lo declaro y coincidimos" de "lo recibimos sin
+    // que nadie lo declarara", que no valen lo mismo en una aclaracion.
+    estadoTareaAlRecibir: texto(tarea.estado, 30),
+    // En que estado estaba la tarea cuando PT la recibio. Importa: hoy las
+    // maquilas todavia no tienen cuenta, asi que muchas entregas van a
+    // registrarse SIN que la maquila haya avisado que termino. Guardarlo
+    // distingue "la maquila lo declaro y coincidimos" de "lo recibimos sin
+    // que nadie lo declarara", que no valen lo mismo en una aclaracion.
+    estadoTareaAlRecibir: texto(tarea.estado, 30),
     renglones,
     // Se guarda ya resuelto para no recalcularlo en cada pantalla que lo lea,
     // y para poder filtrar "las que no cuadraron" sin abrir cada documento.

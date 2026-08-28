@@ -8,8 +8,13 @@
 // cuando el camion ya esta afuera. Todo lo que hace falta para avisarle YA
 // EXISTE en las tareas de ensamble -- solo que nadie se lo estaba enseñando.
 //
-// Desde el 28-08 tambien RECIBE: PT registra lo que conto al llegar la
-// mercancia. No hizo falta esperar a que se persista lo que la maquila
+// Desde el 28-08 tambien RECIBE, y se puede recibir CUALQUIER tarea viva, no
+// solo las que la maquila declaro terminadas. Roberto: "que ya pueda recibir
+// en cualquier momento, la maquila no tiene que terminar" -- y tiene razon
+// practica: las maquilas todavia no tienen cuenta, asi que nadie esta marcando
+// nada. Esperar un aviso que nadie va a dar dejaria a PT sin poder trabajar.
+// El acta guarda en que estado estaba la tarea, para no confundir despues una
+// entrega que la maquila declaro con una que solo vio PT. No hizo falta esperar a que se persista lo que la maquila
 // declara, porque el acta de PT es independiente a proposito -- lo encargado
 // sale de la tarea, lo recibido lo cuenta Valeria, y la diferencia es el
 // hallazgo. Ver utils/recepcionPT.js.
@@ -382,10 +387,10 @@ export default function PanelPorLlegar() {
       </div>
 
       <div style={{ marginTop: 30, paddingTop: 6, borderTop: '1px solid #e2e8f0' }}>
-        <h3 style={{ marginBottom: 2 }}>Lo que viene más adelante</h3>
+        <h3 style={{ marginBottom: 2 }}>Lo demás que está en las maquilas</h3>
         <p className="texto-suave" style={{ marginTop: 0 }}>
-          Todavía no llega nada de esto: es para que sepas qué se está trabajando y
-          puedas ir preparando el espacio.
+          Todavía no avisan que terminaron. <strong>Si algo de esto ya te llegó,
+          regístralo igual</strong>: no tienes que esperar a que la maquila lo marque.
         </p>
         {GRUPOS.filter((g) => g.estado !== 'declarada').map((g) => {
           const lista = porGrupo.get(g.estado) || []
@@ -408,6 +413,7 @@ export default function PanelPorLlegar() {
                       <th>Códigos</th>
                       <th>Cantidad encargada</th>
                       <th>Desde</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -428,6 +434,9 @@ export default function PanelPorLlegar() {
                                 {dias === 0 ? '(hoy)' : dias === 1 ? '(ayer)' : `(hace ${dias} días)`}
                               </span>
                             )}
+                          </td>
+                          <td>
+                            <button onClick={() => abrirRecepcion(t)}>Registrar lo que llegó</button>
                           </td>
                         </tr>
                       )
