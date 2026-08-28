@@ -36,6 +36,22 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-07',
+    fecha: '2026-08-28',
+    tipo: 'nuevo',
+    titulo: 'Producto Terminado ya puede registrar lo que recibe',
+    detalle:
+      'En "Por llegar", cada entrega que la maquila ya declaro trae el boton "Registrar lo que llego". Se escribe lo que se conto de cada codigo y la pantalla dice sola si llego completo, falto o llego de mas. Queda con tu nombre y la hora, y no se puede editar: si te equivocas, levanta otra y explicalo en la nota.'
+  },
+  {
+    id: '2026-08-28-06',
+    fecha: '2026-08-28',
+    tipo: 'mejorado',
+    titulo: 'Cielo ya ve el inventario de las maquilas',
+    detalle:
+      'Se agrego a la pestana de Maquilas para poder darle seguimiento sin preguntarle a nadie.'
+  },
+  {
     id: '2026-08-28-05',
     fecha: '2026-08-28',
     tipo: 'nuevo',
@@ -49,7 +65,7 @@ export const NOVEDADES = [
     tipo: 'nuevo',
     titulo: 'Producto Terminado ya sabe que le va a llegar',
     detalle:
-      'Nueva pestana "Por llegar": muestra lo que las maquilas ya avisaron que terminaron, lo que estan armando y lo que se les encargo sin empezar, con la fecha desde cuando. Sirve para preparar el espacio antes de que llegue el camion. Todavia NO es la recepcion: cuando la mercancia llegue se sigue revisando a mano.'
+      'Nueva pestana "Por llegar": muestra lo que las maquilas ya avisaron que terminaron, lo que estan armando y lo que se les encargo sin empezar, con la fecha desde cuando. Sirve para preparar el espacio antes de que llegue el camion.'
   },
   {
     id: '2026-08-28-03',

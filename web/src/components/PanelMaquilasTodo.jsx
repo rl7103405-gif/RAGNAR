@@ -37,6 +37,16 @@ export default function PanelMaquilasTodo() {
   // pestanas viejas, para no cambiar de paso quien alcanza que cosa: esto es
   // una reorganizacion de la pantalla, no un cambio de permisos.
   const material = esAdmin || soloAlmacen
+  // El INVENTARIO de las maquilas se le abrio tambien a Cielo (consulta) el
+  // 2026-08-28: "dale que pueda ver todo lo de maquilas, para que ella le
+  // pueda estar dando seguimiento si llega a tener duda". Es de solo mirar y
+  // su unico boton ya se gatea solo con puedeManejarAvios.
+  //
+  // 'Piden material' y 'Mandar material' NO se le abrieron, a proposito:
+  // pintan botones de aprobar y de enviar que no consultan el rol, asi que a
+  // Cielo le apareceria un boton que el servidor le va a negar. Un boton que
+  // siempre falla es peor que no tenerlo; para dárselos hay que gatearlos
+  // primero.
   const catalogo = esAdmin || soloAlmacen || soloConsulta
   // Los precios los pone Cielo (consulta) y direccion, nadie mas: es lo que se
   // le paga a la maquila (decision de Roberto, 24-08).
@@ -53,7 +63,11 @@ export default function PanelMaquilasTodo() {
     tareas && { id: 'tareas', label: 'Tareas', render: () => <PanelTareasMaquila /> },
     material && { id: 'piden', label: 'Piden material', render: () => <PanelSolicitudesAvios /> },
     material && { id: 'mandar', label: 'Mandar material', render: () => <PanelEnviarAvios /> },
-    material && { id: 'inventario', label: 'Inventario', render: () => <PanelInventarioAvios /> },
+    (material || soloConsulta) && {
+      id: 'inventario',
+      label: 'Inventario',
+      render: () => <PanelInventarioAvios />
+    },
     catalogo && { id: 'catalogo', label: 'Catalogo de material', render: () => <Avios /> },
     precios && { id: 'precios', label: 'Precios de ensamble', render: () => <PanelPreciosMaquila /> },
     // Hasta el final a proposito: dar de alta una maquila se hace una vez cada

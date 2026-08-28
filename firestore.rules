@@ -1234,6 +1234,64 @@ service cloud.firestore {
     // Bitacora INMUTABLE de subidas del Excel de folios: que archivo entro,
     // cuando, quien lo subio y que trajo. Nunca se edita ni se borra desde
     // el cliente (igual que pdfsGenerados).
+    // RECEPCION EN PRODUCTO TERMINADO (2026-08-28).
+    //
+    // El acta de lo que PT conto cuando llego la mercancia de la maquila.
+    // Roberto: "la principal funcion de Valeria es recibir esto... que si
+    // ahorita le llega algo, que lo registre".
+    //
+    // La ESCRIBEN PT y direccion. 'consulta' es el rol de Valeria -- y tambien
+    // el de Cielo, que en la practica es quien lleva el control de lo que las
+    // maquilas entregan, asi que darle el mismo alcance es coherente y no
+    // regala nada de otra area.
+    //
+    // Es INMUTABLE: se crea y no se edita ni se borra. Es un acta con nombre y
+    // hora de quien conto; si algo salio mal se levanta otra y se explica en la
+    // nota. Reescribir el pasado seria justamente lo que hace inservible un
+    // acta a la hora de una aclaracion con la maquila.
+    match /recepcionesPT/{recepcionId} {
+      allow read: if esInterno();
+      allow create: if esInterno()
+        && rol() in ['consulta', 'admin']
+        && recepcionValida();
+      allow update, delete: if false;
+    }
+
+    function recepcionValida() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['maquilaId', 'tareaId', 'tareaTitulo', 'ot', 'renglones', 'cuadro', 'renglonesConProblema', 'nota', 'recibidoEn', 'recibidoPorUid', 'recibidoPorNombre', 'esPrueba'])
+        && d.keys().hasOnly(['maquilaId', 'tareaId', 'tareaTitulo', 'ot', 'renglones', 'cuadro', 'renglonesConProblema', 'nota', 'recibidoEn', 'recibidoPorUid', 'recibidoPorNombre', 'esPrueba'])
+        && d.maquilaId is string
+        && d.maquilaId.size() > 0
+        && d.maquilaId.size() <= 60
+        // El corral, en las dos direcciones: una cuenta de prueba solo levanta
+        // actas de la maquila ficticia, y una real nunca de la de prueba.
+        && mismoMundoMaquila(d.maquilaId)
+        && d.tareaId is string
+        && d.tareaId.size() > 0
+        && d.tareaId.size() <= 60
+        && d.tareaTitulo is string
+        && d.tareaTitulo.size() <= 200
+        && d.ot is string
+        && d.ot.size() <= 40
+        && d.renglones is list
+        && d.renglones.size() > 0
+        && d.renglones.size() <= 300
+        && d.cuadro is bool
+        && d.renglonesConProblema is int
+        && d.renglonesConProblema >= 0
+        && d.nota is string
+        && d.nota.size() <= 300
+        && d.recibidoEn == request.time
+        // Nadie levanta un acta a nombre de otro: el acta vale por quien firma.
+        && d.recibidoPorUid == request.auth.uid
+        && d.recibidoPorNombre is string
+        && d.recibidoPorNombre.size() > 0
+        && d.recibidoPorNombre.size() <= 120
+        && d.esPrueba is bool
+        && d.esPrueba == esCuentaDePrueba();
+    }
+
     match /cargasRuteo/{registroId} {
       // Una cuenta de prueba NO ve las cargas reales. Es la contraparte de
       // que no pueda crearlas: si no puede escribir aqui, todo lo que hay es
