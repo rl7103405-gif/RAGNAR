@@ -71,14 +71,9 @@ const TABS_CAPTURA = ['captura']
 // ensamble ya eran legibles para este rol desde el 24-08.
 // Cielo (rol 'consulta'): lleva el control y los PAGOS a las maquilas. No
 // recibe mercancia -- eso es de Producto Terminado, que tiene su propio rol.
-const TABS_CONSULTA = [
-  'maquilas',
-  'ordenes',
-  'historial',
-  'reportes',
-  'indicadores',
-  'registros'
-]
+// Cielo (rol 'consulta'): el control y los PAGOS a las maquilas. Se le
+// quitaron historial, indicadores y registros el 28-08: no son su trabajo.
+const TABS_CONSULTA = ['maquilas', 'ordenes', 'reportes']
 
 // Alvaro (rol 'almacen') maneja los AVIOS que se mandan: solicitudes, envios
 // e inventario de las maquilas (SOLO avios: bultos y embarques no son suyos).
@@ -89,15 +84,12 @@ const TABS_ALMACEN = ['maquilas', 'tareas']
 // devuelven las maquilas, asi que entra ahi: la primera pestana de cada quien
 // es su trabajo del dia, no una consulta. Ve lo de maquilas para dar
 // seguimiento, pero no pone precios (eso es de Cielo) ni captura folios.
-const TABS_PT = [
-  'porllegar',
-  'maquilas',
-  'ordenes',
-  'historial',
-  'reportes',
-  'indicadores',
-  'registros'
-]
+// Valeria (rol 'pt'). SOLO lo suyo: recibe, ve el material de las maquilas y
+// los reportes de lo que sale y entra. Fuera quedaron ordenes de compra,
+// historial, indicadores y registros -- Roberto, 2026-08-28: "hay que empezar
+// a limpiar los perfiles de todos para que nada mas atiendan a sus
+// necesidades".
+const TABS_PT = ['porllegar', 'maquilas', 'reportes']
 
 // Adrian (rol 'produccion'): sube el plan maestro y comprueba en el arbol que
 // quedo bien amarrado. No captura, no embarca, no toca avios.

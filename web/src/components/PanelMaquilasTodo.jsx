@@ -30,38 +30,61 @@ import PanelInventarioAvios from './PanelInventarioAvios'
 import Avios from './Avios'
 
 export default function PanelMaquilasTodo() {
-  const { puedeCrearTareas, soloAlmacen, soloConsulta, soloCaptura, soloProduccion, esAdmin, esInterno } =
-    useAuth()
+  const {
+    puedeCrearTareas,
+    soloAlmacen,
+    soloConsulta,
+    soloCaptura,
+    soloProduccion,
+    soloPT,
+    esAdmin,
+    esInterno
+  } = useAuth()
 
-  // Quien ve que. Se calcula con los mismos permisos que ya decidian las
-  // pestanas viejas, para no cambiar de paso quien alcanza que cosa: esto es
-  // una reorganizacion de la pantalla, no un cambio de permisos.
-  // Quien MUEVE el material: Alvaro y direccion. Son los unicos con botones.
-  const material = esAdmin || soloAlmacen
-  // Quien lo MIRA. Roberto, 2026-08-28: "dale a PT todo lo de las maquilas,
-  // todo, que vea todo... bueno, pedir tareas, que eso lo hace Lindbergh".
-  // Cielo y Valeria (rol 'consulta') entran a las mismas pantallas, pero en
-  // modo de solo mirar: los botones de aprobar y de enviar se esconden con
-  // `puedeMover`, porque un boton que el servidor va a negar es peor que no
-  // tenerlo. La lectura la respalda puedeVerAvios() en firestore.rules.
-  const verMaterial = material || soloConsulta
-  const catalogo = esAdmin || soloAlmacen || soloConsulta
-  // Los precios los pone Cielo (consulta) y direccion, nadie mas: es lo que se
-  // le paga a la maquila (decision de Roberto, 24-08).
-  const precios = esAdmin || soloConsulta
+  // QUIEN VE CADA SECCION. Cada perfil atiende lo suyo y nada mas -- Roberto,
+  // 2026-08-28: "hay que limpiar los perfiles de la gente para que cada quien
+  // atienda a lo suyo".
+  //
+  //   Alvaro (almacen) ...... mueve el material: lo ve TODO y con botones.
+  //   Lindbergh ............. encarga las tareas: ve todo, sin mover material.
+  //   Cielo (consulta) ...... lleva el control y los pagos: ve todo, sin mover.
+  //   Valeria (pt) .......... recibe: inventario, catalogo y precios. NO el
+  //                           flujo de pedir/mandar material, que no es suyo.
+  //   Direccion (admin) ..... todo.
+
+  // Quien MUEVE el material. Son los unicos que ven botones de accion; a los
+  // demas se les esconden, porque un boton que el servidor va a negar es peor
+  // que no tenerlo.
+  const mueveMaterial = esAdmin || soloAlmacen
+
+  // El FLUJO de material (quien lo pide y a quien se le manda). No es de PT.
+  const flujoMaterial = mueveMaterial || soloConsulta || puedeCrearTareas
+
+  // El ESTADO del material: que tiene hoy cada maquila. Esto si lo necesita
+  // Producto Terminado para saber con que estan trabajando.
+  const inventario = flujoMaterial || soloPT
+
+  const catalogo = esAdmin || soloAlmacen || soloConsulta || soloPT || puedeCrearTareas
+
+  // Los precios los PONEN Cielo y direccion (puedeEditarPrecios en las reglas
+  // y puedeEditar en el panel). Aqui solo se decide quien los MIRA.
+  const precios = esAdmin || soloConsulta || soloPT || puedeCrearTareas
+
   const tareas = puedeCrearTareas
+
   // El alta de maquilas la tenia la pestana 'Maquilas', que SOLO veian los
   // perfiles completos (America, Diana, Lindbergh, estacion) y el admin.
   // Alvaro (almacen) nunca la tuvo: al juntar las pestanas hay que conservar
   // eso o se le estaria dando de paso un permiso que no pidio nadie.
   const alta =
-    esAdmin || (esInterno && !soloAlmacen && !soloConsulta && !soloCaptura && !soloProduccion)
+    esAdmin ||
+    (esInterno && !soloAlmacen && !soloConsulta && !soloCaptura && !soloProduccion && !soloPT)
 
   const secciones = [
     tareas && { id: 'tareas', label: 'Tareas', render: () => <PanelTareasMaquila /> },
-    verMaterial && { id: 'piden', label: 'Piden material', render: () => <PanelSolicitudesAvios /> },
-    verMaterial && { id: 'mandar', label: 'Mandar material', render: () => <PanelEnviarAvios /> },
-    verMaterial && { id: 'inventario', label: 'Inventario', render: () => <PanelInventarioAvios /> },
+    flujoMaterial && { id: 'piden', label: 'Piden material', render: () => <PanelSolicitudesAvios /> },
+    flujoMaterial && { id: 'mandar', label: 'Mandar material', render: () => <PanelEnviarAvios /> },
+    inventario && { id: 'inventario', label: 'Inventario', render: () => <PanelInventarioAvios /> },
     catalogo && { id: 'catalogo', label: 'Catalogo de material', render: () => <Avios /> },
     precios && { id: 'precios', label: 'Precios de ensamble', render: () => <PanelPreciosMaquila /> },
     // Hasta el final a proposito: dar de alta una maquila se hace una vez cada

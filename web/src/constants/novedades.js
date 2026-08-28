@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-11',
+    fecha: '2026-08-28',
+    tipo: 'mejorado',
+    titulo: 'Cada perfil ya solo trae lo suyo',
+    detalle:
+      'Se limpiaron las pestanas de cada quien. Producto Terminado: recibir, maquilas y reportes. Cielo: maquilas, ordenes de compra y reportes. Lindbergh ya ve TODO lo de maquilas, incluidos inventario, catalogo y precios. Alvaro y Adrian quedan igual. Si te falta algo que si ocupas, dilo.'
+  },
+  {
     id: '2026-08-28-10',
     fecha: '2026-08-28',
     tipo: 'nuevo',

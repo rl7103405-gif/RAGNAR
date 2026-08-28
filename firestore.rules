@@ -1396,7 +1396,12 @@ service cloud.firestore {
     // agregarle 'consulta' ahi le daria a Cielo y a Valeria la capacidad de
     // mover inventario de una maquila. La lectura es lo unico que se abre.
     function puedeVerAvios() {
-      return esInterno() && rol() in ['almacen', 'admin', 'consulta', 'pt'];
+      // Lindbergh entra por puedeCrearTareas() y no por su rol: 'completo' lo
+      // comparte con America y Diana, que no tienen por que ver el material de
+      // las maquilas. Roberto, 2026-08-28: "todo lo de las maquilas lo deberia
+      // poder ver Lindbergh, todo".
+      return esInterno()
+        && (rol() in ['almacen', 'admin', 'consulta', 'pt'] || puedeCrearTareas());
     }
 
     function puedeManejarAvios() {
