@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-14',
+    fecha: '2026-08-28',
+    tipo: 'nuevo',
+    titulo: 'Buscar la salida por folio, OT u orden de compra',
+    detalle:
+      'En Recibir aparecen las salidas mas recientes y se pueden buscar por folio interno, folio de cualquier bulto, orden de trabajo, orden de compra, codigo o maquila. Al picar "Es esta", las demas desaparecen para que solo cuentes la tuya.'
+  },
+  {
     id: '2026-08-28-13',
     fecha: '2026-08-28',
     tipo: 'mejorado',

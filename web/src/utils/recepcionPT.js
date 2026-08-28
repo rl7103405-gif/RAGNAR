@@ -88,7 +88,7 @@ export function renglonesDeLaSalida(salida) {
       porCodigo.set(codigo, {
         codigo,
         descripcion: texto(p.descripcion, 200),
-        ot: texto(p.ot, 40),
+        ot: texto(otDelBultoDeSalida(p), 40),
         docenasEnviadas: 0,
         folios: []
       })
@@ -164,6 +164,31 @@ export async function mapaOtAOc() {
   }
 }
 
+/**
+ * La OT de un bulto. Si el campo no esta, se saca del PEDIDO.
+ *
+ * ⚠️ Medido el 2026-08-28: de las 302 salidas reales, solo 89 traian la OT en
+ * su campo -- las otras 213 la tienen dentro del texto del pedido
+ * ("7993_BARBIE RUN 2026_DAMA_UNI PACK CAL. DEP._AGO") pero se capturaron
+ * antes de que el cruce la extrajera. El dato SIEMPRE estuvo ahi.
+ *
+ * Sacandola del pedido, las 302 quedan con OT y las que se pueden amarrar a
+ * una orden de compra pasan de 76 a 198.
+ *
+ * Es la MISMA extraccion que usa la captura (otDelTexto en el re-cruce): si
+ * cada lugar la sacara a su manera, la misma salida tendria una OT distinta
+ * segun quien la mire.
+ */
+export function otDelBultoDeSalida(producto) {
+  const guardada = String(producto?.ot || '').trim()
+  if (guardada) return guardada
+  const t = String(producto?.pedido || '').toUpperCase()
+  const conEtiqueta = t.match(/OT[:\s-]*(\d{3,6})/)
+  if (conEtiqueta) return conEtiqueta[1]
+  const alInicio = t.match(/^(\d{3,6})[_\s-]/)
+  return alInicio ? alInicio[1] : ''
+}
+
 /** Todo lo que se puede teclear para encontrar una salida. */
 export function textoBuscableDeSalida(salida, otAOc) {
   const partes = [
@@ -175,8 +200,9 @@ export function textoBuscableDeSalida(salida, otAOc) {
   const ots = new Set()
   ;(salida?.capturas || []).forEach((c) => {
     const pr = c.producto || {}
-    partes.push(c.folio, pr.codigo, pr.ot, pr.pedido, pr.descripcion, pr.modelo)
-    if (pr.ot) ots.add(String(pr.ot).trim())
+    const ot = otDelBultoDeSalida(pr)
+    partes.push(c.folio, pr.codigo, ot, pr.pedido, pr.descripcion, pr.modelo)
+    if (ot) ots.add(ot)
   })
   // La OC no viaja en el documento: se resuelve por la OT con el plan vigente.
   ots.forEach((ot) => {
@@ -190,8 +216,8 @@ export function textoBuscableDeSalida(salida, otAOc) {
 export function otsYOcsDeSalida(salida, otAOc) {
   const ots = new Set()
   ;(salida?.capturas || []).forEach((c) => {
-    const ot = c.producto?.ot
-    if (ot) ots.add(String(ot).trim())
+    const ot = otDelBultoDeSalida(c.producto)
+    if (ot) ots.add(ot)
   })
   const ocs = new Set()
   ots.forEach((ot) => {

@@ -211,7 +211,10 @@ export default function PanelPorLlegar() {
               margin: '14px 0 6px'
             }}
           >
-            <strong>¿De qué salida es lo que llegó?</strong>
+            <strong>
+              {salidaId ? 'Salida elegida' : '¿De qué salida es lo que llegó?'}
+            </strong>
+            {!salidaId && (
             <input
               type="search"
               value={busqueda}
@@ -219,10 +222,13 @@ export default function PanelPorLlegar() {
               placeholder="Buscar por folio, bulto, OT, OC o maquila"
               style={{ flex: '1 1 280px', maxWidth: 420, padding: '7px 10px' }}
             />
+            )}
           </div>
 
           <p className="texto-suave" style={{ fontSize: 13, marginTop: 0 }}>
-            {encontradas.length === salidas.length
+            {salidaId
+              ? 'Cuenta lo que llegó de cada código. Si te equivocaste de salida, pica "Quitar".'
+              : encontradas.length === salidas.length
               ? `Las más recientes de ${salidas.length}. Si la tuya no está a la vista, búscala.`
               : `${encontradas.length} de ${salidas.length} salidas coinciden.`}
           </p>
@@ -246,7 +252,12 @@ export default function PanelPorLlegar() {
                 </tr>
               </thead>
               <tbody>
-                {encontradas.slice(0, MAX_RESULTADOS).map(({ salida: x }) => {
+                {/* Con una salida ya elegida se enseña SOLO esa: las otras once
+                    estorban para contar, que es lo que sigue. Roberto, 28-08. */}
+                {(salidaId
+                  ? encontradas.filter(({ salida: x }) => x.id === salidaId)
+                  : encontradas.slice(0, MAX_RESULTADOS)
+                ).map(({ salida: x }) => {
                   const { ots, ocs } = otsYOcsDeSalida(x, otAOc)
                   const elegida = x.id === salidaId
                   return (
@@ -282,7 +293,7 @@ export default function PanelPorLlegar() {
             </table>
           )}
 
-          {encontradas.length > MAX_RESULTADOS && (
+          {!salidaId && encontradas.length > MAX_RESULTADOS && (
             <p className="texto-suave" style={{ fontSize: 13 }}>
               Se muestran las {MAX_RESULTADOS} más recientes de {encontradas.length}.
               Afina la búsqueda para ver el resto.
