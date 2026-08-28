@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-08',
+    fecha: '2026-08-28',
+    tipo: 'mejorado',
+    titulo: 'Cada quien entra donde trabaja',
+    detalle:
+      'La primera pestana que abre la app ya no es la misma para todos: es la del trabajo de cada quien. Producto Terminado entra directo a "Recibir". La pestana que antes se llamaba "Por llegar" ahora se llama asi, porque ahi mismo se registra lo que llega.'
+  },
+  {
     id: '2026-08-28-07',
     fecha: '2026-08-28',
     tipo: 'nuevo',

@@ -1384,6 +1384,19 @@ service cloud.firestore {
         && (!('codigoBarras' in d) || (d.codigoBarras is string && d.codigoBarras.size() >= 8 && d.codigoBarras.size() <= 30));
     }
 
+    // VER no es MANEJAR. Alvaro (almacen) y direccion mueven el material;
+    // Cielo y Producto Terminado necesitan MIRARLO para dar seguimiento sin
+    // preguntarle a nadie -- Roberto, 2026-08-28: "dale a PT todo lo de las
+    // maquilas, todo, que vea todo".
+    //
+    // Se separa en dos funciones a proposito, en vez de ensanchar
+    // puedeManejarAvios(): esa se usa tambien en reglas de ESCRITURA, y
+    // agregarle 'consulta' ahi le daria a Cielo y a Valeria la capacidad de
+    // mover inventario de una maquila. La lectura es lo unico que se abre.
+    function puedeVerAvios() {
+      return esInterno() && rol() in ['almacen', 'admin', 'consulta'];
+    }
+
     function puedeManejarAvios() {
       // esInterno() y no solo el rol: un perfil hibrido (rol interno +
       // maquilaId) manejaria los envios de TODAS las maquilas.
@@ -1610,7 +1623,7 @@ service cloud.firestore {
     }
 
     match /portalMaquila/{maquilaId}/solicitudesAvios/{solicitudId} {
-      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow read: if puedeVerAvios() || esMaquilaDe(maquilaId);
       allow create: if esMaquilaDe(maquilaId) && solicitudAvioValida(maquilaId);
       // La maquila puede CANCELAR su propia solicitud mientras nadie la haya
       // atendido (se equivoco al pedir). SOLO Alvaro/admin la resuelven: los
@@ -1686,7 +1699,7 @@ service cloud.firestore {
     // Lectura de envios/acuses de avios: SOLO almacen/admin del lado interno
     // (America y Lindbergh ya no ven avios: recorte de Roberto 2026-08-13).
     match /portalMaquila/{maquilaId}/enviosAvios/{envioId} {
-      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow read: if puedeVerAvios() || esMaquilaDe(maquilaId);
       // mismoMundoMaquila: demo_almacen manda material solo a la maquila
       // ficticia. Los saldos de avios son una cadena encadenada (saldo antes /
       // saldo despues), asi que un envio de prueba a una maquila real no se
@@ -1738,7 +1751,7 @@ service cloud.firestore {
     }
 
     match /portalMaquila/{maquilaId}/movimientosAvios/{movId} {
-      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow read: if puedeVerAvios() || esMaquilaDe(maquilaId);
       allow create: if mismoMundoMaquila(maquilaId) && movimientoAvioValido(maquilaId) && (
           // ENTRADA por un envio: la escribe la MAQUILA al acusar, con la
           // cantidad que declara haber recibido (decision de Roberto: gana lo
@@ -1793,7 +1806,7 @@ service cloud.firestore {
     }
 
     match /portalMaquila/{maquilaId}/saldosAvios/{codigo} {
-      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow read: if puedeVerAvios() || esMaquilaDe(maquilaId);
       allow create: if (puedeManejarAvios() || esAdmin() || esMaquilaDe(maquilaId))
         && mismoMundoMaquila(maquilaId)
         && saldoAtadoAlMovimiento(maquilaId, codigo)
@@ -1814,7 +1827,7 @@ service cloud.firestore {
     // DISCREPANCIA: se abre sola cuando lo que la maquila declara no coincide
     // con lo que almacen mando. Es el aviso para Alvaro de que algo no cuadro.
     match /portalMaquila/{maquilaId}/discrepanciasAvios/{discId} {
-      allow read: if puedeManejarAvios() || esMaquilaDe(maquilaId);
+      allow read: if puedeVerAvios() || esMaquilaDe(maquilaId);
       allow create: if esMaquilaDe(maquilaId)
         && request.resource.data.keys().hasAll(['maquilaId', 'envioId', 'codigo', 'descripcion', 'unidad', 'cantidadEnviada', 'cantidadRecibida', 'diferencia', 'estado', 'comentarioMaquila', 'abiertaEn'])
         && request.resource.data.keys().hasOnly(['maquilaId', 'envioId', 'codigo', 'descripcion', 'unidad', 'cantidadEnviada', 'cantidadRecibida', 'diferencia', 'estado', 'comentarioMaquila', 'abiertaEn', 'resueltoPorUid', 'resueltoPorNombre', 'resueltoEn', 'resolucion'])
@@ -2286,21 +2299,21 @@ service cloud.firestore {
     // SOLO almacen/admin: America y Lindbergh ya no ven avios (recorte de
     // Roberto 2026-08-13) y las reglas lo dicen, no solo las pestanas.
     match /{rutaSaldos=**}/saldosAvios/{codigo} {
-      allow read: if puedeManejarAvios();
+      allow read: if puedeVerAvios();
     }
     match /{rutaDisc=**}/discrepanciasAvios/{discId} {
-      allow read: if puedeManejarAvios();
+      allow read: if puedeVerAvios();
     }
     match /{rutaMov=**}/movimientosAvios/{movId} {
-      allow read: if puedeManejarAvios();
+      allow read: if puedeVerAvios();
     }
 
     // Alvaro ve los envios y acuses de TODAS las maquilas de una consulta.
     match /{rutaEnvios=**}/enviosAvios/{envioId} {
-      allow read: if puedeManejarAvios();
+      allow read: if puedeVerAvios();
     }
     match /{rutaAcusesAvios=**}/acusesAvios/{envioId} {
-      allow read: if puedeManejarAvios();
+      allow read: if puedeVerAvios();
     }
 
     // Alvaro necesita ver las solicitudes de TODAS las maquilas de una sola
@@ -2309,7 +2322,7 @@ service cloud.firestore {
     // acota a LECTURA de almacen/admin -- si dijera solo perfilActivo(), una
     // maquila podria leer las solicitudes de su competencia.
     match /{rutaPortal=**}/solicitudesAvios/{solicitudId} {
-      allow read: if puedeManejarAvios();
+      allow read: if puedeVerAvios();
     }
 
     // El acuse de recibido. La maquila lo crea UNA sola vez y no se edita ni

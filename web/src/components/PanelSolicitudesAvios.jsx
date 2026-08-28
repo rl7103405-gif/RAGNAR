@@ -18,7 +18,7 @@ import {
 } from '../utils/solicitudesAvios'
 
 export default function PanelSolicitudesAvios() {
-  const { authUser, perfil } = useAuth()
+  const { authUser, perfil, puedeManejarAvios } = useAuth()
   // Ya viene acotado al mundo propio; sirve para filtrar lo que llega por
   // collectionGroup, que no pasa por el catalogo.
   const maquilas = useMaquilas()
@@ -148,7 +148,10 @@ export default function PanelSolicitudesAvios() {
         </p>
       )}
 
-      {abierta && (
+      {/* Solo quien MUEVE el material contesta una solicitud. Cielo y PT
+          entran a esta pantalla para dar seguimiento (2026-08-28), y sin
+          este candado verian botones que el servidor les va a negar. */}
+      {abierta && puedeManejarAvios && (
         <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 10, paddingTop: 10 }}>
           <label className="campo">
             <span>Respuesta para la maquila (obligatoria si la rechazas)</span>

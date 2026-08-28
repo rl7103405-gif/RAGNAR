@@ -48,7 +48,7 @@ const TABS = [
   // nombre de negocio, no tecnico: el vocabulario en pantalla es parte del
   // sistema.
   { id: 'ordenes', label: 'Ordenes de compra' },
-  { id: 'porllegar', label: 'Por llegar' },
+  { id: 'porllegar', label: 'Recibir' },
   { id: 'registros', label: 'Registros' },
   // Copiadas de captura-mecanicos, que ya las tenia (Roberto, 19-08). Van al
   // final: se consultan de vez en cuando, no son trabajo diario.
@@ -69,7 +69,15 @@ const TABS_CAPTURA = ['captura']
 // que es justo lo que Roberto pidio el 28-08 ("que ella le pueda estar dando
 // seguimiento a todo lo demas"). No abre ningun permiso nuevo: las tareas de
 // ensamble ya eran legibles para este rol desde el 24-08.
-const TABS_CONSULTA = ['ordenes', 'porllegar', 'historial', 'reportes', 'indicadores', 'registros', 'maquilas']
+const TABS_CONSULTA = [
+  'porllegar',
+  'maquilas',
+  'ordenes',
+  'historial',
+  'reportes',
+  'indicadores',
+  'registros'
+]
 
 // Alvaro (rol 'almacen') maneja los AVIOS que se mandan: solicitudes, envios
 // e inventario de las maquilas (SOLO avios: bultos y embarques no son suyos).
@@ -198,7 +206,14 @@ export default function Estacion() {
   // 'Mi perfil' para cualquiera que haya entrado.
   const conEquipo = rol === 'completo' ? [...conTareas, ...TABS_EQUIPO] : conTareas
   const permitidas = conEquipo.includes('miperfil') ? conEquipo : [...conEquipo, 'miperfil']
-  const visibles = TABS.filter((t) => permitidas.includes(t.id))
+  // El orden lo pone la lista DEL ROL, no la lista maestra. Antes se filtraba
+  // TABS, asi que todos caian en la misma primera pestana: a Valeria (PT) le
+  // abria Historial, que no es su trabajo. Roberto, 2026-08-28: "la primera
+  // pestana que le aparezca no sea historial, sea la de maquilas y por llegar".
+  // Cada quien entra donde trabaja.
+  const visibles = permitidas
+    .map((id) => TABS.find((t) => t.id === id))
+    .filter(Boolean)
   // La pestana inicial no puede ser 'captura' para quien no la tiene.
   const tabActiva = visibles.some((t) => t.id === tab) ? tab : visibles[0]?.id
 

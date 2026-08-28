@@ -17,7 +17,7 @@ import {
 } from '../utils/enviosAvios'
 
 export default function PanelEnviarAvios() {
-  const { authUser, perfil, esPrueba } = useAuth()
+  const { authUser, perfil, esPrueba, puedeManejarAvios } = useAuth()
   const maquilas = useMaquilas()
   // Simetrico: cada mundo ve solo sus maquilas (las reglas exigen lo mismo;
   // aqui es para que nadie la elija por error y choque con permission-denied).
@@ -111,7 +111,23 @@ export default function PanelEnviarAvios() {
   const tarjetaEnvio = (envio) => {
     const acuse = acuses[`${envio.maquilaId}__${envio.id}`]
     const conDiferencias = acuse?.resultado === 'con_diferencias'
+    // Mandar material es de Alvaro y de direccion. Cielo y PT entran solo a
+  // ver que se ha mandado (2026-08-28): se les dice, en vez de dejarles un
+  // formulario que el servidor va a rechazar al enviarlo.
+  if (!puedeManejarAvios) {
     return (
+      <div className="tarjeta">
+        <h2>Mandar material</h2>
+        <p className="texto-suave">
+          Esta pantalla es de quien surte el material (Almacen y direccion). Lo que
+          ya se les mando lo puedes ver en <strong>Inventario</strong>, movimiento
+          por movimiento.
+        </p>
+      </div>
+    )
+  }
+
+  return (
       <div
         key={`${envio.maquilaId}__${envio.id}`}
         style={{

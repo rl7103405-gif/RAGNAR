@@ -36,21 +36,16 @@ export default function PanelMaquilasTodo() {
   // Quien ve que. Se calcula con los mismos permisos que ya decidian las
   // pestanas viejas, para no cambiar de paso quien alcanza que cosa: esto es
   // una reorganizacion de la pantalla, no un cambio de permisos.
+  // Quien MUEVE el material: Alvaro y direccion. Son los unicos con botones.
   const material = esAdmin || soloAlmacen
-  // El INVENTARIO de las maquilas se le abrio tambien a Cielo (consulta) el
-  // 2026-08-28: "dale que pueda ver todo lo de maquilas, para que ella le
-  // pueda estar dando seguimiento si llega a tener duda". Es de solo mirar y
-  // su unico boton ya se gatea solo con puedeManejarAvios.
-  //
-  // 'Piden material' y 'Mandar material' NO se le abrieron, a proposito:
-  // pintan botones de aprobar y de enviar que no consultan el rol, asi que a
-  // Cielo le apareceria un boton que el servidor le va a negar. Un boton que
-  // siempre falla es peor que no tenerlo; para dárselos hay que gatearlos
-  // primero.
+  // Quien lo MIRA. Roberto, 2026-08-28: "dale a PT todo lo de las maquilas,
+  // todo, que vea todo... bueno, pedir tareas, que eso lo hace Lindbergh".
+  // Cielo y Valeria (rol 'consulta') entran a las mismas pantallas, pero en
+  // modo de solo mirar: los botones de aprobar y de enviar se esconden con
+  // `puedeMover`, porque un boton que el servidor va a negar es peor que no
+  // tenerlo. La lectura la respalda puedeVerAvios() en firestore.rules.
+  const verMaterial = material || soloConsulta
   const catalogo = esAdmin || soloAlmacen || soloConsulta
-  // Los precios los pone Cielo (consulta) y direccion, nadie mas: es lo que se
-  // le paga a la maquila (decision de Roberto, 24-08).
-  const precios = esAdmin || soloConsulta
   const tareas = puedeCrearTareas
   // El alta de maquilas la tenia la pestana 'Maquilas', que SOLO veian los
   // perfiles completos (America, Diana, Lindbergh, estacion) y el admin.
@@ -61,13 +56,9 @@ export default function PanelMaquilasTodo() {
 
   const secciones = [
     tareas && { id: 'tareas', label: 'Tareas', render: () => <PanelTareasMaquila /> },
-    material && { id: 'piden', label: 'Piden material', render: () => <PanelSolicitudesAvios /> },
-    material && { id: 'mandar', label: 'Mandar material', render: () => <PanelEnviarAvios /> },
-    (material || soloConsulta) && {
-      id: 'inventario',
-      label: 'Inventario',
-      render: () => <PanelInventarioAvios />
-    },
+    verMaterial && { id: 'piden', label: 'Piden material', render: () => <PanelSolicitudesAvios /> },
+    verMaterial && { id: 'mandar', label: 'Mandar material', render: () => <PanelEnviarAvios /> },
+    verMaterial && { id: 'inventario', label: 'Inventario', render: () => <PanelInventarioAvios /> },
     catalogo && { id: 'catalogo', label: 'Catalogo de material', render: () => <Avios /> },
     precios && { id: 'precios', label: 'Precios de ensamble', render: () => <PanelPreciosMaquila /> },
     // Hasta el final a proposito: dar de alta una maquila se hace una vez cada
