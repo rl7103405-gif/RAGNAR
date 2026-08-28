@@ -46,6 +46,9 @@ export default function PanelMaquilasTodo() {
   // tenerlo. La lectura la respalda puedeVerAvios() en firestore.rules.
   const verMaterial = material || soloConsulta
   const catalogo = esAdmin || soloAlmacen || soloConsulta
+  // Los precios los pone Cielo (consulta) y direccion, nadie mas: es lo que se
+  // le paga a la maquila (decision de Roberto, 24-08).
+  const precios = esAdmin || soloConsulta
   const tareas = puedeCrearTareas
   // El alta de maquilas la tenia la pestana 'Maquilas', que SOLO veian los
   // perfiles completos (America, Diana, Lindbergh, estacion) y el admin.

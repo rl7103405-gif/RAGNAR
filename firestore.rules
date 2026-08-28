@@ -1251,8 +1251,10 @@ service cloud.firestore {
     // acta a la hora de una aclaracion con la maquila.
     match /recepcionesPT/{recepcionId} {
       allow read: if esInterno();
+      // Por FLAG, no por rol: Valeria y Cielo son las dos 'consulta', y
+      // levantar el acta de lo que llego es de Producto Terminado.
       allow create: if esInterno()
-        && rol() in ['consulta', 'admin']
+        && (esAdmin() || perfil().get('recibeProductoTerminado', false) == true)
         && recepcionValida();
       allow update, delete: if false;
     }

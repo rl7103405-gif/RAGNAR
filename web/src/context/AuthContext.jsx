@@ -135,6 +135,14 @@ export function AuthProvider({ children }) {
     // claves del catalogo las controla Cielo.
     administraCatalogoAvios:
       esInterno && (rol === 'admin' || perfil?.administraCatalogoAvios === true),
+    // PRODUCTO TERMINADO. Va por FLAG y no por rol porque Valeria y Cielo
+    // comparten el rol 'consulta': sin esto, todo lo que se le da a una le
+    // aparece a la otra. Roberto lo cazo el 2026-08-28 -- "como que juntaste
+    // los dos perfiles" -- y tenia razon, era la causa de raiz.
+    // Mismo patron que administraCatalogoAvios, que ya distinguia a Cielo
+    // dentro del mismo rol.
+    recibeProductoTerminado:
+      esInterno && (rol === 'admin' || perfil?.recibeProductoTerminado === true),
     cargando,
     iniciarSesion,
     cerrarSesion

@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-09',
+    fecha: '2026-08-28',
+    tipo: 'corregido',
+    titulo: 'Cada quien ve lo suyo otra vez',
+    detalle:
+      'La pestana Maquilas se abria en blanco, y la pantalla de recibir le aparecia a quien no recibe. Ya quedo: recibir es de Producto Terminado, y Maquilas vuelve a abrir para todos los que la tienen.'
+  },
+  {
     id: '2026-08-28-08',
     fecha: '2026-08-28',
     tipo: 'mejorado',

@@ -157,7 +157,7 @@ export default function PanelPorLlegar() {
 
   return (
     <div className="tarjeta">
-      <h2>Lo que viene para Producto Terminado</h2>
+      <h2>Recibir</h2>
 
       {error && <div className="alerta-error">{error}</div>}
       {aviso && <div className="alerta-exito">{aviso}</div>}
@@ -173,7 +173,7 @@ export default function PanelPorLlegar() {
         </div>
       )}
 
-      {GRUPOS.map((g) => {
+      {GRUPOS.filter((g) => g.estado === 'declarada').map((g) => {
         const lista = porGrupo.get(g.estado) || []
         return (
           <div key={g.estado} style={{ marginTop: 18 }}>
@@ -185,7 +185,10 @@ export default function PanelPorLlegar() {
             </p>
 
             {lista.length === 0 ? (
-              <p className="texto-suave">Nada por ahora.</p>
+              <p className="texto-suave">
+                No hay nada esperando a que lo recibas. Aquí van a aparecer las
+                entregas en cuanto la maquila avise que terminó.
+              </p>
             ) : (
               <table className="tabla-datos">
                 <thead>
@@ -375,6 +378,65 @@ export default function PanelPorLlegar() {
             </tbody>
           </table>
         )}
+      </div>
+
+      <div style={{ marginTop: 30, paddingTop: 6, borderTop: '1px solid #e2e8f0' }}>
+        <h3 style={{ marginBottom: 2 }}>Lo que viene más adelante</h3>
+        <p className="texto-suave" style={{ marginTop: 0 }}>
+          Todavía no llega nada de esto: es para que sepas qué se está trabajando y
+          puedas ir preparando el espacio.
+        </p>
+        {GRUPOS.filter((g) => g.estado !== 'declarada').map((g) => {
+          const lista = porGrupo.get(g.estado) || []
+          return (
+            <div key={g.estado} style={{ marginTop: 14 }}>
+              <strong>{g.titulo}</strong>{' '}
+              {lista.length > 0 && <span className="texto-suave">({lista.length})</span>}
+              <p className="texto-suave" style={{ margin: '2px 0 6px' }}>
+                {g.detalle}
+              </p>
+              {lista.length === 0 ? (
+                <p className="texto-suave">Nada por ahora.</p>
+              ) : (
+                <table className="tabla-datos">
+                  <thead>
+                    <tr>
+                      <th>Maquila</th>
+                      <th>Pedido / cliente</th>
+                      <th>OT</th>
+                      <th>Códigos</th>
+                      <th>Cantidad encargada</th>
+                      <th>Desde</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lista.map((t) => {
+                      const dias = diasDesde(t[g.fecha])
+                      return (
+                        <tr key={`${t.maquilaId || ''}-${t.id}`}>
+                          <td>{nombreMaquila(t.maquilaId)}</td>
+                          <td>{t.titulo || '—'}</td>
+                          <td>{t.ot || '—'}</td>
+                          <td>{(t.renglones || []).length}</td>
+                          <td>{resumenCantidades(t)}</td>
+                          <td>
+                            {fecha(t[g.fecha])}
+                            {dias !== null && (
+                              <span className="texto-suave">
+                                {' '}
+                                {dias === 0 ? '(hoy)' : dias === 1 ? '(ayer)' : `(hace ${dias} días)`}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       <p className="texto-suave" style={{ marginTop: 22 }}>

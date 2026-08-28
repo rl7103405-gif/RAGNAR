@@ -69,8 +69,10 @@ const TABS_CAPTURA = ['captura']
 // que es justo lo que Roberto pidio el 28-08 ("que ella le pueda estar dando
 // seguimiento a todo lo demas"). No abre ningun permiso nuevo: las tareas de
 // ensamble ya eran legibles para este rol desde el 24-08.
+// 'porllegar' (Recibir) NO va en esta lista: Valeria y Cielo comparten el rol
+// 'consulta', y recibir es de Producto Terminado. Se agrega abajo, solo a
+// quien trae el flag recibeProductoTerminado.
 const TABS_CONSULTA = [
-  'porllegar',
   'maquilas',
   'ordenes',
   'historial',
@@ -122,6 +124,7 @@ export default function Estacion() {
     esMaquila,
     puedeCrearTareas,
     puedeSubirPlanMaestro,
+    recibeProductoTerminado,
     soloProduccion,
     rol,
     perfil
@@ -199,12 +202,18 @@ export default function Estacion() {
   // Quien puede encargar tareas a maquilas entra por la pestana de Maquilas,
   // donde 'Tareas' es la primera seccion.
   const conTareas = puedeCrearTareas && !base.includes('maquilas') ? [...base, 'maquilas'] : base
+  // Producto Terminado entra donde trabaja: 'Recibir' primero, y solo si de
+  // verdad recibe. Va al frente porque es su tarea del dia, no una consulta.
+  const conRecepcion =
+    recibeProductoTerminado && !conTareas.includes('porllegar')
+      ? ['porllegar', ...conTareas]
+      : conTareas
   // 'Mi equipo' y 'Mi perfil' solo para admin y completo (el papa, Lindbergh y
   // America). esAdmin ya las trae por TABS.map, asi que solo hay que
   // agregarselas a 'completo'.
   // 'Mi equipo' solo para embarques (admin ya la trae por TABS.map);
   // 'Mi perfil' para cualquiera que haya entrado.
-  const conEquipo = rol === 'completo' ? [...conTareas, ...TABS_EQUIPO] : conTareas
+  const conEquipo = rol === 'completo' ? [...conRecepcion, ...TABS_EQUIPO] : conRecepcion
   const permitidas = conEquipo.includes('miperfil') ? conEquipo : [...conEquipo, 'miperfil']
   // El orden lo pone la lista DEL ROL, no la lista maestra. Antes se filtraba
   // TABS, asi que todos caian en la misma primera pestana: a Valeria (PT) le
