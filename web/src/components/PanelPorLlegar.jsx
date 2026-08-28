@@ -60,6 +60,10 @@ export default function PanelPorLlegar() {
   const [tareas, setTareas] = useState([])
   const [error, setError] = useState('')
   const [aviso, setAviso] = useState('')
+  // Sub-pestanas, con el mismo patron que la pantalla de Maquilas. Roberto
+  // las pidio el 28-08: en una sola columna, registrar una entrega quedaba
+  // revuelto con el historial y con la referencia de las maquilas.
+  const [seccion, setSeccion] = useState('registrar')
 
   useEffect(() => {
     let vivo = true
@@ -143,9 +147,9 @@ export default function PanelPorLlegar() {
     }
   }
 
-  return (
+  const registrar = (
     <div className="tarjeta">
-      <h2>Recibir</h2>
+      <h2>Registrar una entrega</h2>
       <p className="texto-suave">
         Cuando te llegue algo de una maquila, elige aquí con qué documento salió y
         escribe lo que contaste. La pantalla lo compara sola contra lo que se mandó.
@@ -269,13 +273,21 @@ export default function PanelPorLlegar() {
         </>
       )}
 
-      <div style={{ marginTop: 30, paddingTop: 6, borderTop: '1px solid #e2e8f0' }}>
-        <h3 style={{ marginBottom: 2 }}>
+    </div>
+  )
+
+  const yaRecibido = (
+    <div className="tarjeta">
+      <div>
+        <h2 style={{ marginBottom: 2 }}>
           Lo que ya recibiste{' '}
           {recepciones.length > 0 && <span className="texto-suave">({recepciones.length})</span>}
-        </h3>
+        </h2>
         {recepciones.length === 0 ? (
-          <p className="texto-suave">Todavía no se ha registrado ninguna recepción.</p>
+          <p className="texto-suave">
+            Todavía no se ha registrado ninguna recepción. En cuanto guardes la
+            primera aparece aquí, con su acta.
+          </p>
         ) : (
           <table className="tabla-datos">
             <thead>
@@ -308,8 +320,13 @@ export default function PanelPorLlegar() {
         )}
       </div>
 
-      <div style={{ marginTop: 30, paddingTop: 6, borderTop: '1px solid #e2e8f0' }}>
-        <h3 style={{ marginBottom: 2 }}>Lo que las maquilas tienen en sus manos</h3>
+    </div>
+  )
+
+  const enMaquilas = (
+    <div className="tarjeta">
+      <div>
+        <h2 style={{ marginBottom: 2 }}>Lo que las maquilas tienen en sus manos</h2>
         <p className="texto-suave" style={{ marginTop: 0 }}>
           Solo como referencia, según las tareas que se les encargaron. Para recibir no
           hace falta que algo aparezca aquí.
@@ -339,5 +356,33 @@ export default function PanelPorLlegar() {
         })}
       </div>
     </div>
+  )
+
+  const SECCIONES = [
+    { id: 'registrar', label: 'Registrar una entrega', render: () => registrar },
+    {
+      id: 'recibido',
+      label: `Ya recibido${recepciones.length ? ` (${recepciones.length})` : ''}`,
+      render: () => yaRecibido
+    },
+    { id: 'maquilas', label: 'En las maquilas', render: () => enMaquilas }
+  ]
+  const actual = SECCIONES.find((x) => x.id === seccion) || SECCIONES[0]
+
+  return (
+    <>
+      <div className="tabs" style={{ marginBottom: 12 }}>
+        {SECCIONES.map((x) => (
+          <button
+            key={x.id}
+            className={`tab ${actual.id === x.id ? 'activo' : ''}`}
+            onClick={() => setSeccion(x.id)}
+          >
+            {x.label}
+          </button>
+        ))}
+      </div>
+      {actual.render()}
+    </>
   )
 }

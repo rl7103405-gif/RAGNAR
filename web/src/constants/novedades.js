@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-13',
+    fecha: '2026-08-28',
+    tipo: 'mejorado',
+    titulo: 'Recibir, ahora en tres apartados',
+    detalle:
+      'La pantalla de Recibir se dividio: "Registrar una entrega" para lo que acaba de llegar, "Ya recibido" para el historial de actas, y "En las maquilas" como referencia de lo que se les encargo. Abre siempre en registrar, que es lo que se hace todos los dias.'
+  },
+  {
     id: '2026-08-28-12',
     fecha: '2026-08-28',
     tipo: 'nuevo',
