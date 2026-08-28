@@ -67,7 +67,7 @@ export function AuthProvider({ children }) {
   // vez de una app que se ve completa y truena en cada boton.
   //   produccion -> Adrian (jefe de produccion): sube el plan maestro que
   //                 agrupa las OT bajo su orden de compra. No opera embarques.
-  const ROLES_INTERNOS = ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion']
+  const ROLES_INTERNOS = ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion', 'pt']
   const rol = perfil?.rol || ''
   // Mismo criterio que las reglas: un perfil con maquilaId NUNCA es interno,
   // aunque traiga un rol interno. Sin esto, un perfil hibrido veria la UI
@@ -121,6 +121,11 @@ export function AuthProvider({ children }) {
     puedeOperar: esInterno && ['captura', 'completo', 'admin'].includes(rol),
     // Cielo: ve para llevar el control, pero no captura ni emite nada.
     soloConsulta: rol === 'consulta',
+    // Producto Terminado. Rol PROPIO y no un flag sobre 'consulta':
+    // Valeria recibe mercancia y Cielo lleva los pagos, son dos trabajos
+    // distintos. Mientras compartieron rol, todo lo que se le daba a una le
+    // aparecia a la otra.
+    soloPT: rol === 'pt',
     // Adrian (produccion): sube el PLAN MAESTRO que dice que ordenes de
     // trabajo cuelgan de cada orden de compra del cliente. Es el dato que le
     // falta a Lindbergh para ver su avance agrupado, y hoy Adrian lo lleva en
@@ -135,14 +140,7 @@ export function AuthProvider({ children }) {
     // claves del catalogo las controla Cielo.
     administraCatalogoAvios:
       esInterno && (rol === 'admin' || perfil?.administraCatalogoAvios === true),
-    // PRODUCTO TERMINADO. Va por FLAG y no por rol porque Valeria y Cielo
-    // comparten el rol 'consulta': sin esto, todo lo que se le da a una le
-    // aparece a la otra. Roberto lo cazo el 2026-08-28 -- "como que juntaste
-    // los dos perfiles" -- y tenia razon, era la causa de raiz.
-    // Mismo patron que administraCatalogoAvios, que ya distinguia a Cielo
-    // dentro del mismo rol.
-    recibeProductoTerminado:
-      esInterno && (rol === 'admin' || perfil?.recibeProductoTerminado === true),
+    recibeProductoTerminado: esInterno && (rol === 'admin' || rol === 'pt'),
     cargando,
     iniciarSesion,
     cerrarSesion

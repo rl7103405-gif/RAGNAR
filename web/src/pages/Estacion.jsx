@@ -69,9 +69,8 @@ const TABS_CAPTURA = ['captura']
 // que es justo lo que Roberto pidio el 28-08 ("que ella le pueda estar dando
 // seguimiento a todo lo demas"). No abre ningun permiso nuevo: las tareas de
 // ensamble ya eran legibles para este rol desde el 24-08.
-// 'porllegar' (Recibir) NO va en esta lista: Valeria y Cielo comparten el rol
-// 'consulta', y recibir es de Producto Terminado. Se agrega abajo, solo a
-// quien trae el flag recibeProductoTerminado.
+// Cielo (rol 'consulta'): lleva el control y los PAGOS a las maquilas. No
+// recibe mercancia -- eso es de Producto Terminado, que tiene su propio rol.
 const TABS_CONSULTA = [
   'maquilas',
   'ordenes',
@@ -85,6 +84,20 @@ const TABS_CONSULTA = [
 // e inventario de las maquilas (SOLO avios: bultos y embarques no son suyos).
 // El catalogo lo consulta pero ya no lo administra (es de Cielo).
 const TABS_ALMACEN = ['maquilas', 'tareas']
+
+// Valeria (rol 'pt'), Producto Terminado. Su trabajo es RECIBIR lo que
+// devuelven las maquilas, asi que entra ahi: la primera pestana de cada quien
+// es su trabajo del dia, no una consulta. Ve lo de maquilas para dar
+// seguimiento, pero no pone precios (eso es de Cielo) ni captura folios.
+const TABS_PT = [
+  'porllegar',
+  'maquilas',
+  'ordenes',
+  'historial',
+  'reportes',
+  'indicadores',
+  'registros'
+]
 
 // Adrian (rol 'produccion'): sube el plan maestro y comprueba en el arbol que
 // quedo bien amarrado. No captura, no embarca, no toca avios.
@@ -118,13 +131,13 @@ export default function Estacion() {
   const {
     soloCaptura,
     soloConsulta,
+    soloPT,
     soloAlmacen,
     esAdmin,
     esInterno,
     esMaquila,
     puedeCrearTareas,
     puedeSubirPlanMaestro,
-    recibeProductoTerminado,
     soloProduccion,
     rol,
     perfil
@@ -192,6 +205,8 @@ export default function Estacion() {
     ? TABS_CAPTURA
     : soloProduccion
       ? TABS_PRODUCCION
+    : soloPT
+      ? TABS_PT
     : soloConsulta
       ? TABS_CONSULTA
       : soloAlmacen
@@ -202,12 +217,7 @@ export default function Estacion() {
   // Quien puede encargar tareas a maquilas entra por la pestana de Maquilas,
   // donde 'Tareas' es la primera seccion.
   const conTareas = puedeCrearTareas && !base.includes('maquilas') ? [...base, 'maquilas'] : base
-  // Producto Terminado entra donde trabaja: 'Recibir' primero, y solo si de
-  // verdad recibe. Va al frente porque es su tarea del dia, no una consulta.
-  const conRecepcion =
-    recibeProductoTerminado && !conTareas.includes('porllegar')
-      ? ['porllegar', ...conTareas]
-      : conTareas
+  const conRecepcion = conTareas
   // 'Mi equipo' y 'Mi perfil' solo para admin y completo (el papa, Lindbergh y
   // America). esAdmin ya las trae por TABS.map, asi que solo hay que
   // agregarselas a 'completo'.

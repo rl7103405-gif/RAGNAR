@@ -137,7 +137,7 @@ export default function PanelTareas() {
         // Solo INTERNOS que ven la pestana Tareas. Excluir nada mas 'captura'
         // dejaba asignables a las cuentas de maquila, que jamas podrian leer
         // la tarea (las reglas exigen esInterno): quedaba en un limbo.
-        const ROLES_ASIGNABLES = ['completo', 'consulta', 'almacen', 'admin']
+        const ROLES_ASIGNABLES = ['completo', 'consulta', 'almacen', 'admin', 'pt']
         const gente = snap.docs
           .map((d) => ({ uid: d.id, ...d.data() }))
           // Cada quien ve destinatarios de SU mundo: una cuenta de prueba solo

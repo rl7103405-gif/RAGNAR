@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-10',
+    fecha: '2026-08-28',
+    tipo: 'nuevo',
+    titulo: 'Producto Terminado ya es un perfil aparte',
+    detalle:
+      'Valeria tenia el mismo perfil que Cielo, y por eso lo que se le agregaba a una le aparecia a la otra. Ya son dos: Producto Terminado recibe la mercancia, y Cielo lleva el control y los pagos a las maquilas. Cada quien entra directo a su trabajo.'
+  },
+  {
     id: '2026-08-28-09',
     fecha: '2026-08-28',
     tipo: 'corregido',

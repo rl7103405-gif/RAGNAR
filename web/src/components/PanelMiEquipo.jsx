@@ -24,7 +24,8 @@ const GRUPOS = [
   { rol: 'completo', titulo: 'Embarques', que: 'Captura, embarca y encarga tareas' },
   { rol: 'captura', titulo: 'Pesadores', que: 'Capturan folios en la bascula' },
   { rol: 'almacen', titulo: 'Almacen de avios', que: 'Manda material a las maquilas' },
-  { rol: 'consulta', titulo: 'Consulta', que: 'Ve reportes y el catalogo de avios' }
+  { rol: 'consulta', titulo: 'Consulta', que: 'Ve reportes y el catalogo de avios' },
+  { rol: 'pt', titulo: 'Producto Terminado', que: 'Recibe lo que devuelven las maquilas' }
 ]
 
 /** Circulito con la inicial. Mismo hueco donde un dia ira la foto. */

@@ -17,9 +17,10 @@
 // Lo que TODAVIA no hay es el codigo de barras en la remision (para no teclear
 // nada) ni el inventario acumulado. Eso sigue en IDEAS.md.
 //
-// No hizo falta abrir ningun permiso: el rol 'consulta' (Valeria, Cielo) ya
-// podia leer las tareas de ensamble de SUS maquilas desde el 24-08, con el
-// corral de mundo incluido (firestore.rules, match tareasEnsamble).
+// Esta pantalla es del rol 'pt' (Valeria). Cielo NO la ve: ella lleva los
+// pagos, no recibe mercancia. Las dos compartieron el rol 'consulta' hasta
+// el 28-08, y mientras lo compartieron todo lo que se le daba a una le
+// aparecia a la otra.
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
