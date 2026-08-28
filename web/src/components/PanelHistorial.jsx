@@ -153,6 +153,16 @@ export default function PanelHistorial() {
   }, [gruposCapturas.map((g) => g.ot).join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const SIN_OC = '__sin_oc__'
+  // Lo que el plan no ubica PERO ya salio completo en sus PDFs. Roberto lo
+  // pidio el 28-08: "esas OT que ya todo esta en PDF, mandalas a terminadas,
+  // con el subtitulo de sin orden de compra, para que no se acumulen".
+  //
+  // Y tiene razon de fondo: la mayoria son de cuando arrancamos, antes de que
+  // hubiera plan maestro. No son trabajo pendiente, son historia -- y mientras
+  // vivan en "sin terminar" tapan lo que si falta (133 OT y 1,101 folios el
+  // 28-08). Se separan del resto del bloque sin OC, no de las ordenes con OC:
+  // siguen sin plan, pero ya no piden nada.
+  const SIN_OC_LISTAS = '__sin_oc_listas__'
 
   /**
    * EL HISTORIAL EN TRES NIVELES: orden de compra -> orden de trabajo -> folios.
@@ -185,8 +195,34 @@ export default function PanelHistorial() {
       grupo.kg += g.kg
       grupo.pendientes += g.filas.filter((f) => !f.pdfGeneradoEn).length
     })
+    // El bloque sin OC se parte en dos por OT: las que tienen algun folio sin
+    // mandar siguen pendientes; las que ya salieron completas son historia.
+    const sinOc = porOc.get(SIN_OC)
+    if (sinOc) {
+      const pendientes = sinOc.ots.filter((g) => g.filas.some((f) => !f.pdfGeneradoEn))
+      const listas = sinOc.ots.filter((g) => !g.filas.some((f) => !f.pdfGeneradoEn))
+      const totalizar = (clave, ots) => {
+        const grupo = { oc: clave, destino: '', ots, folios: 0, docenas: 0, docenasMandadas: 0, kg: 0, pendientes: 0 }
+        ots.forEach((g) => {
+          grupo.folios += g.folios
+          grupo.docenas += g.filas.reduce((a, f) => a + docenasDeCaptura(f), 0)
+          grupo.docenasMandadas += g.filas
+            .filter((f) => f.pdfGeneradoEn)
+            .reduce((a, f) => a + docenasDeCaptura(f), 0)
+          grupo.kg += g.kg
+          grupo.pendientes += g.filas.filter((f) => !f.pdfGeneradoEn).length
+        })
+        return grupo
+      }
+      porOc.delete(SIN_OC)
+      if (pendientes.length) porOc.set(SIN_OC, totalizar(SIN_OC, pendientes))
+      if (listas.length) porOc.set(SIN_OC_LISTAS, totalizar(SIN_OC_LISTAS, listas))
+    }
+
     return [...porOc.values()].sort((a, b) => {
       // Lo que el plan no ubica, al final: es lo que hay que arreglar.
+      if (a.oc === SIN_OC_LISTAS) return 1
+      if (b.oc === SIN_OC_LISTAS) return -1
       if (a.oc === SIN_OC) return 1
       if (b.oc === SIN_OC) return -1
       return String(a.oc).localeCompare(String(b.oc), 'es', { numeric: true })
@@ -238,7 +274,7 @@ export default function PanelHistorial() {
     const salida = new Map()
     if (!planeadoPorOc) return salida
     for (const g of arbolCapturas) {
-      if (g.oc === SIN_OC) continue
+      if (g.oc === SIN_OC || g.oc === SIN_OC_LISTAS) continue
       const meta = planeadoPorOc.get(g.oc)
       if (typeof meta !== 'number' || meta <= 0) {
         // Sin meta en el plan no hay porcentaje posible. Se distingue de un
@@ -286,6 +322,7 @@ export default function PanelHistorial() {
     // porcentaje diga 100: el porcentaje mide contra el plan, los pendientes
     // miden contra lo capturado, y terminar exige las dos cosas.
     const completa = (g) =>
+      g.oc === SIN_OC_LISTAS ||
       ((avancesPorOc.get(g.oc)?.mandado ?? 0) >= 100 && g.pendientes === 0) ||
       cerradasManual.has(g.oc)
     const abiertas = arbolCapturas.filter((g) => !completa(g))
@@ -300,7 +337,7 @@ export default function PanelHistorial() {
       let mandadas = 0
       let sinMeta = 0
       for (const g of grupo) {
-        if (g.oc === SIN_OC) continue
+        if (g.oc === SIN_OC || g.oc === SIN_OC_LISTAS) continue
         const a = avancesPorOc.get(g.oc)
         if (!a || a.sinMeta) { sinMeta += 1; continue }
         meta += planeadoPorOc?.get(g.oc) || 0
@@ -308,7 +345,7 @@ export default function PanelHistorial() {
         mandadas += g.docenasMandadas
       }
       return {
-        ordenes: grupo.filter((g) => g.oc !== SIN_OC).length,
+        ordenes: grupo.filter((g) => g.oc !== SIN_OC && g.oc !== SIN_OC_LISTAS).length,
         hecho: meta > 0 ? Math.min(100, (hechas / meta) * 100) : null,
         mandado: meta > 0 ? Math.min(100, (mandadas / meta) * 100) : null,
         sinMeta
@@ -476,7 +513,7 @@ export default function PanelHistorial() {
    */
   const filaDeOrden = (grupoOc, conAvance = true) => {
                 const ocAbierta = hayBusqueda || ocsAbiertas.has(grupoOc.oc)
-                const sinOc = grupoOc.oc === SIN_OC
+                const sinOc = grupoOc.oc === SIN_OC || grupoOc.oc === SIN_OC_LISTAS
                 return (
                   <Fragment key={grupoOc.oc}>
                     <tr
@@ -504,7 +541,11 @@ export default function PanelHistorial() {
                         <span style={{ display: 'inline-block', width: 18 }}>
                           {ocAbierta ? '▾' : '▸'}
                         </span>
-                        {sinOc ? 'Sin orden de compra en el plan' : `Orden de compra ${grupoOc.oc}`}
+                        {grupoOc.oc === SIN_OC_LISTAS
+                          ? 'Sin orden de compra en el plan — ya mandadas'
+                          : sinOc
+                            ? 'Sin orden de compra en el plan'
+                            : `Orden de compra ${grupoOc.oc}`}
                         {grupoOc.destino && (
                           <span
                             style={{
