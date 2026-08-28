@@ -37,6 +37,39 @@ export default function PanelIndicadores() {
       .reverse()
       .slice(-31)
 
+    // RITMO Y PROYECCION. Roberto lo pidio el 2026-08-28: "cuantos bultos en
+    // promedio capturamos al dia, cual ha sido el maximo, cuando el minimo...
+    // para sacar cuantas etiquetas necesitamos en un mes".
+    //
+    // ⚠️ El promedio se saca sobre los DIAS QUE SE TRABAJO, no sobre los dias
+    // del calendario. Dividir entre 31 metería los domingos y los dias de paro
+    // en el divisor y bajaria el promedio sin que nadie hubiera trabajado
+    // menos: el numero serviria para un reporte, no para pedir material.
+    const diasOrdenados = [...porDia.entries()].sort(([a], [b]) => {
+      const [da, ma] = a.split('/')
+      const [dbb, mb] = b.split('/')
+      return ma === mb ? Number(da) - Number(dbb) : Number(ma) - Number(mb)
+    })
+    const valores = diasOrdenados.map(([, v]) => v)
+    const diasWork = valores.length
+    const promedioDia = diasWork ? capturas.length / diasWork : 0
+    const maximo = diasWork ? diasOrdenados[valores.indexOf(Math.max(...valores))] : null
+    const minimo = diasWork ? diasOrdenados[valores.indexOf(Math.min(...valores))] : null
+    const docenasPorDia = diasWork ? docenasTotales / diasWork : 0
+    // Un mes de trabajo se toma como 24 dias (lunes a sabado, cuatro semanas).
+    // Es un supuesto, y por eso se dice en pantalla: quien lo lea tiene que
+    // poder discutir el numero, no solo creerselo.
+    const DIAS_MES = 24
+    const ritmo = {
+      diasWork,
+      promedioDia,
+      docenasPorDia,
+      maximo: maximo ? { dia: maximo[0], valor: maximo[1] } : null,
+      minimo: minimo ? { dia: minimo[0], valor: minimo[1] } : null,
+      etiquetasMes: Math.round(promedioDia * DIAS_MES),
+      diasMes: DIAS_MES
+    }
+
     const porCodigo = new Map()
     capturas.forEach((c) => {
       const codigo = c.producto?.codigo || 'SIN RUTEO'
@@ -75,6 +108,7 @@ export default function PanelIndicadores() {
       kgEnPdfs,
       foliosEnPdfs,
       capturasPorDia,
+      ritmo,
       topCodigos,
       capturasPorOperador,
       kgPorMaquila
@@ -107,6 +141,46 @@ export default function PanelIndicadores() {
       {!cargando && parcial && (
         <div className="alerta-error" style={{ background: '#fff4e0', color: '#8a5300', marginBottom: 12 }}>
           El periodo tiene mas datos de los que se pueden traer de una sola vez: estos indicadores son PARCIALES.
+        </div>
+      )}
+
+      {ind.ritmo.diasWork > 0 && (
+        <div className="tarjeta" style={{ marginBottom: 12 }}>
+          <h2 style={{ marginBottom: 2 }}>Ritmo</h2>
+          <p className="texto-suave" style={{ marginTop: 0, fontSize: 13 }}>
+            Los promedios se sacan sobre los <strong>{ind.ritmo.diasWork} dias que se
+            trabajo</strong> en este periodo, no sobre los dias del calendario: meter
+            domingos y paros en el divisor bajaria el promedio sin que nadie hubiera
+            trabajado menos.
+          </p>
+          <div className="detalle-kpis">
+            <div className="kpi">
+              <span className="kpi-num">{ind.ritmo.promedioDia.toFixed(0)}</span>
+              <span className="kpi-lbl">Bultos por dia trabajado</span>
+            </div>
+            <div className="kpi">
+              <span className="kpi-num">{ind.ritmo.docenasPorDia.toFixed(0)}</span>
+              <span className="kpi-lbl">Docenas por dia trabajado</span>
+            </div>
+            <div className="kpi">
+              <span className="kpi-num">{ind.ritmo.maximo?.valor ?? '-'}</span>
+              <span className="kpi-lbl">Dia mas alto ({ind.ritmo.maximo?.dia ?? '-'})</span>
+            </div>
+            <div className="kpi">
+              <span className="kpi-num">{ind.ritmo.minimo?.valor ?? '-'}</span>
+              <span className="kpi-lbl">Dia mas bajo ({ind.ritmo.minimo?.dia ?? '-'})</span>
+            </div>
+          </div>
+          <p style={{ marginTop: 10, marginBottom: 0 }}>
+            A este ritmo, en un mes de <strong>{ind.ritmo.diasMes} dias de trabajo</strong>{' '}
+            se necesitan <strong>~{ind.ritmo.etiquetasMes.toLocaleString('es-MX')} etiquetas</strong>.
+          </p>
+          <p className="texto-suave" style={{ fontSize: 12.5, marginTop: 2 }}>
+            Es un <strong>piso, no un pedido</strong>: cuenta una etiqueta por bulto y no
+            incluye reimpresiones, pruebas ni las que se echan a perder. Los 24 dias son un
+            supuesto (lunes a sabado, cuatro semanas) — si el mes trae mas o menos, el numero
+            se mueve igual. Para pedir material, mirar tambien el periodo de tres meses.
+          </p>
         </div>
       )}
 

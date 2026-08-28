@@ -36,6 +36,22 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-17',
+    fecha: '2026-08-28',
+    tipo: 'nuevo',
+    titulo: 'Indicadores: ritmo y cuantas etiquetas se necesitan',
+    detalle:
+      'Arriba de los indicadores sale el ritmo del periodo: bultos y docenas por dia TRABAJADO (no por dia de calendario), el dia mas alto y el mas bajo con su fecha, y cuantas etiquetas se necesitan para un mes de 24 dias a ese ritmo. En agosto: 112 bultos por dia, maximo 214 el 19/08, minimo 19 el 21/08, ~2,690 etiquetas al mes.'
+  },
+  {
+    id: '2026-08-28-16',
+    fecha: '2026-08-28',
+    tipo: 'mejorado',
+    titulo: 'El historial se limpia solo',
+    detalle:
+      'Las OT sin orden de compra en el plan que ya salieron completas en su PDF se pasan a "Ordenes terminadas", con su propio subtitulo. Eran 133 OT y 1,101 folios tapando lo que si falta. No se esconde ninguna: cambian de tarjeta.'
+  },
+  {
     id: '2026-08-28-16',
     fecha: '2026-08-28',
     tipo: 'mejorado',
