@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-28-16',
+    fecha: '2026-08-28',
+    tipo: 'mejorado',
+    titulo: 'Los pendientes, en arbol: orden de compra, OT y folios',
+    detalle:
+      'En Captura los folios pendientes se agrupan primero por ORDEN DE COMPRA, dentro por orden de trabajo, y dentro los folios. Al final, en ambar, dos ramas aparte: los que tienen OT pero no estan en el plan, y los que ni OT tienen. Cada rama se abre y se cierra, y su casilla selecciona todo lo que cuelga de ella.'
+  },
+  {
     id: '2026-08-28-15',
     fecha: '2026-08-28',
     tipo: 'nuevo',

@@ -21,6 +21,7 @@ import { leerPesoBascula, motivoLecturaInvalida } from '../utils/basculaBridge'
 import { resolverProductoEnTx, CRUCE_COMPLETO, CRUCE_SIN_RUTEO } from '../utils/cruceProducto'
 import { agruparPorOt, etiquetaOt } from '../utils/agruparOt'
 import { mapaOtAOc } from '../utils/planMaestro'
+import { agruparPorOc, etiquetaOc, DETALLE_RAMA } from '../utils/agruparOc'
 import { docenasDeCaptura } from '../utils/reimprimir'
 import {
   registrarCambio,
@@ -286,6 +287,19 @@ export default function PanelCaptura() {
   // pueden cerrar. Por eso dos conjuntos con semantica inversa.
   const [otsAbiertas, setOtsAbiertas] = useState(new Set())
   const [otsCerradas, setOtsCerradas] = useState(new Set())
+  // Las ramas de OC arrancan ABIERTAS en pendientes (es lo que hay que
+  // trabajar hoy) y se pueden cerrar; en 'ya enviados' al reves.
+  const [ocsCerradas, setOcsCerradas] = useState(new Set())
+  const [ocsAbiertas, setOcsAbiertas] = useState(new Set())
+  const toggleOc = (clave, esEnviados) => {
+    const setter = esEnviados ? setOcsAbiertas : setOcsCerradas
+    setter((prev) => {
+      const nueva = new Set(prev)
+      if (nueva.has(clave)) nueva.delete(clave)
+      else nueva.add(clave)
+      return nueva
+    })
+  }
 
   const toggleOt = (clave, esEnviados) => {
     const setter = esEnviados ? setOtsAbiertas : setOtsCerradas
@@ -420,7 +434,75 @@ export default function PanelCaptura() {
           </tr>
         </thead>
         <tbody>
-          {grupos.map(({ ot, filas, kg }) => {
+          {agruparPorOc(grupos, ocDeOt, docenasDeCaptura).map((rama) => {
+            const claveOc = `${conColumnaPdf ? 'env' : 'pend'}:oc:${rama.oc}`
+            const ocAbierta = conColumnaPdf
+              ? ocsAbiertas.has(claveOc)
+              : !ocsCerradas.has(claveOc)
+            const filasRama = rama.grupos.flatMap((g) => g.filas)
+            const ramaCompleta = filasRama.every((f) => seleccion.has(f.folio))
+            return (
+              <Fragment key={rama.oc}>
+                <tr
+                  style={{
+                    background: rama.esRamaEspecial ? '#fff7ed' : '#dbe4ef',
+                    borderTop: '3px solid #94a3b8'
+                  }}
+                >
+                  <td style={{ textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={ramaCompleta}
+                      onChange={() =>
+                        setSeleccion((prev) => {
+                          const nueva = new Set(prev)
+                          filasRama.forEach((f) =>
+                            ramaCompleta ? nueva.delete(f.folio) : nueva.add(f.folio)
+                          )
+                          return nueva
+                        })
+                      }
+                      title={ramaCompleta ? 'Quitar toda la rama' : 'Seleccionar toda la rama'}
+                    />
+                  </td>
+                  <td
+                    colSpan={columnas - 1}
+                    onClick={() => toggleOc(claveOc, conColumnaPdf)}
+                    style={{
+                      fontWeight: 800,
+                      padding: '9px 4px',
+                      cursor: 'pointer',
+                      color: rama.esRamaEspecial ? '#8a5300' : undefined
+                    }}
+                    title={ocAbierta ? 'Cerrar esta orden de compra' : 'Abrir esta orden de compra'}
+                  >
+                    <span style={{ display: 'inline-block', width: 18 }}>
+                      {ocAbierta ? '▾' : '▸'}
+                    </span>
+                    {etiquetaOc(rama.oc)}
+                    <span style={{ fontWeight: 400, color: '#556', marginLeft: 10, fontSize: 13 }}>
+                      {rama.grupos.length} OT - {rama.folios} folio
+                      {rama.folios === 1 ? '' : 's'}
+                      {rama.docenas > 0 ? ` - ${rama.docenas} docenas` : ''} -{' '}
+                      {rama.kg.toFixed(2)} kg
+                    </span>
+                    {rama.esRamaEspecial && ocAbierta && (
+                      <div
+                        style={{
+                          fontWeight: 400,
+                          fontSize: 12.5,
+                          color: '#8a5300',
+                          marginLeft: 18,
+                          marginTop: 2
+                        }}
+                      >
+                        {DETALLE_RAMA[rama.oc]}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+                {ocAbierta &&
+                  rama.grupos.map(({ ot, filas, kg }) => {
             const otCompleta = filas.every((f) => seleccion.has(f.folio))
             const conAgregadas = filas.some((f) => agregadas.some((a) => a.folio === f.folio))
             const sufijoTitulo = conAgregadas ? ' (incluye folios agregados de otro día)' : ''
@@ -491,6 +573,9 @@ export default function PanelCaptura() {
                   </td>
                 </tr>
                 {abierta && filas.map((c) => renderFilaCaptura(c, conColumnaPdf))}
+              </Fragment>
+                    )
+                  })}
               </Fragment>
             )
           })}
