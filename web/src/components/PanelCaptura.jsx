@@ -1170,7 +1170,8 @@ export default function PanelCaptura() {
                     {sinOc.length} de {gruposPendientes.length} OT sin orden de compra
                   </strong>{' '}
                   ({foliosSinOc} folio{foliosSinOc === 1 ? '' : 's'}): esas OT no estan en el
-                  plan maestro vigente. Hay que subir el plan actualizado.
+                  plan maestro vigente. <strong>Pidele a Adrian que suba el plan
+                  maestro actualizado.</strong>
                 </p>
               )
             })()}
