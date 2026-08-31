@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-31-01',
+    fecha: '2026-08-31',
+    tipo: 'nuevo',
+    titulo: 'Boton para volver a cruzar los folios sin ruteo',
+    detalle:
+      'Atalanta manda los folios solos todas las noches a las 2:00. Si capturaste un bulto antes de que llegara su folio, quedo en SIN RUTEO: en "Folios del dia" hay un boton para volver a intentar el cruce con lo que ya hay, sin subir ningun archivo. No cambia nada de lo que ya cruzo bien.'
+  },
+  {
     id: '2026-08-28-17',
     fecha: '2026-08-28',
     tipo: 'nuevo',

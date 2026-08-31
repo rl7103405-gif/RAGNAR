@@ -188,6 +188,35 @@ export default function CargaRuteo() {
 
   const total = analisis ? analisis.registros.size : 0
 
+  /**
+   * Vuelve a cruzar los bultos que quedaron SIN RUTEO, sin subir ningun Excel.
+   *
+   * Hace falta desde que Atalanta manda el ruteo solo a las 02:00 (sincronizador
+   * SICAP, en produccion desde el 29-08). Ese buzon ESCRIBE los folios pero NO
+   * re-cruza los bultos ya capturados: eso solo pasaba al subir el Excel desde
+   * esta pantalla. Resultado: un bulto pesado antes de que llegara su folio se
+   * quedaba en SIN RUTEO aunque el folio ya hubiera entrado de madrugada.
+   *
+   * Roberto, 31-08: "hay veces que necesitas que lo hagas desde temprano... o
+   * agrega una parte en folios del dia para actualizarlos".
+   *
+   * Es la MISMA funcion que corre despues de cargar un Excel, sin nada nuevo:
+   * solo toca bultos que no cruzaron y respeta el candado de los que ya
+   * salieron en un PDF.
+   */
+  const onRecruzarSolo = async () => {
+    setRecruce({ trabajando: true })
+    try {
+      const rc = await recruzarBultosSinRuteo({
+        usuario: { uid: authUser.uid, nombre: perfil?.nombreCompleto || 'Estacion' }
+      })
+      setRecruce({ trabajando: false, ...rc })
+    } catch (err) {
+      console.error('[CargaRuteo] No se pudo reintentar el cruce:', err)
+      setRecruce({ trabajando: false, error: err.message || String(err) })
+    }
+  }
+
   return (
     <>
       <div className="tarjeta" style={{ marginBottom: 18 }}>
@@ -200,6 +229,31 @@ export default function CargaRuteo() {
         Excel por mas de {RETENCION_DIAS} dias se desechan solos. Si el archivo tiene
         macros, primero ejecutalas en Excel y GUARDA: aqui solo se leen los valores guardados.
       </p>
+      <div
+        style={{
+          background: '#f1f5f9',
+          border: '1px solid #dbe4ef',
+          borderRadius: 8,
+          padding: '10px 12px',
+          margin: '10px 0 14px'
+        }}
+      >
+        <strong>Atalanta manda los folios solos, todas las noches a las 2:00.</strong>
+        <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>
+          Si capturaste un bulto antes de que llegara su folio, se quedo en{' '}
+          <strong>SIN RUTEO</strong>. Con este boton se vuelve a intentar el cruce con
+          lo que ya hay, sin subir ningun archivo. No borra ni cambia nada de lo que
+          ya cruzo bien.
+        </p>
+        <button
+          className="btn-primario"
+          onClick={onRecruzarSolo}
+          disabled={recruce?.trabajando || estado === 'analizando' || estado === 'cargando'}
+        >
+          {recruce?.trabajando ? 'Cruzando...' : 'Volver a cruzar los folios sin ruteo'}
+        </button>
+      </div>
+
       <input
         ref={inputRef}
         type="file"
