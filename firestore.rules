@@ -1060,6 +1060,14 @@ service cloud.firestore {
         && (resource.data.maxFolioNumero == null
             || (request.resource.data.maxFolioNumero is number
                 && request.resource.data.maxFolioNumero >= resource.data.maxFolioNumero))
+        // NOTA (pentest 2026-08-31): se evaluo topar el salto de maxFolioNumero
+        // para que un insider no lo ponga al techo y mate el analisis de
+        // huecos, PERO un "cambio de serie" legitimo (SALTO_ANORMAL en
+        // web/src/utils/ruteoEstado.js) SI salta mucho y la app lo permite
+        // explicitamente; un tope rompia ese flujo en silencio. Se deja sin
+        // tope: el analisis de huecos es una salvaguarda secundaria y el actor
+        // es interno de confianza. Cierre real (si se decide) = mover el avance
+        // del maximo a una Cloud Function, no un candado de reglas.
         && (request.resource.data.ultimaLimpieza == null
             || request.resource.data.ultimaLimpieza == resource.data.ultimaLimpieza
             || request.resource.data.ultimaLimpieza == request.time);
