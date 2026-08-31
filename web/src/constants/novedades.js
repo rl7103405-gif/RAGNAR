@@ -36,6 +36,14 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-08-31-02',
+    fecha: '2026-08-31',
+    tipo: 'nuevo',
+    titulo: 'Bajar a Excel el ruteo que hay hoy',
+    detalle:
+      'En "Folios del dia" se puede bajar todo el ruteo a Excel. Cada folio dice DE DONDE vino (Atalanta o el archivo de America) y cuando entro, para poder cotejar las dos fuentes mientras se comprueba que el envio automatico manda lo correcto.'
+  },
+  {
     id: '2026-08-31-01',
     fecha: '2026-08-31',
     tipo: 'nuevo',

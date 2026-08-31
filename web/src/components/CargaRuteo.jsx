@@ -4,12 +4,14 @@
 // basta con volver a subir el mismo archivo: es idempotente.
 import { compararAscendente } from '../utils/texto'
 import { useRef, useState } from 'react'
-import { addDoc, collection, serverTimestamp, updateDoc } from 'firebase/firestore'
+import { addDoc, collection, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { parsearFoliosRuteo, ErrorImportacion } from '../utils/importarFoliosRuteo'
 import { cargarFoliosRuteo } from '../utils/cargarRuteo'
 import { recruzarBultosSinRuteo } from '../utils/recruzarBultos'
+import { generarExcelRuteo } from '../utils/excelRuteo'
+import { descargarArchivo } from '../utils/excelSalida'
 import HistorialCargas from './HistorialCargas'
 import {
   analizarHuecos,
@@ -27,6 +29,7 @@ export default function CargaRuteo() {
   const [resumen, setResumen] = useState(null)
   // Resultado del reintento de cruce que corre despues de cargar el Excel.
   const [recruce, setRecruce] = useState(null)
+  const [bajando, setBajando] = useState(false)
   const [error, setError] = useState('')
   const [erroresDetalle, setErroresDetalle] = useState([])
   const [huecos, setHuecos] = useState(null)
@@ -217,6 +220,29 @@ export default function CargaRuteo() {
     }
   }
 
+  /**
+   * Baja a Excel el ruteo que RAGNAR tiene HOY, venga de donde venga.
+   *
+   * Sirve para lo que Roberto pidio el 31-08: mientras America siga subiendo su
+   * archivo, poder cotejar los dos y comprobar que Atalanta manda lo correcto.
+   * Por eso cada renglon lleva `De donde vino` y `Cuando entro`: sin esas dos
+   * columnas la comparacion no se puede hacer.
+   */
+  const onDescargarRuteo = async () => {
+    setBajando(true)
+    try {
+      const snap = await getDocs(collection(db, 'foliosRuteo'))
+      const folios = snap.docs.map((d) => ({ folio: d.id, ...d.data() }))
+      const { blob, nombre } = await generarExcelRuteo(folios)
+      descargarArchivo(blob, nombre)
+    } catch (err) {
+      console.error('[CargaRuteo] No se pudo bajar el ruteo:', err)
+      setRecruce({ error: 'No se pudo bajar el Excel: ' + (err.message || err) })
+    } finally {
+      setBajando(false)
+    }
+  }
+
   return (
     <>
       <div className="tarjeta" style={{ marginBottom: 18 }}>
@@ -245,13 +271,22 @@ export default function CargaRuteo() {
           lo que ya hay, sin subir ningun archivo. No borra ni cambia nada de lo que
           ya cruzo bien.
         </p>
-        <button
-          className="btn-primario"
-          onClick={onRecruzarSolo}
-          disabled={recruce?.trabajando || estado === 'analizando' || estado === 'cargando'}
-        >
-          {recruce?.trabajando ? 'Cruzando...' : 'Volver a cruzar los folios sin ruteo'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            className="btn-primario"
+            onClick={onRecruzarSolo}
+            disabled={recruce?.trabajando || estado === 'analizando' || estado === 'cargando'}
+          >
+            {recruce?.trabajando ? 'Cruzando...' : 'Volver a cruzar los folios sin ruteo'}
+          </button>
+          <button onClick={onDescargarRuteo} disabled={bajando}>
+            {bajando ? 'Preparando...' : 'Bajar a Excel el ruteo que hay hoy'}
+          </button>
+        </div>
+        <p className="texto-suave" style={{ margin: '8px 0 0', fontSize: 12.5 }}>
+          El Excel trae cada folio con <strong>de dónde vino</strong> (Atalanta o el
+          archivo de América) y cuándo entró, para poder cotejar las dos fuentes.
+        </p>
       </div>
 
       <input
