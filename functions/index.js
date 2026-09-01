@@ -15,3 +15,8 @@ initializeApp()
 
 const ruteo = require('./ruteo')
 exports.ruteoImport = ruteo.ruteoImport
+
+// El catalogo de productos entra por SU PROPIO buzon: llega en varios lotes y
+// se guarda sharded por version, no documento por documento. Ver productos.js.
+const productos = require('./productos')
+exports.productosImport = productos.productosImport

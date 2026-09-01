@@ -59,6 +59,19 @@ service cloud.firestore {
         && maquilaDelPerfil() == '';
     }
 
+    // Quien puede ver LO QUE REPORTARON las maquilas al recibir (faltantes,
+    // rechazos, sobrantes). Es mas estrecho que esInterno() a proposito:
+    //   captura    -> Angel y Juan solo pesan y capturan folios; un rechazo de
+    //                 una maquila no es algo que ellos atiendan.
+    //   produccion -> Adrian sube el plan maestro y nada mas.
+    // La pantalla ya se los oculta (PanelMaquilasTodo.jsx), pero ocultar un
+    // boton no es un permiso: sin esta funcion cualquiera de esos dos roles
+    // podria leer los acuses de TODAS las maquilas con el SDK. Mismo patron
+    // que puedeVerAvios().
+    function puedeVerReportesMaquila() {
+      return esInterno() && !(rol() in ['captura', 'produccion']);
+    }
+
     function esAdmin() {
       // esInterno() y no solo el rol: hay ramas que usan esAdmin() DIRECTO
       // (autorizaciones, saldo inicial de inventario, saldos), y sin esto un
@@ -2350,7 +2363,7 @@ service cloud.firestore {
     // El acuse de recibido. La maquila lo crea UNA sola vez y no se edita ni
     // se borra: es su declaracion firmada de lo que llego.
     match /portalMaquila/{maquilaId}/acuses/{registroId} {
-      allow read: if esInterno() || esMaquilaDe(maquilaId);
+      allow read: if puedeVerReportesMaquila() || esMaquilaDe(maquilaId);
       allow create: if esMaquilaDe(maquilaId)
         && request.resource.data.registroId == registroId
         // El exists va ANTES de acuseValido: esa funcion hace get() de la

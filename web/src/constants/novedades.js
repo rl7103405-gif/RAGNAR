@@ -36,6 +36,27 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-01-02',
+    fecha: '2026-09-01',
+    tipo: 'nuevo',
+    titulo: 'Ya se ve lo que reportan las maquilas',
+    detalle:
+      'En la pestana Maquilas hay una seccion nueva, "Lo que reportaron". Ahi aparece, '
+      + 'por cada remision, lo que la maquila dijo al recibirla: los bultos que no le '
+      + 'llegaron, los que rechazo por peso, los que le llegaron de mas y las notas que '
+      + 'haya escrito. Antes la maquila lo marcaba y de este lado no lo veia nadie.'
+  },
+  {
+    id: '2026-09-01-01',
+    fecha: '2026-09-01',
+    tipo: 'nuevo',
+    titulo: 'Las maquilas ven lo suyo por orden de trabajo',
+    detalle:
+      'En el portal de la maquila, arriba de Material recibido, ahora aparece todo lo que '
+      + 'ha recibido agrupado por orden de trabajo, con sus codigos. Una misma OT le puede '
+      + 'llegar en varios envios y antes tenia que sumarlo abriendo remision por remision.'
+  },
+  {
     id: '2026-08-31-03',
     fecha: '2026-08-31',
     tipo: 'mejorado',

@@ -230,3 +230,134 @@ mercancia y su papel quede en un limbo sin que ella sepa quien falta de
 firmar. Deberia ver el avance de las tres firmas, como ya ve el estado de sus
 tareas. Existe `PanelAutorizaciones.jsx`, que ya resuelve aprobaciones en la
 app; conviene revisarlo antes de inventar otro mecanismo.
+
+---
+
+## Una tarea de ensamble con VARIAS OTs (o un cacho de una OC)
+
+Salio el 2026-09-01, viendo el perfil de Lindbergh despues de la platica con
+Hugo. **Hoy una tarea = UNA orden de trabajo**: `nueva.ot` es un campo de texto
+suelto en `PanelTareasMaquila.jsx:42` y se guarda como un string en la tarea
+(`tareasEnsamble.js:155`). Lindbergh necesita encargar **varias OTs de un
+jalon**, o **un pedazo de una orden de compra** — que en la practica son varias
+OTs.
+
+**El cambio que de verdad importa no es el formulario, es donde vive la OT.**
+Hoy cuelga de la TAREA; tiene que colgar del RENGLON. Si una tarea cubre tres
+OTs y los renglones no dicen de cual vienen:
+
+- La remision imprime la misma OT en todos los renglones
+  (`TareasEnsambleMaquila.jsx`, `ot: t.ot` para todo) — y ese papel es con el
+  que la maquila cobra.
+- El arbol OC -> OT -> codigo no puede acreditar el avance a la OT que toca, y
+  el porcentaje de "mandado" por OT deja de cuadrar.
+
+**Lo que hay que decidir antes de picar codigo:**
+
+1. **El destino.** Hoy sale del plan maestro VIA la OT, y la regla de Firestore
+   exige que si hay `destino` haya `ot` (`tareasEnsamble.js:214`). Con varias
+   OTs puede haber varios subclientes. ¿Se permite mezclar destinos en una
+   tarea, o se obliga a que sean del mismo? Lo segundo es mas sano y mas facil
+   de explicarle a la maquila.
+2. **Las tareas viejas.** Quedan con `ot` escalar. Hay que leer las dos formas
+   por un buen rato, no migrar de golpe.
+3. **De donde escoge Lindbergh.** No inventar un selector nuevo: ya existe el
+   arbol OC -> OT -> codigo (`PanelArbolOrdenes.jsx`, `utils/arbolOrdenes.js`).
+   Lo natural es elegir ahi y que la tarea se arme sola con lo seleccionado, en
+   vez de teclear las OTs a mano.
+
+⚠️ **Ojo con el precio congelado:** cada renglon ya guarda su precio al crearse.
+Si un mismo modelo aparece en dos OTs de la misma tarea, hay que decidir si son
+dos renglones o uno sumado — y si se suman, cual OT se lleva el credito.
+
+Lo demas del flujo (el tech pack, iniciar, declarar) **Roberto lo dio por bueno
+tal como esta**; esto es lo unico que pidio ampliar.
+
+---
+
+# Tanda del 2026-09-01 — despues de la junta con Lindbergh y Hugo
+
+Transcripcion en
+`OneDrive/Videos-para-Claude/transcripciones/2026-09-01_junta-lindbergh-hugo_maquilas-ragnar.txt`
+(Roberto grabo solo un tercio de la sesion).
+
+## 🔴 El folio RECHAZADO no lo ve nadie de Quini — verificado en codigo
+
+Esta es la pregunta que Roberto hizo en la junta ("el tema es no depender de
+Lindbergh, ¿que pasa con esa nota?") y **la respuesta es peor de lo que
+parecia**: cuando la maquila rechaza un folio por peso, se guarda en
+`portalMaquila/{mid}/acuses/{id}.foliosRechazados`, y **el unico codigo de toda
+la app que lee esa coleccion es el propio portal de la maquila**
+(`PortalMaquila.jsx:63`). Ni Roberto, ni el papa, ni Lindbergh, ni America
+tienen una sola pantalla donde aparezca. Ademas **el bulto no se mueve**: el
+folio sigue figurando como enviado a esa maquila.
+
+O sea: hoy la maquila rechaza, siente que aviso, y del otro lado no se entera
+nadie. Es justo el "yo si te avise" que RAGNAR existe para evitar.
+
+**Lo que Roberto pidio:** que el rechazo aparezca en **Registros** para Hugo, su
+papa, Lindbergh y America; y que el folio **vuelva** — que no se quede colgado.
+Su idea: algo como una "remision chiquita" de retorno, para que todo cuadre.
+
+**Lo que hay que decidir antes de picar codigo:**
+1. ¿El folio rechazado **regresa al inventario de Quini** (queda como si no se
+   hubiera mandado) o queda en un tercer estado "rechazado, en transito de
+   vuelta"? Lo segundo es mas honesto: la mercancia fisicamente esta con la
+   maquila hasta que alguien la trae.
+2. ¿Quien lo cierra? Si nadie confirma la devolucion fisica, el folio se queda
+   en el limbo — el mismo problema, de reversa.
+3. La regla de Firestore ya limita `foliosRechazados` a folios que estaban en
+   la salida (`firestore.rules:1548`), eso ya esta bien.
+
+## Lindbergh: subir tareas de ensamble DESDE EXCEL
+
+Como ya importa tareas para America. ⏳ **Roberto va a pasar el Excel de
+ejemplo**; sin el no se puede definir el parseo. Ya existe
+`utils/importarTareas.js` — el punto de partida es ese, no uno nuevo.
+
+Va de la mano con [[la idea de varias OTs por tarea]] de mas arriba: un Excel
+con varias OTs es justo el caso que hoy no cabe en el modelo.
+
+## Sustituciones: la maquila propone cambiar un codigo
+
+En la junta salio que al armar una caja de packs **a veces falta un codigo** y
+se sustituye por otro para completar. Hoy la maquila no tiene forma de decirlo:
+solo puede declarar lo que entrega, no proponer un cambio.
+
+Roberto quiere **darle mas permiso a la maquila**: que al recibir la tarea pueda
+decir "esto no me ha llegado, quiero cambiarlo por esto otro".
+
+⚠️ **Ojo con el precio:** el renglon lleva el precio congelado POR MODELO. Si se
+sustituye el codigo, el modelo puede cambiar y con el, lo que se paga. Una
+sustitucion no puede ser un cambio libre de texto: tiene que ser una
+**propuesta que Quini aprueba**, y al aprobarse se recongela el precio. Si no,
+se abre justo el hueco que el precio congelado vino a cerrar.
+
+## Maquila: editar su inventario y subirlo por Excel
+
+Que puedan **editar** su material y **cargar un Excel** con lo que tienen, para
+no capturarlo a mano. Roberto lo marca como **temporal**: cuando el flujo de
+pedir/recibir este completo, el inventario se actualizara solo.
+
+⚠️ Hoy el inventario de la maquila **se deriva de los acuses de envio** — es un
+saldo calculado, no capturado. Dejar que se edite a mano significa que el saldo
+y su historia pueden dejar de cuadrar. Si se hace, el ajuste manual tiene que
+quedar como **un movimiento mas** (con quien, cuando y por que), no como una
+sobreescritura silenciosa del saldo. `movimientosAvios` ya existe para eso.
+
+## Maquila: ver sus bultos / OTs en la misma pestaña del material
+
+En "Material recibido", ademas de cajas y avios, que aparezca **lo que tiene por
+OT**. La maquila trabaja por OT y hoy esa vista no existe de su lado.
+
+## Futuro (no ahora): recepcion de folios como la hace America
+
+Cuando la maquila tenga modulo propio. Roberto lo deja explicitamente para
+despues: "ahorita que no tienen un modulo, pues asi se va a tener que ir
+llevando".
+
+## Lo que Roberto dio por bueno tal como esta
+
+Recibir bultos, el tech pack, iniciar/declarar la tarea, y pedir material. No
+tocarlos.
+

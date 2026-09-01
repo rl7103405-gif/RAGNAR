@@ -370,14 +370,37 @@ console.log(`Puntero config/catalogoActual -> ${versionId} (${productos.size} co
 // ---- Conservar SIEMPRE la version apuntada + las 2 mas recientes en estado
 // 'listo'; borrar el resto (incluidas 'cargando' huerfanas de cargas
 // interrumpidas). Nunca se borra la version apuntada por catalogoActual. ----
+//
+// ⚠️ Desde que existe `functions/productos.js`, esta coleccion tiene DOS
+// escritores: este script y el buzon de Atalanta. Una version en 'cargando' o
+// 'publicando' ya no significa "carga interrumpida": puede ser un envio
+// multi-lote a medias, ahora mismo. Borrarla le quita los shards ya escritos
+// y, peor, su manifiesto: el siguiente lote vuelve a crearlo desde cero y ese
+// sync queda atascado para siempre sin error visible. Solo se borra una
+// 'cargando'/'publicando' si de verdad esta abandonada (mas de 24 h). El buzon
+// aplica exactamente el mismo criterio; si se cambia aqui, cambiarlo alla.
+const HORAS_ANTES_DE_BORRAR_HUERFANA = 24
+const limiteHuerfana = Date.now() - HORAS_ANTES_DE_BORRAR_HUERFANA * 60 * 60 * 1000
+
 const versiones = await db.collection('catalogoVersiones').orderBy('creadoEn', 'desc').get()
 const idsAConservar = new Set([versionId])
 let conservadosListo = 0
 for (const docV of versiones.docs) {
   if (docV.id === versionId) continue
-  if (docV.data().estado === 'listo' && conservadosListo < 2) {
+  const datos = docV.data()
+  if (datos.estado === 'listo' && conservadosListo < 2) {
     idsAConservar.add(docV.id)
     conservadosListo++
+    continue
+  }
+  if (datos.estado === 'cargando' || datos.estado === 'publicando') {
+    const creado = datos.creadoEn && datos.creadoEn.toMillis ? datos.creadoEn.toMillis() : null
+    // Sin fecha utilizable se conserva: mas vale dejar basura que romper un
+    // envio en curso.
+    if (creado === null || creado > limiteHuerfana) {
+      console.log(`Conservando ${docV.id}: esta en '${datos.estado}' y podria ser un envio en curso.`)
+      idsAConservar.add(docV.id)
+    }
   }
 }
 const aBorrar = versiones.docs.filter((docV) => !idsAConservar.has(docV.id))

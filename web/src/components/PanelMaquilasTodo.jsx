@@ -27,6 +27,7 @@ import PanelTareasMaquila from './PanelTareasMaquila'
 import PanelSolicitudesAvios from './PanelSolicitudesAvios'
 import PanelEnviarAvios from './PanelEnviarAvios'
 import PanelInventarioAvios from './PanelInventarioAvios'
+import PanelAcusesMaquilas from './PanelAcusesMaquilas'
 import Avios from './Avios'
 
 export default function PanelMaquilasTodo() {
@@ -75,6 +76,13 @@ export default function PanelMaquilasTodo() {
 
   const tareas = puedeCrearTareas
 
+  // LO QUE REPORTARON las maquilas al recibir. Lo ve todo el interno que
+  // trabaja con maquilas: si un bulto se rechazo o no llego, le importa a
+  // quien embarca (America), a quien encarga (Lindbergh), a quien paga
+  // (Cielo), a quien recibe de vuelta (Valeria) y a direccion. Antes no lo
+  // veia NADIE -- ver PanelAcusesMaquilas.jsx.
+  const reportes = esInterno && !soloCaptura && !soloProduccion
+
   // El alta de maquilas la tenia la pestana 'Maquilas', que SOLO veian los
   // perfiles completos (America, Diana, Lindbergh, estacion) y el admin.
   // Alvaro (almacen) nunca la tuvo: al juntar las pestanas hay que conservar
@@ -85,6 +93,13 @@ export default function PanelMaquilasTodo() {
 
   const secciones = [
     tareas && { id: 'tareas', label: 'Tareas', render: () => <PanelTareasMaquila /> },
+    // Va arriba de todo el material a proposito: un bulto rechazado es lo
+    // primero que hay que atender del dia, no algo que se busca al final.
+    reportes && {
+      id: 'reportes',
+      label: 'Lo que reportaron',
+      render: () => <PanelAcusesMaquilas />
+    },
     flujoMaterial && { id: 'piden', label: 'Piden material', render: () => <PanelSolicitudesAvios /> },
     flujoMaterial && { id: 'mandar', label: 'Mandar material', render: () => <PanelEnviarAvios /> },
     inventario && { id: 'inventario', label: 'Inventario', render: () => <PanelInventarioAvios /> },

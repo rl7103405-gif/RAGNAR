@@ -24,6 +24,7 @@ import PanelTareas from '../components/PanelTareas'
 import PortalMaquila from '../components/PortalMaquila'
 import PedirAviosMaquila from '../components/PedirAviosMaquila'
 import RecibirAviosMaquila from '../components/RecibirAviosMaquila'
+import ResumenBultosMaquila from '../components/ResumenBultosMaquila'
 import TareasEnsambleMaquila from '../components/TareasEnsambleMaquila'
 import PanelMaquilasTodo from '../components/PanelMaquilasTodo'
 import PanelOrdenesYPlan from '../components/PanelOrdenesYPlan'
@@ -165,7 +166,14 @@ export default function Estacion() {
         </div>
         {activaMaquila === 'recibir' && <PortalMaquila />}
         {activaMaquila === 'ensamble' && <TareasEnsambleMaquila />}
-        {activaMaquila === 'material' && <RecibirAviosMaquila />}
+        {activaMaquila === 'material' && (
+          <>
+            {/* Lo que tiene por OT va ARRIBA del material: la maquila
+                trabaja por orden de trabajo, y el avio es el apoyo. */}
+            <ResumenBultosMaquila />
+            <RecibirAviosMaquila />
+          </>
+        )}
         {activaMaquila === 'pedir' && <PedirAviosMaquila />}
       </Layout>
     )
