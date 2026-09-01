@@ -33,9 +33,33 @@ import {
   where
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
+import { normalizarOt } from './planMaestro'
+import { ordenDeCaptura, SIN_ORDEN } from './pdf'
 export { mapaOtAOc } from './planMaestro'
 
 export class ErrorRecepcion extends Error {}
+
+/**
+ * La orden de trabajo de un bulto que ya SALIO, a partir de su producto.
+ *
+ * ⚠️ Esta funcion existia y se borro en el commit ce28ae2 dejando sus TRES
+ * llamadas en pie. El resultado: `ReferenceError: otDelBultoDeSalida is not
+ * defined` al armar la pantalla de Recibir — pantalla en blanco para Valeria,
+ * en produccion, y `vite build` lo dejo pasar sin decir nada.
+ *
+ * Se restaura DELEGANDO en `ordenDeCaptura` (pdf.js), que es el punto unico
+ * donde se decide la OT de un bulto, en vez de rehacer aqui la extraccion como
+ * hacia la version original. Mismo criterio que `otDeBulto` del arbol: si cada
+ * pantalla la sacara a su manera, la misma salida tendria una OT distinta
+ * segun quien la mire.
+ *
+ * Devuelve '' (no SIN_ORDEN) porque los tres usos preguntan `if (ot)` o la
+ * meten en un Set de OT reales.
+ */
+function otDelBultoDeSalida(producto) {
+  const ot = ordenDeCaptura({ producto })
+  return ot === SIN_ORDEN ? '' : normalizarOt(ot)
+}
 
 // Cuantas salidas se traen. Son 304 en total al 28-08 y hay que poder buscar
 // entre ellas por folio de bulto, asi que se leen TODAS y se guardan por un
