@@ -36,6 +36,18 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-01-03',
+    fecha: '2026-09-01',
+    tipo: 'nuevo',
+    titulo: 'Las maquilas corrigen su propio inventario',
+    detalle:
+      'En el portal de la maquila, en Material recibido, ahora hay un boton para corregir '
+      + 'el inventario cuando lo que tienen en su bodega no coincide con lo que dice la app. '
+      + 'Escriben cuanto tienen de verdad y anotan por que; la app calcula la diferencia y la '
+      + 'guarda con su nombre y la hora. Tambien pueden bajar una plantilla de Excel ya llena, '
+      + 'corregirla y subirla. Antes tenian que avisar por telefono.'
+  },
+  {
     id: '2026-09-01-02',
     fecha: '2026-09-01',
     tipo: 'nuevo',

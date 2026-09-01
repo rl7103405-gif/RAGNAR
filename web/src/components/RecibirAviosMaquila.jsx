@@ -13,6 +13,7 @@ import {
   escucharEnviosDeMaquila,
   ErrorEnvioAvios
 } from '../utils/enviosAvios'
+import AjustarInventarioMaquila from './AjustarInventarioMaquila'
 import { compararAscendente } from '../utils/texto'
 
 export default function RecibirAviosMaquila() {
@@ -288,8 +289,9 @@ export default function RecibirAviosMaquila() {
       <div className="tarjeta" style={{ marginBottom: 18 }}>
         <h2>Tu inventario de material</h2>
         <p className="texto-suave" style={{ fontSize: 13, marginTop: 2 }}>
-          Lo que tienes hoy segun lo que has confirmado recibir. Si un numero no cuadra con lo que
-          tienes fisicamente, avisale a Quini.
+          Lo que tienes hoy segun lo que has confirmado recibir. Si un numero no cuadra
+          con lo que tienes fisicamente, <strong>corrigelo tu mismo</strong> con el boton
+          de abajo.
         </p>
         {saldos.length === 0 ? (
           <p className="texto-suave">
@@ -315,6 +317,10 @@ export default function RecibirAviosMaquila() {
             </tbody>
           </table>
         )}
+
+        {/* La correccion vive DENTRO de la tarjeta del inventario: es sobre
+            estos numeros, no una pantalla aparte que haya que ir a buscar. */}
+        <AjustarInventarioMaquila saldos={saldos} />
       </div>
 
       <div className="tarjeta" style={{ marginBottom: 18 }}>

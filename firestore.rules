@@ -1766,7 +1766,7 @@ service cloud.firestore {
         && d.descripcion.size() <= 200
         && d.unidad is string
         && d.unidad.size() <= 20
-        && d.tipo in ['entrada_envio', 'ajuste_conteo', 'saldo_inicial', 'devolucion', 'consumo_ensamble']
+        && d.tipo in ['entrada_envio', 'ajuste_conteo', 'ajuste_maquila', 'saldo_inicial', 'devolucion', 'consumo_ensamble']
         // ENTEROS y la cadena grabada: saldoDespues == saldoAntes + cantidad.
         // Con decimales esta igualdad fallaria de forma intermitente.
         && d.cantidad is int
@@ -1806,6 +1806,52 @@ service cloud.firestore {
           ( request.resource.data.tipo in ['ajuste_conteo', 'devolucion']
             && puedeManejarAvios()
             && request.resource.data.motivo.size() >= 10 )
+          ||
+          // AJUSTE DE LA MAQUILA: ella corrige lo que de verdad tiene en su
+          // bodega (Roberto, 2026-09-01: "que ellos puedan actualizar
+          // inventario o editarlo").
+          //
+          // Va con TIPO PROPIO, no como 'ajuste_conteo', a proposito: un
+          // conteo de Alvaro y una correccion de la maquila no valen lo mismo
+          // ni las firma el mismo, y en el libro tienen que distinguirse. Si
+          // compartieran tipo, dentro de un mes nadie podria decir quien
+          // movio ese saldo ni con que autoridad.
+          //
+          // El motivo largo es el precio de poder tocar el saldo: sin el, un
+          // ajuste es un numero que aparecio de la nada.
+          ( request.resource.data.tipo == 'ajuste_maquila'
+            && esMaquilaDe(maquilaId)
+            && request.resource.data.origenTipo == 'conteo'
+            && request.resource.data.motivo.size() >= 10
+            // El motivo tiene que traer PALABRAS: diez espacios cumplian el
+            // tamano y no explican nada. CEL no tiene trim(), asi que se pide
+            // que haya al menos una palabra de cuatro letras.
+            && request.resource.data.motivo.matches('.*[A-Za-z]{4}.*')
+            // ID con prefijo PROPIO. Sin esto, la maquila podia crear su
+            // ajuste con el id reservado de otro flujo ('ini_{codigo}' o
+            // 'env_{envioId}_{codigo}') y, como el libro no se edita ni se
+            // borra, quemarlo PARA SIEMPRE: el admin ya no podria sentar el
+            // saldo inicial de ese material, y un envio real se quedaria sin
+            // poder acusarse. No es escalada, es sabotaje irreversible.
+            && movId.matches('^ajm_.*')
+            // El SALDO se escribe en el MISMO lote y apunta a este movimiento.
+            // Sin esta linea el movimiento podia ir SOLO, con 'saldoAntes' y
+            // 'saldoDespues' inventados (basta que sumen), y el libro dejaba
+            // de ser verificable: se podia fabricar evidencia firmada de un
+            // inventario que nunca existio, y sin forma de borrarla. El saldo
+            // ya exige su movimiento (saldoAtadoAlMovimiento); esto cierra la
+            // simetria que faltaba.
+            && getAfter(/databases/$(database)/documents/portalMaquila/$(maquilaId)/saldosAvios/$(request.resource.data.codigo)).data.ultimoMovimientoId == movId
+            // El material tiene que existir en el catalogo: si no, aparecen
+            // renglones inventados en el inventario que revisa Alvaro.
+            && exists(/databases/$(database)/documents/avios/$(request.resource.data.codigo))
+            // Tope de cordura. No frena el abuso de a poquito (nada en las
+            // reglas puede), pero convierte "999 millones de un golpe" en mil
+            // movimientos que se ven en el panel. El cliente ya pregunta por
+            // los cambios grandes, pero el cliente no es una frontera.
+            && request.resource.data.cantidad > -100000
+            && request.resource.data.cantidad < 100000
+            && request.resource.data.saldoDespues <= 1000000 )
           ||
           // SALDO INICIAL: solo el admin. Es el arranque del inventario y el
           // punto mas fragil de todo: un saldo "a ojo" contamina todo lo que
