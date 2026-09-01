@@ -425,6 +425,60 @@ export default function TareasEnsambleMaquila() {
                 menos de lo que se le encargo, y el papel tiene que decir lo que
                 va en la caja. Arriba de cada campo se ve lo que se pidio, para
                 comparar sin tener que recordarlo. */}
+            {(() => {
+              // Avance del CONJUNTO: es lo que Roberto pidio ver — "el
+              // porcentaje de lo que te pidieron". Suma packs capturados
+              // contra packs pedidos de toda la tarea.
+              const pedidos = (declarando.renglones || []).reduce(
+                (a, r) => a + (Number(r.cantidad) || 0),
+                0
+              )
+              const puestos = (declarando.renglones || []).reduce(
+                (a, r) => a + (Number(entrega[r.codigo]?.packs) || 0),
+                0
+              )
+              if (pedidos <= 0) return null
+              const pct = Math.round((puestos / pedidos) * 100)
+              return (
+                <div
+                  style={{
+                    margin: '10px 0',
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    background: pct >= 100 ? '#ecf7ef' : '#f6f8fa'
+                  }}
+                >
+                  <div style={{ fontSize: 15 }}>
+                    Vas a entregar <strong>{puestos}</strong> de <strong>{pedidos}</strong>{' '}
+                    · <strong style={{ color: pct >= 100 ? '#1a7a3a' : '#8a5a00' }}>{pct}%</strong>
+                  </div>
+                  <div
+                    style={{
+                      height: 6,
+                      borderRadius: 999,
+                      background: '#dde3ea',
+                      marginTop: 8,
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.min(100, pct)}%`,
+                        background: pct >= 100 ? '#1a7a3a' : '#8a5a00'
+                      }}
+                    />
+                  </div>
+                  {pct < 100 && (
+                    <div className="texto-suave" style={{ fontSize: 12, marginTop: 6 }}>
+                      Puedes entregar menos de lo que te pidieron: la remision va a decir
+                      exactamente lo que pongas aqui.
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             <div style={{ maxHeight: 260, overflowY: 'auto', marginBottom: 10 }}>
               {(declarando.renglones || []).map((r) => (
                 <div
@@ -438,6 +492,29 @@ export default function TareasEnsambleMaquila() {
                       {' '}
                       · te pidieron {r.cantidad} {r.unidad}
                     </span>
+                    {/* El porcentaje se pinta MIENTRAS captura, no despues:
+                        es cuando todavia puede corregir o darse cuenta de que
+                        le falto una caja. Comparar packs contra lo pedido solo
+                        tiene sentido si la tarea se pidio en packs. */}
+                    {(() => {
+                      const puestos = Number(entrega[r.codigo]?.packs)
+                      const pedidos = Number(r.cantidad)
+                      if (!Number.isFinite(puestos) || puestos <= 0) return null
+                      if (!Number.isFinite(pedidos) || pedidos <= 0) return null
+                      const pct = Math.round((puestos / pedidos) * 100)
+                      const completo = pct >= 100
+                      return (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontWeight: 600,
+                            color: completo ? '#1a7a3a' : pct >= 90 ? '#8a5a00' : '#a52218'
+                          }}
+                        >
+                          {pct}% de lo pedido
+                        </span>
+                      )
+                    })()}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
                     <label className="campo" style={{ flex: '1 1 90px', margin: 0 }}>

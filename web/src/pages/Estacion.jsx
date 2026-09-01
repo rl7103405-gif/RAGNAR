@@ -23,8 +23,7 @@ import PanelAutorizaciones from '../components/PanelAutorizaciones'
 import PanelTareas from '../components/PanelTareas'
 import PortalMaquila from '../components/PortalMaquila'
 import PedirAviosMaquila from '../components/PedirAviosMaquila'
-import RecibirAviosMaquila from '../components/RecibirAviosMaquila'
-import ResumenBultosMaquila from '../components/ResumenBultosMaquila'
+import InventarioMaquila from '../components/InventarioMaquila'
 import TareasEnsambleMaquila from '../components/TareasEnsambleMaquila'
 import PanelMaquilasTodo from '../components/PanelMaquilasTodo'
 import PanelOrdenesYPlan from '../components/PanelOrdenesYPlan'
@@ -147,7 +146,7 @@ export default function Estacion() {
     const TABS_MAQUILA = [
       { id: 'recibir', label: 'Bultos que me mandaron' },
       { id: 'ensamble', label: 'Tareas de ensamble' },
-      { id: 'material', label: 'Material recibido' },
+      { id: 'material', label: 'Lo que tengo' },
       { id: 'pedir', label: 'Pedir material' }
     ]
     const activaMaquila = TABS_MAQUILA.some((t) => t.id === tab) ? tab : 'recibir'
@@ -166,14 +165,7 @@ export default function Estacion() {
         </div>
         {activaMaquila === 'recibir' && <PortalMaquila />}
         {activaMaquila === 'ensamble' && <TareasEnsambleMaquila />}
-        {activaMaquila === 'material' && (
-          <>
-            {/* Lo que tiene por OT va ARRIBA del material: la maquila
-                trabaja por orden de trabajo, y el avio es el apoyo. */}
-            <ResumenBultosMaquila />
-            <RecibirAviosMaquila />
-          </>
-        )}
+        {activaMaquila === 'material' && <InventarioMaquila />}
         {activaMaquila === 'pedir' && <PedirAviosMaquila />}
       </Layout>
     )

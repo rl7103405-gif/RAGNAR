@@ -36,6 +36,19 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-01-04',
+    fecha: '2026-09-01',
+    tipo: 'mejorado',
+    titulo: 'El portal de la maquila, mas ordenado',
+    detalle:
+      'La pestana del material ahora se llama "Lo que tengo" y se divide en dos: '
+      + '"Calcetines que tengo", con los bultos y codigos agrupados por orden de trabajo '
+      + 'y diciendo en que remision llego cada cosa, con buscador; y "Material (avios)", '
+      + 'con la plastiflecha, etiquetas y cajas, y el boton para corregir el inventario. '
+      + 'Ademas, al avisar que terminaste una tarea se ve el porcentaje de lo que vas a '
+      + 'entregar contra lo que te pidieron.'
+  },
+  {
     id: '2026-09-01-03',
     fecha: '2026-09-01',
     tipo: 'nuevo',
