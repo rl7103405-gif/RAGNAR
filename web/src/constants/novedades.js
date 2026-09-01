@@ -36,6 +36,16 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-01-05',
+    fecha: '2026-09-01',
+    tipo: 'corregido',
+    titulo: 'La pantalla de Recibir ya no se queda en blanco',
+    detalle:
+      'La pestana Recibir de Producto Terminado se veia un segundo y despues quedaba en '
+      + 'blanco. Ya quedo. Tambien se corrigio la pantalla de subir el plan maestro, que '
+      + 'tenia la misma falla y habria tronado al elegir el archivo.'
+  },
+  {
     id: '2026-09-01-04',
     fecha: '2026-09-01',
     tipo: 'mejorado',

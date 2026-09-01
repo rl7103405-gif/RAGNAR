@@ -37,6 +37,11 @@ import {
   // scripts/probar_plan_maestro.mjs, y Node exige la extension. Mismo patron
   // que src/utils/catalogoClaves.js.
 } from './planMaestroNucleo.js'
+// ⚠️ Este import se perdio en el commit 2bae6b8 y `leerPlanMaestro` quedo
+// llamando a una funcion inexistente: subir el plan maestro tronaba con
+// `cargarWorkbook is not defined`. Con extension .js, igual que el de arriba:
+// este archivo tambien lo corre Node desde scripts/probar_plan_maestro.mjs.
+import { cargarWorkbook } from './excelJs.js'
 
 /** Solo se miran las primeras filas buscando los encabezados. */
 const FILAS_ENCABEZADO = 12

@@ -6,9 +6,10 @@
   "description": "RAGNAR - estacion unica de captura (prueba) - Deportivos Quini",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "eslint src scripts --quiet && vite build",
     "preview": "vite preview",
-    "provisionar": "node scripts/provisionar_usuario.mjs"
+    "provisionar": "node scripts/provisionar_usuario.mjs",
+    "lint": "eslint src scripts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
@@ -23,7 +24,11 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "firebase-admin": "^14.2.0",
+    "globals": "^17.12.0",
     "vite": "^5.3.1"
   }
 }
