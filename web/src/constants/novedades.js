@@ -36,6 +36,18 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-02-02',
+    fecha: '2026-09-02',
+    tipo: 'corregido',
+    titulo: 'Embarcar al cliente, en su propia pestana',
+    detalle:
+      'Embarcar al cliente ya es una pestana aparte, entre Recibir y Maquilas, porque no es '
+      + 'lo mismo recibir de una maquila que mandarle al cliente. Recibir se queda con sus tres '
+      + 'secciones de siempre. Tambien se corrigio un error que impedia abrir la pantalla de '
+      + 'embarques.'
+  },
+
+  {
     id: '2026-09-02-01',
     fecha: '2026-09-02',
     tipo: 'nuevo',

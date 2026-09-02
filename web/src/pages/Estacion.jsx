@@ -17,6 +17,7 @@ import PanelCaptura from '../components/PanelCaptura'
 import CargaRuteo from '../components/CargaRuteo'
 import PanelHistorial from '../components/PanelHistorial'
 import PanelPorLlegar from '../components/PanelPorLlegar'
+import PanelEmbarcarPL from '../components/PanelEmbarcarPL'
 import PanelReportes from '../components/PanelReportes'
 import PanelIndicadores from '../components/PanelIndicadores'
 import PanelAutorizaciones from '../components/PanelAutorizaciones'
@@ -49,6 +50,10 @@ const TABS = [
   // sistema.
   { id: 'ordenes', label: 'Ordenes de compra' },
   { id: 'porllegar', label: 'Recibir' },
+  // Embarcar al cliente NO es recibir: es la salida, el cuarto eslabon. Va
+  // entre Recibir y Maquilas porque ese es el orden real del trabajo de
+  // Producto Terminado (Roberto, 2026-09-02).
+  { id: 'embarcar', label: 'Embarcar al cliente' },
   { id: 'registros', label: 'Registros' },
   // Copiadas de captura-mecanicos, que ya las tenia (Roberto, 19-08). Van al
   // final: se consultan de vez en cuando, no son trabajo diario.
@@ -89,7 +94,7 @@ const TABS_ALMACEN = ['maquilas', 'tareas']
 // historial, indicadores y registros -- Roberto, 2026-08-28: "hay que empezar
 // a limpiar los perfiles de todos para que nada mas atiendan a sus
 // necesidades".
-const TABS_PT = ['porllegar', 'maquilas', 'reportes']
+const TABS_PT = ['porllegar', 'embarcar', 'maquilas', 'reportes']
 
 // Adrian (rol 'produccion'): sube el plan maestro y comprueba en el arbol que
 // quedo bien amarrado. No captura, no embarca, no toca avios.
@@ -248,6 +253,7 @@ export default function Estacion() {
       {tabActiva === 'tareas' && <PanelTareas />}
       {tabActiva === 'folios' && <CargaRuteo />}
       {tabActiva === 'porllegar' && <PanelPorLlegar />}
+      {tabActiva === 'embarcar' && <PanelEmbarcarPL />}
       {tabActiva === 'historial' && <PanelHistorial />}
       {tabActiva === 'reportes' && <PanelReportes />}
       {tabActiva === 'indicadores' && <PanelIndicadores />}

@@ -53,35 +53,15 @@ const COLOR_ESTADO = {
 
 const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—')
 
-import PanelEmbarcarPL from './PanelEmbarcarPL'
-
-// PRODUCTO TERMINADO tiene dos mitades y estaban revueltas en una sola
-// pantalla: lo que RECIBE de la maquila y lo que EMBARCA al cliente. Mismo
-// criterio con el que se juntaron las seis pestanas de Maquilas en una.
-export default function ProductoTerminado() {
-  const [seccion, setSeccion] = useState('recibe')
-  return (
-    <>
-      <div className="tabs" style={{ marginBottom: 12 }}>
-        <button
-          className={`tab ${seccion === 'recibe' ? 'activo' : ''}`}
-          onClick={() => setSeccion('recibe')}
-        >
-          Recibe de maquila
-        </button>
-        <button
-          className={`tab ${seccion === 'embarca' ? 'activo' : ''}`}
-          onClick={() => setSeccion('embarca')}
-        >
-          Embarca al cliente
-        </button>
-      </div>
-      {seccion === 'recibe' ? <PanelRecibeDeMaquila /> : <PanelEmbarcarPL />}
-    </>
-  )
-}
-
-function PanelRecibeDeMaquila() {
+// RECIBIR: lo que vuelve de las maquilas.
+//
+// ⚠️ Aqui vivio un rato un tercer nivel de pestanas ("Recibe de maquila" /
+// "Embarca al cliente") encima de las tres de abajo. Roberto lo quito el
+// 2026-09-02: "ya estamos viendo tres subpestañas y eso ya es ruido visual".
+// Embarcar al cliente es OTRA COSA —no es recibir— y se fue a su propia
+// pestana de primer nivel, entre Recibir y Maquilas. Aqui quedan solo las
+// tres secciones que de verdad son de recibir.
+export default function PanelRecibeDeMaquila() {
   const { authUser, perfil, esPrueba } = useAuth()
   const maquilas = useMaquilas()
 
