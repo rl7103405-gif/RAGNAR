@@ -8,6 +8,7 @@
 // que el archivo termina de subir; si se corta, aqui mismo se reintenta con
 // el archivo elegido de nuevo, o se cancela la tarea.
 import { useEffect, useState } from 'react'
+import { renglonesDeLaOt } from '../utils/planMaestro'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
 import VisorTechPack from './VisorTechPack'
@@ -16,6 +17,7 @@ import {
   ErrorTareaEnsamble,
   MAX_TECHPACK_BYTES,
   crearTareaEnsamble,
+  tareaQueYaTieneLaOt,
   escucharTareasEnsambleDeVarias,
   formatoDeArchivo,
   limpiarTechPack,
@@ -42,6 +44,10 @@ export default function PanelTareasMaquila() {
   const [nueva, setNueva] = useState({ maquilaId: '', titulo: '', ot: '', notas: '' })
   const [renglones, setRenglones] = useState([{ ...RENGLON_VACIO }])
   const [archivo, setArchivo] = useState(null)
+  const [trayendoOt, setTrayendoOt] = useState(false)
+  // Lo que se sabe de la OT escrita: si el plan la conoce y si otra maquila ya
+  // la tiene. Se calcula al picar "Traer del plan", no en cada tecla.
+  const [avisoOt, setAvisoOt] = useState(null)
 
   // Se escucha maquila por maquila (no collectionGroup) para que el orden por
   // fecha sea real; depende del catalogo, asi que se re-suscribe si cambia.
@@ -70,6 +76,22 @@ export default function PanelTareasMaquila() {
     setAviso('')
     setTrabajando('crear')
     try {
+      // El candado: una OT va a UNA maquila. Se revisa contra lo que hay en
+      // ese momento, no contra lo que la pantalla vio hace rato.
+      const ocupada = await tareaQueYaTieneLaOt(nueva.ot, (maquilas || []).map((m) => m.id))
+      if (ocupada && ocupada.maquilaId !== nueva.maquilaId) {
+        throw new ErrorTareaEnsamble(
+          `La orden de trabajo ${nueva.ot} ya esta asignada a ${ocupada.maquilaId} ` +
+            `(«${ocupada.titulo}»). Una OT va a una sola maquila; si hay que moverla, ` +
+            'cancela primero esa tarea.'
+        )
+      }
+      if (ocupada && ocupada.maquilaId === nueva.maquilaId) {
+        throw new ErrorTareaEnsamble(
+          `Esa maquila ya tiene una tarea viva con la OT ${nueva.ot} («${ocupada.titulo}»). ` +
+            'No la dupliques: edita la que existe.'
+        )
+      }
       await crearTareaEnsamble({
         maquilaId: nueva.maquilaId,
         titulo: nueva.titulo,
@@ -224,11 +246,94 @@ export default function PanelTareasMaquila() {
   }
 
   if (!puedeCrearTareas) {
-    return (
+  return (
       <div className="tarjeta">
         <p className="texto-suave">Esta pestana es de quien encarga tareas a las maquilas.</p>
       </div>
     )
+  }
+
+    /**
+   * UNA ORDEN DE TRABAJO ES UNA TAREA. Trae del plan los codigos y cantidades
+   * de esa OT y llena los renglones, en vez de recapturarlos a mano.
+   *
+   * El papa de Roberto, 2026-09-02: "si el sistema ya tiene agrupado en que
+   * ordenes de trabajo esta distribuida una orden de compra, ya tenemos ahi
+   * implicita la tarea". Y Lindbergh: "yo quisiera solo asignarla, porque
+   * ahorita tengo que volver a capturar todos esos numeros".
+   */
+  const traerDelPlan = async () => {
+    const ot = String(nueva.ot || '').trim()
+    setError('')
+    setAviso('')
+    setAvisoOt(null)
+    if (!ot) {
+      setError('Escribe la orden de trabajo y vuelve a picar "Traer del plan".')
+      return
+    }
+    setTrayendoOt(true)
+    try {
+      // Las dos preguntas a la vez: que trae el plan, y si alguien ya la tiene.
+      const [delPlan, yaAsignada] = await Promise.all([
+        renglonesDeLaOt(ot),
+        tareaQueYaTieneLaOt(ot, (maquilas || []).map((m) => m.id))
+      ])
+      if (!delPlan.length) {
+        setError(
+          `La orden de trabajo ${ot} no esta en el plan maestro vigente. ` +
+            'Puedes capturarla a mano, o pedirle a Adrian el plan actualizado.'
+        )
+        setAvisoOt({ yaAsignada })
+        return
+      }
+      // Si ya habia algo capturado a mano, se pregunta: traer del plan pisa
+      // TODOS los renglones y perder lo escrito en silencio seria feo.
+      const hayCapturado = renglones.some((r) => (r.codigo || '').trim() || (r.cantidad || '').trim())
+      if (
+        hayCapturado &&
+        !window.confirm('Ya tienes renglones capturados. Traer del plan los reemplaza. ¿Sigo?')
+      ) {
+        return
+      }
+      setRenglones(
+        delPlan.map((r) => ({
+          codigo: r.codigo,
+          cantidad: String(r.cantidad || ''),
+          unidad: 'docenas',
+          descripcion: r.descripcion || ''
+        }))
+      )
+      // El plan puede traer medias docenas (en esta fabrica es normal), y al
+      // crear la tarea se rechazan las cantidades con decimales. Mejor decirlo
+      // AQUI, con los codigos enfrente, que dejar que lo descubra hasta el
+      // boton de encargar sin saber de donde salio el decimal.
+      const conDecimales = delPlan.filter((r) => r.cantidad !== Math.trunc(r.cantidad))
+      if (conDecimales.length) {
+        setError(
+          `El plan trae cantidades con decimales en ${conDecimales.length} codigo(s): ` +
+            `${conDecimales.slice(0, 5).map((r) => r.codigo + ' (' + r.cantidad + ')').join(', ')}. ` +
+            'Redondealas antes de encargar la tarea: no se aceptan medias unidades.'
+        )
+      }
+      const destino = delPlan.find((r) => r.destino)?.destino || ''
+      const oc = delPlan.find((r) => r.oc)?.oc || ''
+      setNueva((p) => ({
+        ...p,
+        // El titulo se sugiere con lo que el plan sabe; se puede cambiar.
+        titulo: p.titulo || `OT ${ot}${destino ? ' - ' + destino : ''}`
+      }))
+      setAvisoOt({ yaAsignada, codigos: delPlan.length, oc, destino })
+      setAviso(
+        `La OT ${ot} trae ${delPlan.length} codigo(s) del plan` +
+          (oc ? ` (orden de compra ${oc})` : '') +
+          '. Revisa las cantidades antes de crear la tarea.'
+      )
+    } catch (err) {
+      console.error('[Tareas] No se pudo traer la OT del plan:', err)
+      setError('No se pudo leer el plan: ' + (err?.message || err))
+    } finally {
+      setTrayendoOt(false)
+    }
   }
 
   // Las que la maquila dice que ya termino van APARTE y arriba: son las que
@@ -513,10 +618,48 @@ export default function PanelTareasMaquila() {
               placeholder="ej. 7887"
               maxLength={40}
               value={nueva.ot}
-              onChange={(e) => setNueva({ ...nueva, ot: e.target.value })}
+              onChange={(e) => {
+                setNueva({ ...nueva, ot: e.target.value })
+                setAvisoOt(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  traerDelPlan()
+                }
+              }}
             />
           </label>
+          <button
+            type="button"
+            className="btn-secundario"
+            style={{ alignSelf: 'flex-end', marginBottom: 2 }}
+            onClick={traerDelPlan}
+            disabled={trayendoOt}
+          >
+            {trayendoOt ? 'Buscando...' : 'Traer del plan'}
+          </button>
         </div>
+
+        {avisoOt?.yaAsignada && (
+          <div
+            style={{
+              marginTop: 8,
+              padding: '10px 14px',
+              borderRadius: 8,
+              background: '#fbeeec',
+              border: '1px solid #f0c9c4',
+              fontSize: 14
+            }}
+          >
+            <strong style={{ color: '#a52218' }}>
+              Esa orden de trabajo ya esta con {avisoOt.yaAsignada.maquilaId}
+            </strong>{' '}
+            («{avisoOt.yaAsignada.titulo}», {avisoOt.yaAsignada.estado}). Una OT va a UNA
+            sola maquila: lo que se reparte entre varias es la orden de compra. Si de
+            verdad hay que moverla, cancela primero la tarea que ya existe.
+          </div>
+        )}
 
         <div style={{ marginTop: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 700 }}>Modelos a ensamblar</span>

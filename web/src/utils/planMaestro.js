@@ -190,6 +190,53 @@ export async function destinoDeOt(ot) {
   }
 }
 
+/**
+ * Los renglones de UNA orden de trabajo en el plan vigente: sus codigos con la
+ * cantidad planeada.
+ *
+ * Es lo que convierte una OT en una TAREA sin recapturar nada. El papa de
+ * Roberto lo dijo asi el 2026-09-02: *"si el sistema ya tiene agrupado una
+ * orden de compra, en que ordenes de trabajo esta distribuida, ya tenemos ahi
+ * implicita la tarea; una orden de trabajo ES una tarea"*. Y Lindbergh:
+ * *"yo quisiera solo asignarla, porque ahorita tengo que volver a capturar
+ * todos esos numeros"*.
+ *
+ * Devuelve [] si no hay plan o la OT no esta: quien llama decide si eso es un
+ * error o solo una tarea que se captura a mano, como hasta hoy.
+ */
+export async function renglonesDeLaOt(ot) {
+  const otLimpia = normalizarOt(ot)
+  if (!otLimpia) return []
+  const versionId = await versionActiva()
+  if (!versionId) return []
+  const snap = await getDocs(
+    query(
+      collection(db, 'planMaestroLineas'),
+      where('versionId', '==', versionId),
+      where('ot', '==', otLimpia)
+    )
+  )
+  // Un codigo puede venir en varios renglones de la misma OT (distintas
+  // fechas o parciales): se suma, no se pisa.
+  const porCodigo = new Map()
+  for (const d of snap.docs) {
+    const l = d.data()
+    const codigo = String(l.codigo || '').trim()
+    if (!codigo) continue
+    if (!porCodigo.has(codigo)) {
+      porCodigo.set(codigo, {
+        codigo,
+        descripcion: String(l.descripcion || '').slice(0, 200),
+        cantidad: 0,
+        oc: l.oc || '',
+        destino: l.destino || ''
+      })
+    }
+    porCodigo.get(codigo).cantidad += Number(l.cantidadPlaneada) || 0
+  }
+  return [...porCodigo.values()].sort((a, b) => a.codigo.localeCompare(b.codigo))
+}
+
 // ---------------------------------------------------------------------------
 // Escritura (la sube Adrian)
 // ---------------------------------------------------------------------------

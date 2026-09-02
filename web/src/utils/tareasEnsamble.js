@@ -136,6 +136,54 @@ function limpiarRenglones(renglones) {
  *
  * onProgreso: (texto) => void, para que la pantalla diga que esta pasando.
  */
+/**
+ * ¿Esta orden de trabajo ya esta asignada a alguna maquila?
+ *
+ * Regla del papa de Roberto (2026-09-02): *"ordenes de trabajo... que solo
+ * vayan a UNA maquila, y deberiamos ya de bloquear"*. Lo que se reparte entre
+ * varias maquilas es la ORDEN DE COMPRA, no la OT. Y ademas: *"que no le
+ * permita repetido"*.
+ *
+ * Devuelve { maquilaId, titulo, estado } de la tarea que ya la tiene, o null.
+ * Solo cuentan las tareas VIVAS: una cancelada no bloquea nada, y una
+ * terminada tampoco — si hay que rehacerla, se rehace.
+ *
+ * Se busca maquila por maquila y NO con un collectionGroup: las reglas de
+ * ruta no aplican a un collectionGroup (necesitaria su propio
+ * `match /{path=**}/tareasEnsamble/{id}`), y abrir esa puerta para ahorrar
+ * cinco consultas no vale la pena. Mismo criterio que en PanelAcusesMaquilas.
+ *
+ * ⚠️ LIMITE CONOCIDO: esto es un candado de CLIENTE. Entre esta comprobacion y
+ * la escritura hay una ventana en la que otra persona podria crear la misma
+ * OT en otra maquila, y las reglas de Firestore no lo verifican. Hoy se
+ * asume porque solo Lindbergh y direccion crean tareas —es un error honesto,
+ * no un abuso—, pero si esto tiene que ser una REGLA y no una sugerencia,
+ * hace falta un centinela transaccional (`otsAsignadas/{ot}` escrito en el
+ * mismo lote que la tarea, y liberado al cancelarla). Anotado en IDEAS.md.
+ */
+export async function tareaQueYaTieneLaOt(ot, maquilaIds) {
+  const otLimpia = normalizarOt(ot)
+  if (!otLimpia) return null
+  const ids = (maquilaIds || []).filter(Boolean)
+  if (!ids.length) return null
+  // ⚠️ SIN try/catch por maquila, a proposito. Aqui hubo uno que atrapaba el
+  // error, escribia un warn y devolvia null — es decir, si fallaba la lectura
+  // JUSTO en la maquila donde la OT si estaba, esta funcion contestaba "libre"
+  // y la tarea se creaba duplicada sin que nadie se enterara. Un candado que
+  // se abre solo cuando no puede comprobar no es un candado. Si algo falla, el
+  // error sube y quien llama lo enseña en pantalla en vez de seguir a ciegas.
+  const encontradas = await Promise.all(
+    ids.map(async (mid) => {
+      const snap = await getDocs(
+        query(collection(db, 'portalMaquila', mid, 'tareasEnsamble'), where('ot', '==', otLimpia))
+      )
+      const viva = snap.docs.find((d) => ESTADOS_VIVOS.includes(d.data().estado))
+      return viva ? { maquilaId: mid, titulo: viva.data().titulo || '', estado: viva.data().estado } : null
+    })
+  )
+  return encontradas.find(Boolean) || null
+}
+
 export async function crearTareaEnsamble({
   maquilaId,
   titulo,

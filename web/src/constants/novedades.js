@@ -36,6 +36,19 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-02-05',
+    fecha: '2026-09-02',
+    tipo: 'nuevo',
+    titulo: 'Una orden de trabajo ya es una tarea',
+    detalle:
+      'Al encargar una tarea a una maquila, escribes la orden de trabajo y picas "Traer del '
+      + 'plan": los codigos y las cantidades se llenan solos desde el plan maestro, y el titulo '
+      + 'se sugiere con el destino. Ya no hay que recapturar esos numeros. Ademas, si esa orden '
+      + 'de trabajo ya esta con otra maquila la app te lo dice y no deja duplicarla: una OT va a '
+      + 'una sola maquila, y lo que se reparte entre varias es la orden de compra.'
+  },
+
+  {
     id: '2026-09-02-04',
     fecha: '2026-09-02',
     tipo: 'mejorado',

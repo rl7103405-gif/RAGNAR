@@ -497,6 +497,27 @@ codigos y cantidades. Hoy las recaptura a mano.
   repetido").
 - El **resurtido** tendra que trabajar igual; hoy "traemos un desorden".
 
+## ⚠️ El candado de "una OT = una maquila" es de CLIENTE, no de servidor
+
+Se implemento el 2026-09-02 y funciona para el caso normal: al traer la OT y al
+crear la tarea se revisa si ya esta asignada, y se avisa con el nombre de la
+maquila y de la tarea. **Pero las reglas de Firestore no lo verifican**, y entre
+la comprobacion y la escritura hay una ventana: dos personas creando la misma OT
+casi a la vez pasarian las dos.
+
+Hoy se asume porque **solo Lindbergh y direccion crean tareas** — es un error
+honesto, no un abuso. Si el papa quiere que sea una REGLA de verdad
+(*"deberiamos ya de bloquear"*), el arreglo es un **centinela transaccional**:
+
+- Un documento `otsAsignadas/{ot}` con `maquilaId` y `tareaId`, escrito en el
+  **mismo lote** que la tarea.
+- Regla: `allow create` solo si el documento no existe (o ya es de esa maquila).
+  Como `create` no aplica sobre un documento que ya existe, el segundo intento
+  lo rechaza el servidor.
+- ⚠️ **Hay que pensar el ciclo completo**: al CANCELAR una tarea el centinela se
+  tiene que liberar, o esa OT queda bloqueada para siempre. Ese es el trabajo de
+  verdad, no la escritura.
+
 ## 💡 Tech packs directo a RAGNAR (hoy viven en el Drive del papa)
 
 Que **desarrollo de producto** los suba a RAGNAR y no al Drive, colgando de la
