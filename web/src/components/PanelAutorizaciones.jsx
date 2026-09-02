@@ -8,15 +8,33 @@ import { collection, limit, onSnapshot, orderBy, query, where } from 'firebase/f
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { aprobarCorreccion, rechazarCorreccion } from '../utils/auditoria'
+import { useMaquilas } from './Maquilas'
 
 const TEXTO_TIPO = {
   editar_peso: 'corregir el peso',
   eliminar: 'eliminar la captura',
-  editar_pdf: 'CORREGIR UNA REMISION (anular y reemitir)'
+  editar_pdf: 'CORREGIR UNA REMISION (anular y reemitir)',
+  // El sujeto de este no es un folio: es 'ORDEN__maquila'. Lo que se autoriza
+  // es que UNA orden de trabajo se reparta entre DOS maquilas, que normalmente
+  // esta prohibido.
+  ot_segunda_maquila: 'REPARTIR UNA ORDEN DE TRABAJO EN DOS MAQUILAS'
+}
+
+/** Lo que se ve como "sujeto" de la solicitud. Para el reparto de una orden,
+ *  el folio viene como 'ORDEN__maquila' y asi crudo no se entiende. */
+export function sujetoLegible(solicitud) {
+  if (solicitud?.tipo !== 'ot_segunda_maquila') return solicitud?.folio
+  const partes = String(solicitud.folio || '').split('__')
+  if (partes.length !== 2) return solicitud.folio
+  return `orden ${partes[0]} → tambien a ${partes[1]}`
 }
 
 export default function PanelAutorizaciones() {
   const { authUser, perfil, esAdmin, esPrueba } = useAuth()
+  // Para separar mundos en las solicitudes de reparto de una orden: ahi el
+  // sujeto no es un folio ZZTEST sino 'ORDEN__maquila', y quien dice si es de
+  // prueba es la MAQUILA. useMaquilas ya devuelve solo las del mundo propio.
+  const maquilas = useMaquilas()
   const [pendientes, setPendientes] = useState([])
   const [resueltas, setResueltas] = useState([])
   const [cambios, setCambios] = useState([])
@@ -31,8 +49,17 @@ export default function PanelAutorizaciones() {
     // servidor le rechaza), y a la cuenta de prueba le aparecen las
     // solicitudes REALES pendientes de America. El criterio es el prefijo del
     // folio, que es lo que llevan estos documentos (no un campo esPrueba).
-    const esDeMiMundo = (d) =>
-      /^ZZTEST/i.test(String(d.folio || '')) === esPrueba
+    const idsMaquilas = (maquilas || []).map((m) => m.id)
+    const esDeMiMundo = (d) => {
+      if (d.tipo === 'ot_segunda_maquila') {
+        const partes = String(d.folio || '').split('__')
+        // Si la maquila del sujeto no es de mi mundo, la solicitud no es mia:
+        // sin esto, a Roberto le apareceria en la bandeja una solicitud de
+        // prueba con su boton de Aprobar, y el servidor se la rechazaria.
+        return partes.length === 2 && idsMaquilas.includes(partes[1])
+      }
+      return /^ZZTEST/i.test(String(d.folio || '')) === esPrueba
+    }
     const manejar = (setter, etiqueta) => [
       (snap) => setter(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter(esDeMiMundo)),
       (err) => {
@@ -66,7 +93,7 @@ export default function PanelAutorizaciones() {
     )
     return () => subs.forEach((u) => u())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [esPrueba])
+  }, [esPrueba, maquilas])
 
   const fechaHora = (t) =>
     t?.toDate ? `${t.toDate().toLocaleDateString('es-MX')} ${t.toDate().toLocaleTimeString('es-MX')}` : '-'
@@ -84,7 +111,7 @@ export default function PanelAutorizaciones() {
           ? `Autorizado: ${solicitud.pedidoPorNombre} ya puede anular la remision con folio interno ` +
             `${solicitud.propuesta?.folioInternoOriginal ?? '?'} y reemitirla a "${solicitud.propuesta?.maquilaNombre ?? '?'}" ` +
             `con ${solicitud.propuesta?.folios?.length ?? 0} folios (se emitira con folio interno NUEVO). `
-          : `Autorizado: ${solicitud.pedidoPorNombre} ya puede ${TEXTO_TIPO[solicitud.tipo]} del folio ${solicitud.folio}. `) +
+          : `Autorizado: ${solicitud.pedidoPorNombre} ya puede ${TEXTO_TIPO[solicitud.tipo]} — ${sujetoLegible(solicitud)}. `) +
           'El permiso es de un solo uso.'
       )
     } catch (err) {
@@ -101,7 +128,7 @@ export default function PanelAutorizaciones() {
     setTrabajando(solicitud.id)
     try {
       await rechazarCorreccion({ solicitud, usuario })
-      setAviso(`Solicitud del folio ${solicitud.folio} rechazada.`)
+      setAviso(`Solicitud rechazada: ${sujetoLegible(solicitud)}.`)
     } catch (err) {
       console.error('[PanelAutorizaciones] Error rechazando:', err)
       setError('No se pudo rechazar: ' + (err.message || err))
@@ -161,7 +188,7 @@ export default function PanelAutorizaciones() {
                 {pendientes.map((s) => (
                   <tr key={s.id}>
                     <td>{fechaHora(s.creadoEn)}</td>
-                    <td><strong>{s.folio}</strong></td>
+                    <td><strong>{sujetoLegible(s)}</strong></td>
                     <td>{TEXTO_TIPO[s.tipo] || s.tipo}</td>
                     <td style={{ maxWidth: 320 }}>
                       {s.motivo}

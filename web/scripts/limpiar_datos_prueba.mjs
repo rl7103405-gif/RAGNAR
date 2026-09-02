@@ -268,6 +268,16 @@ const rutasPortal = idsMaquilaPrueba.map((id) => db.collection('portalMaquila').
 // registro se pisa solo con la carga siguiente.
 const foliosRuteoDudosos = await buscarPorUid('foliosRuteo', 'cargadoPorUid')
 
+// Los APARTADOS de ordenes de trabajo del mundo de prueba. Su ID lleva el
+// prefijo 'zz_' justamente para poder barrerlos sin tocar los reales: la orden
+// 7887 es la misma cadena en los dos mundos, y sin ese prefijo el ensayo de la
+// demo y la orden de verdad compartirian documento. Las reglas prohiben
+// borrarlos desde el cliente (una orden liberada tiene que dejar rastro), asi
+// que este script con llave de servicio es la unica via para limpiarlos.
+const apartadosPrueba = (await db.collection('otsAsignadas').get()).docs.filter(
+  (d) => d.id.startsWith('zz_') || d.data().esPrueba === true
+)
+
 // ---------------------------------------------------------------------------
 // 2.5 Maquilas REALES: demo_almacen puede mandar material o mover inventario
 // de CUALQUIER maquila, y demo_tareas/demo_admin pueden encargarle una tarea
@@ -368,6 +378,10 @@ if (borrarCuentas) {
 }
 if (rutasPortal.length) {
   console.log(`      1+  portal completo de: ${idsMaquilaPrueba.join(', ')}  (cantidad no contada en el total)`)
+}
+if (apartadosPrueba.length) {
+  total += apartadosPrueba.length
+  console.log(`  ${String(apartadosPrueba.length).padStart(5)}  apartados de ordenes de trabajo del mundo de prueba (otsAsignadas)`)
 }
 
 console.log('\nSE LISTA PERO NO SE BORRA (decide tu):')
@@ -541,6 +555,15 @@ if (borrarPdfs) {
 for (const ref of rutasPortal) {
   await db.recursiveDelete(ref)
   console.log(`  vaciado el portal de ${ref.id}`)
+}
+
+// Los apartados de prueba. Van DESPUES del portal: si se borraran antes, las
+// tareas de prueba todavia vivas quedarian un instante sin su apartado.
+if (apartadosPrueba.length) {
+  for (const d of apartadosPrueba) {
+    await d.ref.delete()
+  }
+  console.log(`  ${apartadosPrueba.length} apartado(s) de orden de trabajo liberados (otsAsignadas)`)
 }
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,21 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-02-09',
+    fecha: '2026-09-02',
+    tipo: 'nuevo',
+    titulo: 'Una orden de trabajo va a UNA sola maquila',
+    detalle:
+      'Lo que se reparte entre maquilas es la orden de COMPRA; una orden de trabajo va completa '
+      + 'a una sola. Ahora la app lo impide de verdad: si intentas encargar una orden que ya '
+      + 'tiene otra maquila, no se crea la tarea y te dice con quien esta. Tampoco te deja '
+      + 'repetirla en la misma maquila. Si de verdad hace falta repartirla, hay un boton para '
+      + 'pedir autorizacion escribiendo el motivo: el Ing. Roberto la aprueba desde su pestana '
+      + 'de Autorizaciones y el permiso sirve UNA vez, para esa orden y esa maquila. Al cerrar o '
+      + 'cancelar la tarea, la orden queda libre otra vez para volver a encargarse.'
+  },
+
+  {
     id: '2026-09-02-08',
     fecha: '2026-09-02',
     tipo: 'nuevo',

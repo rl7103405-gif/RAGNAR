@@ -40,8 +40,29 @@ import { db } from '../firebase/config'
 import { destinoDeOt, normalizarCodigo, normalizarModelo, normalizarOt } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
 import { ordenarPorFechaDesc } from './solicitudesAvios'
+import {
+  apartadoDeLaOt,
+  apuntarApartadoEnElLote,
+  maquilasDelApartado,
+  otAceptable,
+  revisarApartado,
+  soltarApartadoEnElLote,
+  sujetoDelPermiso,
+  TIPO_PERMISO_OT
+} from './otsAsignadas'
+import { autorizacionVigente } from './auditoria'
 
 export class ErrorTareaEnsamble extends Error {}
+
+/** El choque de "esta orden ya es de otra maquila". Lleva los datos del
+ *  conflicto para que la pantalla pueda ofrecer pedir la autorizacion en vez
+ *  de solo decir que no. */
+export class ErrorOtOcupada extends ErrorTareaEnsamble {
+  constructor(mensaje, datos = {}) {
+    super(mensaje)
+    Object.assign(this, datos)
+  }
+}
 
 // 950 KB: margen bajo el tope de 1 MiB por documento de Firestore.
 export const CHUNK_BYTES = 950000
@@ -153,7 +174,15 @@ function limpiarRenglones(renglones) {
  * `match /{path=**}/tareasEnsamble/{id}`), y abrir esa puerta para ahorrar
  * cinco consultas no vale la pena. Mismo criterio que en PanelAcusesMaquilas.
  *
- * ⚠️ LIMITE CONOCIDO: esto es un candado de CLIENTE. Entre esta comprobacion y
+ * ⚠️ ESTO YA NO ES EL CANDADO. Desde el 2026-09-02 el candado de verdad vive
+ * en el SERVIDOR (utils/otsAsignadas.js + las reglas de 'otsAsignadas'): la
+ * orden se aparta en el mismo lote que la tarea y apartar no funciona dos
+ * veces. Esta funcion se queda como PRE-AVISO: sirve para decirlo antes y para
+ * saltarse ordenes ocupadas en una tanda, pero quien decide es el servidor.
+ *
+ * Lo que sigue describe por que hacia falta ese candado:
+ *
+ * ⚠️ LIMITE (ya resuelto): esto es un candado de CLIENTE. Entre esta comprobacion y
  * la escritura hay una ventana en la que otra persona podria crear la misma
  * OT en otra maquila, y las reglas de Firestore no lo verifican. Hoy se
  * asume porque solo Lindbergh y direccion crean tareas —es un error honesto,
@@ -189,6 +218,7 @@ export async function crearTareaEnsamble({
   titulo,
   ot,
   fechaRequerida,
+  esPrueba = false,
   renglones,
   notas,
   archivo,
@@ -265,6 +295,23 @@ export async function crearTareaEnsamble({
     contenido = await archivo.arrayBuffer()
   }
 
+  // Como esta la orden AHORA MISMO (no como estaba cuando se pinto la
+  // pantalla), y si hay un permiso vigente para repartirla.
+  // La orden tiene que ser de la forma que aceptan las reglas ANTES de armar
+  // nada: si no, el lote entero muere en el servidor y el usuario ve un
+  // 'permission-denied' pelado por haber escrito un punto.
+  if (otLimpia && !otAceptable(otLimpia)) {
+    throw new ErrorTareaEnsamble(
+      `La orden "${otLimpia}" tiene caracteres que no se admiten. Solo numeros, letras, ` +
+        'diagonal (/) y guion (-), y no puede empezar con cero.'
+    )
+  }
+  const apartado = otLimpia ? await apartadoDeLaOt(otLimpia, esPrueba) : null
+  const permiso =
+    otLimpia && apartado && maquilasDelApartado(apartado).length
+      ? await autorizacionVigente(sujetoDelPermiso(otLimpia, maquilaId), TIPO_PERMISO_OT)
+      : null
+
   const ref = doc(collection(db, 'portalMaquila', maquilaId, 'tareasEnsamble'))
   const base = {
     maquilaId,
@@ -313,7 +360,64 @@ export async function crearTareaEnsamble({
     motivoDevolucion: null
   }
   onProgreso('Creando la tarea...')
-  await setDoc(ref, base)
+
+  // ⚠️ LA TAREA Y EL APARTADO DE LA OT, EN EL MISMO LOTE.
+  //
+  // El apartado es lo que impide que la misma orden de trabajo acabe en dos
+  // maquilas (lo pidio el papa de Roberto: "que solo vayan a una maquila, y
+  // deberiamos ya de bloquear"). Va aqui dentro y no en una escritura aparte
+  // porque si fueran dos, una tarea podria existir SIN apartar su orden --
+  // y entonces el candado seria una sugerencia.
+  //
+  // Si la orden ya esta apartada por otra maquila, esto NO se resuelve aqui:
+  // se le avisa a quien encarga y, si de verdad hace falta repartirla, se pide
+  // permiso al admin. Ese permiso es de un solo uso y para esta orden con esta
+  // maquila.
+  if (otLimpia) {
+    const revision = revisarApartado(apartado, maquilaId)
+    // Repetirla en la MISMA maquila tampoco: el papa lo pidio junto con lo
+    // otro ("que no le permita repetido"). El servidor tambien lo rechaza,
+    // pero ahi saldria como un 'permission-denied' que no explica nada.
+    if (revision.yaEsMia) {
+      throw new ErrorOtOcupada(
+        `Esa maquila YA tiene una tarea viva con la orden ${otLimpia}. No la dupliques: ` +
+          'edita la que existe, o cierrala primero.',
+        { ot: otLimpia, ocupadaPor: maquilaId, tareaId: revision.tareaId, esMia: true }
+      )
+    }
+    if (revision.ocupadaPor && !permiso) {
+      throw new ErrorOtOcupada(
+        `La orden de trabajo ${otLimpia} ya esta asignada a ${revision.ocupadaPor}. ` +
+          'Una orden de trabajo va a UNA sola maquila. Si de verdad hay que repartirla, ' +
+          'pide autorizacion.',
+        { ot: otLimpia, ocupadaPor: revision.ocupadaPor, tareaId: revision.tareaId }
+      )
+    }
+    const lote = writeBatch(db)
+    lote.set(ref, base)
+    apuntarApartadoEnElLote(lote, {
+      ot: otLimpia,
+      maquilaId,
+      tareaId: ref.id,
+      existente: apartado,
+      permiso,
+      esPrueba
+    })
+    // El permiso se CONSUME en este mismo lote: las reglas exigen que ya no
+    // exista al terminar, o seria una llave reutilizable.
+    if (permiso && apartado) {
+      lote.delete(doc(db, 'autorizaciones', `${sujetoDelPermiso(otLimpia, maquilaId)}_${TIPO_PERMISO_OT}`))
+      if (permiso.solicitudId) {
+        lote.update(doc(db, 'solicitudesCorreccion', permiso.solicitudId), {
+          usadaEn: serverTimestamp()
+        })
+      }
+    }
+    await lote.commit()
+  } else {
+    // Sin orden de trabajo no hay nada que apartar.
+    await setDoc(ref, base)
+  }
 
   if (contenido) {
     await subirTechPack({
@@ -522,7 +626,14 @@ export async function devolverTareaEnsamble({ maquilaId, tareaId, usuario, motiv
  * con manifiesto: el panel interno muestra "borrar el archivo pendiente"
  * para reintentar con limpiarTechPack.
  */
-export async function terminarTareaEnsamble({ maquilaId, tarea, estado, usuario, onProgreso = () => {} }) {
+export async function terminarTareaEnsamble({
+  maquilaId,
+  tarea,
+  estado,
+  usuario,
+  esPrueba = false,
+  onProgreso = () => {}
+}) {
   if (!['terminada', 'cancelada'].includes(estado)) throw new ErrorTareaEnsamble('Estado invalido.')
   if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado.')
   onProgreso(estado === 'terminada' ? 'Cerrando la tarea...' : 'Cancelando la tarea...')
@@ -530,13 +641,33 @@ export async function terminarTareaEnsamble({ maquilaId, tarea, estado, usuario,
   // el documento de la tarea (su permiso depende de publicadaEn, no del
   // estado), asi que dejar el manifiesto un momento mas le seguiria mostrando
   // el NOMBRE del archivo -- y ese nombre suele traer el cliente y el pedido.
-  await updateDoc(refTarea(maquilaId, tarea.id), {
+  // El cierre Y la liberacion de la orden, en el MISMO lote.
+  //
+  // Esta es la parte delicada del candado, no la de apartar: si la tarea se
+  // cancelara y la orden no se soltara, esa OT quedaria muerta para siempre y
+  // nadie entenderia por que ya no se puede encargar. Juntas, o ninguna.
+  //
+  // ⚠️ Y SOLO SI HAY APARTADO QUE SOLTAR. Un update sobre un documento que no
+  // existe tumba el lote ENTERO, asi que dar por hecho el apartado dejaria sin
+  // poder cerrarse a toda tarea que no lo tenga: las de antes de este cambio, y
+  // las que alguien cree con la pestana ya abierta el dia del despliegue. El
+  // cierre de una tarea no puede depender de eso.
+  // Y se compara contra ESTA tarea, no solo contra la maquila: si el mapa
+  // estuviera desincronizado, soltar por el nombre de la maquila liberaria el
+  // turno de OTRA tarea viva.
+  const apartado = tarea.ot ? await apartadoDeLaOt(tarea.ot, esPrueba) : null
+  const hayQueSoltar = apartado?.asignaciones?.[maquilaId] === tarea.id
+
+  const lote = writeBatch(db)
+  lote.update(refTarea(maquilaId, tarea.id), {
     estado,
     terminadaEn: serverTimestamp(),
     terminadaPorUid: usuario.uid,
     terminadaPorNombre: usuario.nombre,
     techPack: null
   })
+  if (hayQueSoltar) soltarApartadoEnElLote(lote, { ot: tarea.ot, maquilaId, esPrueba })
+  await lote.commit()
   // Y los chunks se barren SIEMPRE, sin preguntar si habia manifiesto: una
   // subida que se corto a la mitad deja chunks con el manifiesto todavia en
   // null, y condicionar el barrido a que exista los dejaba ahi para siempre,

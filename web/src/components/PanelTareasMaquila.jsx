@@ -9,12 +9,15 @@
 // el archivo elegido de nuevo, o se cancela la tarea.
 import { useEffect, useState } from 'react'
 import { otsDeLaOc, renglonesDeLaOt } from '../utils/planMaestro'
+import { pedirCorreccion, autoAprobarCorreccion } from '../utils/auditoria'
+import { sujetoDelPermiso, TIPO_PERMISO_OT } from '../utils/otsAsignadas'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
 import VisorTechPack from './VisorTechPack'
 import {
   ESTADOS_TAREA_ENSAMBLE,
   ErrorTareaEnsamble,
+  ErrorOtOcupada,
   MAX_TECHPACK_BYTES,
   crearTareaEnsamble,
   tareaQueYaTieneLaOt,
@@ -32,7 +35,7 @@ import {
 const RENGLON_VACIO = { codigo: '', descripcion: '', cantidad: '', unidad: 'packs' }
 
 export default function PanelTareasMaquila() {
-  const { authUser, perfil, puedeCrearTareas, esPrueba } = useAuth()
+  const { authUser, perfil, puedeCrearTareas, esPrueba, esAdmin } = useAuth()
   const maquilas = useMaquilas()
   const [tareas, setTareas] = useState([])
   const [error, setError] = useState('')
@@ -56,6 +59,9 @@ export default function PanelTareasMaquila() {
   // pasa por 0002, 0020, 0202... — serian tres escrituras basura a Firestore y
   // tres confirmaciones antes de llegar a 2026. Se guarda cuando lo piden.
   const [fechaEditada, setFechaEditada] = useState({})
+  // El choque de "esa orden ya es de otra maquila": se guarda para ofrecer
+  // pedir la autorizacion en vez de solo decir que no.
+  const [choqueOt, setChoqueOt] = useState(null)
 
   // Se escucha maquila por maquila (no collectionGroup) para que el orden por
   // fecha sea real; depende del catalogo, asi que se re-suscribe si cambia.
@@ -75,7 +81,73 @@ export default function PanelTareasMaquila() {
 
   const reportar = (err) => {
     console.error('[PanelTareasMaquila]', err)
+    // Un choque de orden ocupada NO es un error cualquiera: aqui hay algo que
+    // ofrecer (pedir la autorizacion), asi que se guarda aparte.
+    if (err instanceof ErrorOtOcupada && !err.esMia) {
+      setChoqueOt({ ot: err.ot, ocupadaPor: err.ocupadaPor, maquilaDestino: nueva.maquilaId })
+    }
+    // Un permiso lo consume QUIEN LO PIDIO (o el admin): asi lo exigen las
+    // reglas, para que nadie le queme a un companero el permiso que le
+    // acababan de dar. Si eso es lo que fallo, decirlo -- si no, el usuario ve
+    // un 'permission-denied' pelado sobre un permiso que ya esta aprobado.
+    if (err?.code === 'permission-denied' && choqueOt) {
+      setError(
+        'El permiso para repartir esta orden existe, pero lo tiene que usar quien lo pidio ' +
+          '(o el admin). Pidelo tu, o que lo encargue esa persona.'
+      )
+      return
+    }
     setError(err instanceof ErrorTareaEnsamble ? err.message : String(err?.message || err))
+  }
+
+  /**
+   * Pedirle al admin permiso para repartir una orden entre dos maquilas.
+   *
+   * Es el MISMO mecanismo que ya se usa para corregir una remision ya enviada:
+   * queda la solicitud con su motivo, el admin aprueba, y sale un permiso de UN
+   * SOLO USO. Si quien pide ES el admin, se auto-aprueba pero deja el mismo
+   * rastro -- no hay puerta de atras silenciosa: el papa pidio que "quede en el
+   * registro", y eso vale igual para el.
+   */
+  const onPedirPermisoOt = async () => {
+    if (!choqueOt) return
+    const motivo = window.prompt(
+      `Vas a pedir autorizacion para que la orden ${choqueOt.ot} este ADEMAS en ` +
+        `${nombreMaquila(choqueOt.maquilaDestino)}, cuando ya la tiene ` +
+        `${nombreMaquila(choqueOt.ocupadaPor)}.\n\n` +
+        'Escribe por que hace falta repartirla: es lo que va a leer quien autoriza.'
+    )
+    if (motivo === null) return
+    if (!motivo.trim()) {
+      setError('Sin motivo no se puede pedir la autorizacion: es lo unico que explica el reparto.')
+      return
+    }
+    setTrabajando('permiso')
+    try {
+      const sujeto = sujetoDelPermiso(choqueOt.ot, choqueOt.maquilaDestino)
+      const datos = { folio: sujeto, tipo: TIPO_PERMISO_OT, motivo: motivo.trim(), usuario: usuario() }
+      if (esAdmin) {
+        await autoAprobarCorreccion(datos)
+        setAviso(
+          `Autorizado y registrado. Vuelve a picar "Encargar a la maquila": la orden ` +
+            `${choqueOt.ot} ya puede ir tambien a ${nombreMaquila(choqueOt.maquilaDestino)}. ` +
+            'El permiso es de un solo uso.'
+        )
+      } else {
+        await pedirCorreccion(datos)
+        setAviso(
+          `Solicitud enviada. Cuando la autoricen, vuelve a encargar la orden ${choqueOt.ot} ` +
+            `a ${nombreMaquila(choqueOt.maquilaDestino)} y ya pasara.`
+        )
+      }
+      setChoqueOt(null)
+      setError('')
+    } catch (err) {
+      console.error('[PanelTareasMaquila] Error pidiendo permiso:', err)
+      setError('No se pudo pedir la autorizacion: ' + (err.message || err))
+    } finally {
+      setTrabajando(null)
+    }
   }
 
   /**
@@ -139,26 +211,44 @@ export default function PanelTareasMaquila() {
           continue
         }
         const destino = delPlan.find((r) => r.destino)?.destino || ''
-        await crearTareaEnsamble({
-          maquilaId: nueva.maquilaId,
-          titulo: `OT ${ot}${destino ? ' - ' + destino : ''}`,
-          ot,
-          fechaRequerida: nueva.fechaRequerida,
-          renglones: delPlan.map((r) => ({
-            codigo: r.codigo,
-            cantidad: String(r.cantidad),
-            unidad: 'docenas',
-            descripcion: r.descripcion || ''
-          })),
-          notas: nueva.notas,
-          // El tech pack NO se sube aqui: es un archivo por tarea y subir el
-          // mismo cuatro veces sin que nadie lo pida seria decidir por el.
-          // Se agrega despues a la que lo necesite.
-          archivo: null,
-          usuario: usuario(),
-          onProgreso: setProgreso
-        })
-        hechas.push(ot)
+        try {
+          await crearTareaEnsamble({
+            maquilaId: nueva.maquilaId,
+            titulo: `OT ${ot}${destino ? ' - ' + destino : ''}`,
+            ot,
+            fechaRequerida: nueva.fechaRequerida,
+            esPrueba,
+            renglones: delPlan.map((r) => ({
+              codigo: r.codigo,
+              cantidad: String(r.cantidad),
+              unidad: 'docenas',
+              descripcion: r.descripcion || ''
+            })),
+            notas: nueva.notas,
+            // El tech pack NO se sube aqui: es un archivo por tarea y subir
+            // el mismo cuatro veces sin que nadie lo pida seria decidir por
+            // el. Se agrega despues a la que lo necesite.
+            archivo: null,
+            usuario: usuario(),
+            onProgreso: setProgreso
+          })
+          hechas.push(ot)
+        } catch (err) {
+          // Que una orden choque con el candado NO debe tumbar a las demas:
+          // se salta esa, se dice por que, y las otras siguen. Cualquier otro
+          // error si detiene la tanda -- no es un caso previsto.
+          if (err instanceof ErrorOtOcupada) {
+            saltadas.push(`${ot} (${err.esMia ? 'ya la tiene esta maquila' : 'ya esta con ' + err.ocupadaPor + '; pide autorizacion'})`)
+            // Y se guarda el primer choque para que al final aparezca el boton
+            // de pedir autorizacion: decir "pide autorizacion" sin dar donde
+            // es dejar a medias lo que se prometio.
+            if (!err.esMia && !choqueOt) {
+              setChoqueOt({ ot: err.ot, ocupadaPor: err.ocupadaPor, maquilaDestino: nueva.maquilaId })
+            }
+            continue
+          }
+          throw err
+        }
       }
       setOtsElegidas([])
       setAvisoOt(null)
@@ -214,22 +304,12 @@ export default function PanelTareasMaquila() {
         }
       }
 
-      // El candado: una OT va a UNA maquila. Se revisa contra lo que hay en
-      // ese momento, no contra lo que la pantalla vio hace rato.
-      const ocupada = await tareaQueYaTieneLaOt(nueva.ot, (maquilas || []).map((m) => m.id))
-      if (ocupada && ocupada.maquilaId !== nueva.maquilaId) {
-        throw new ErrorTareaEnsamble(
-          `La orden de trabajo ${nueva.ot} ya esta asignada a ${ocupada.maquilaId} ` +
-            `(«${ocupada.titulo}»). Una OT va a una sola maquila; si hay que moverla, ` +
-            'cancela primero esa tarea.'
-        )
-      }
-      if (ocupada && ocupada.maquilaId === nueva.maquilaId) {
-        throw new ErrorTareaEnsamble(
-          `Esa maquila ya tiene una tarea viva con la OT ${nueva.ot} («${ocupada.titulo}»). ` +
-            'No la dupliques: edita la que existe.'
-        )
-      }
+      // ⚠️ Ya NO se revisa aqui si la orden esta ocupada. Lo hace
+      // crearTareaEnsamble leyendo el APARTADO, que es la fuente de verdad y
+      // la misma que aplica el servidor. Este chequeo viejo lanzaba un error
+      // pelado y, al hacerlo ANTES, dejaba inalcanzable el boton de pedir
+      // autorizacion: el mecanismo entero que pidio el papa habria sido codigo
+      // muerto.
       await crearTareaEnsamble({
         maquilaId: nueva.maquilaId,
         // El titulo ya no se teclea: era lo mismo que la orden. Roberto,
@@ -239,6 +319,7 @@ export default function PanelTareasMaquila() {
         titulo: tituloSugerido(),
         ot: nueva.ot,
         fechaRequerida: nueva.fechaRequerida,
+        esPrueba,
         renglones,
         notas: nueva.notas,
         archivo,
@@ -360,6 +441,7 @@ export default function PanelTareasMaquila() {
     setTrabajando(tarea.id)
     try {
       await terminarTareaEnsamble({
+        esPrueba,
         maquilaId: tarea.maquilaId,
         tarea,
         estado,
@@ -835,6 +917,34 @@ export default function PanelTareasMaquila() {
   return (
     <>
       {error && <div className="alerta-error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      {/* El choque de orden ocupada va APARTE del error, no dentro: cuando se
+          encargan varias de un jalon el resultado se cuenta como aviso (unas
+          se crearon), y ahi el boton tenia que verse igual. */}
+      {choqueOt && (
+        <div className="alerta-error" style={{ marginBottom: 12 }}>
+          <strong>La orden {choqueOt.ot} ya esta en {nombreMaquila(choqueOt.ocupadaPor)}.</strong>{' '}
+          Una orden de trabajo va a UNA sola maquila. Si de verdad hay que repartirla, se
+          autoriza y queda registrado.
+          <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-secundario"
+              disabled={trabajando === 'permiso'}
+              onClick={onPedirPermisoOt}
+            >
+              {trabajando === 'permiso'
+                ? 'Pidiendo...'
+                : esAdmin
+                  ? 'Autorizar el reparto y dejarlo registrado'
+                  : 'Pedir autorizacion para repartir esta orden'}
+            </button>
+            <button type="button" className="btn-secundario" onClick={() => setChoqueOt(null)}>
+              Dejarlo asi
+            </button>
+          </div>
+        </div>
+      )}
       {aviso && <div className="alerta-exito" style={{ marginBottom: 12 }}>{aviso}</div>}
       {progreso && <div className="alerta-exito" style={{ marginBottom: 12 }}>{progreso}</div>}
 
@@ -895,6 +1005,7 @@ export default function PanelTareasMaquila() {
                 setNueva({ ...nueva, ot: e.target.value })
                 setAvisoOt(null)
                 setOtsElegidas([])
+                setChoqueOt(null)
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {

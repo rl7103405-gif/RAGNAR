@@ -499,6 +499,25 @@ codigos y cantidades. Hoy las recaptura a mano.
 
 ## ⚠️ El candado de "una OT = una maquila" es de CLIENTE, no de servidor
 
+> **DECISION FINAL, EL PAPA LA CONFIRMO (2026-09-02): SI se bloquea.**
+>
+> Roberto hijo primero pidio que solo avisara (*"que no sea totalmente
+> restrictivo... oye brother, esto no lo puedes estar haciendo, se lo puedo
+> dejar"*) y lo consulto con su papa esa misma tarde. La respuesta:
+> **bloqueo duro, y para saltarselo se PIDE PERMISO AL PAPA y queda en el
+> registro** — *"que para desbloquearlo o poder hacer lo que pida permiso
+> para mi papa y quede en el registro"*.
+>
+> Es el mismo mecanismo que ya existe para corregir un PDF ya enviado
+> (`utils/auditoria.js` + `PanelAutorizaciones.jsx`): se pide con motivo, el
+> admin aprueba, y sale una autorizacion de UN SOLO USO que las reglas
+> verifican y se consume al usarse. **Se reusa, no se construye otro.**
+>
+> ⚠️ El permiso NO puede ser "para la OT 7735" a secas: eso valdria para
+> mandarla a CUALQUIER maquila. El sujeto tiene que ser la OT **y** la
+> maquila concreta, o el papa estaria firmando una llave mas ancha de lo que
+> cree.
+
 Se implemento el 2026-09-02 y funciona para el caso normal: al traer la OT y al
 crear la tarea se revisa si ya esta asignada, y se avisa con el nombre de la
 maquila y de la tarea. **Pero las reglas de Firestore no lo verifican**, y entre

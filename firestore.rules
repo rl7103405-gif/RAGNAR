@@ -386,7 +386,12 @@ service cloud.firestore {
     // pdfsGenerados son aleatorios) y una de remision real pasaria de largo.
     function alcanceCorreccionOk(folio, tipo) {
       return !esCuentaDePrueba()
-        || (tipo == 'editar_pdf'
+        // 'ot_segunda_maquila': el sujeto es 'OT__maquilaId' (la excepcion es
+        // para ESA orden con ESA maquila, no para la orden a secas). Lo que
+        // decide el mundo aqui es la maquila, no un folio de bulto.
+        || (tipo == 'ot_segunda_maquila'
+              ? (folio.split('__').size() == 2 && mismoMundoMaquila(folio.split('__')[1]))
+              : tipo == 'editar_pdf'
               ? (exists(/databases/$(database)/documents/pdfsGenerados/$(folio))
                  && get(/databases/$(database)/documents/pdfsGenerados/$(folio)).data.get('esPrueba', false) == true)
               : folioDePrueba(folio));
@@ -405,7 +410,7 @@ service cloud.firestore {
         && request.resource.data.folio.size() <= 50
         // 'editar_pdf': el "folio" es el ID del registro de pdfsGenerados que
         // se va a anular y reemitir (mismo mecanismo de ID determinista).
-        && request.resource.data.tipo in ['editar_peso', 'eliminar', 'editar_pdf']
+        && request.resource.data.tipo in ['editar_peso', 'eliminar', 'editar_pdf', 'ot_segunda_maquila']
         && autorizacionId == request.resource.data.folio + '_' + request.resource.data.tipo
         && request.resource.data.solicitudId is string
         && request.resource.data.otorgadaPorUid == request.auth.uid
@@ -664,7 +669,7 @@ service cloud.firestore {
         // 'editar_pdf' guarda el ID del registro de pdfsGenerados (mas largo
         // que un folio de bulto).
         && request.resource.data.folio.size() <= 128
-        && request.resource.data.tipo in ['editar_peso', 'eliminar', 'editar_pdf']
+        && request.resource.data.tipo in ['editar_peso', 'eliminar', 'editar_pdf', 'ot_segunda_maquila']
         // La PROPUESTA es obligatoria en editar_pdf: Roberto aprueba el cambio
         // CONCRETO (que maquila y que folios), no un permiso abierto para que
         // America decida despues.
@@ -1658,6 +1663,150 @@ service cloud.firestore {
     // Lo que la maquila ve de una remision. Lo escribe Quini al emitir el PDF
     // (mismo lote que la bitacora) y es INMUTABLE: es la copia de un papel ya
     // emitido.
+    // ================= EL APARTADO DE UNA ORDEN DE TRABAJO =================
+    //
+    // Una orden de COMPRA se reparte entre maquilas; una orden de TRABAJO no.
+    // Lo pidio el papa de Roberto (2026-09-02): "ordenes de trabajo... que solo
+    // vayan a una maquila, y deberiamos ya de bloquear", y confirmo como:
+    // "para desbloquearlo que pida permiso para mi papa y quede en el registro".
+    //
+    // Antes esto se revisaba SOLO en la pantalla, y entre la revision y la
+    // escritura cabia una carrera. Aqui el candado es del SERVIDOR: el apartado
+    // se crea, y crear no funciona dos veces.
+    //
+    // El ID es la OT EN HEXADECIMAL. Una OT puede traer sufijo ('7887/A' no es
+    // la '7887') y una barra partiria la ruta del documento. Con hex el ID
+    // nunca trae caracteres de ruta, y la regla puede RECALCULARLO para
+    // comprobar que corresponde a la OT que dice el contenido: sin eso, se
+    // podrian crear dos apartados distintos para la misma orden.
+    match /otsAsignadas/{otKey} {
+      function laTarea(mid, tid) {
+        return getAfter(/databases/$(database)/documents/portalMaquila/$(mid)/tareasEnsamble/$(tid)).data;
+      }
+      // La tarea que se apunta tiene que existir DESPUES de este mismo lote,
+      // con esta OT y esta maquila, y viva. Sin esto se podria apartar una OT
+      // sin crear ninguna tarea: bloquearla para los demas y ya.
+      function tareaConcuerda(mid, tid, ot) {
+        return laTarea(mid, tid).ot == ot
+          && laTarea(mid, tid).maquilaId == mid
+          && laTarea(mid, tid).estado in ['preparando', 'abierta', 'iniciada', 'declarada'];
+      }
+      function apartadoValido(d) {
+        return d.keys().hasAll(['ot', 'asignaciones', 'creadoEn', 'ultimaMaquila'])
+          && d.keys().hasOnly(['ot', 'asignaciones', 'creadoEn', 'ultimaMaquila', 'ultimoPermisoId', 'esPrueba'])
+          // 'ultimaMaquila' dice a QUE maquila se refiere este movimiento. No
+          // es adorno: los conjuntos que devuelve diff() no se pueden recorrer
+          // ni indexar en las reglas, asi que sin este campo no habria forma de
+          // comprobar CUAL maquila entro o salio -- solo cuantas.
+          && d.ultimaMaquila is string
+          && d.ultimaMaquila.size() > 0
+          && d.ot is string
+          && d.ot.size() > 0 && d.ot.size() <= 40
+          // CANONICA: mayusculas, sin espacios y sin ceros a la izquierda, tal
+          // como la deja normalizarOt. Si se aceptara '07887' y '7887', serian
+          // dos apartados de la misma orden y el candado no serviria de nada.
+          && d.ot.matches('^[1-9A-Z][0-9A-Z/-]*$')
+          // Y sin el prefijo 'OT': normalizarOt lo quita, asi que aceptarlo
+          // aqui permitiria dos apartados ('7887' y 'OT7887') para la misma
+          // orden -- y con eso el candado se saltaria escribiendo el alias.
+          && !d.ot.matches('^OT.*')
+          // Y el ID ES la OT: recalculado aqui, no aceptado a ciegas.
+          //
+          // .lower() en TODAS partes, aqui y en las rutas de getAfter: el
+          // cliente escribe el hex en minusculas y no esta documentado en que
+          // caja lo devuelve toHexString(). Si devolviera mayusculas, la ruta
+          // apuntaria a un documento que no existe y NINGUNA orden con letra o
+          // con sufijo ('7887/A') se podria encargar -- justo el caso que este
+          // diseno existe para atender. Forzarlo no cuesta nada.
+          //
+          // El PREFIJO separa mundos: la orden 7887 es la misma cadena para la
+          // cuenta demo y para la real, asi que sin esto ensayar con la maquila
+          // ficticia apartaria una orden de verdad.
+          && otKey == (d.get('esPrueba', false) == true ? 'zz_' : '')
+                      + d.ot.toUtf8().toHexString().lower();
+      }
+
+      // Quini lo lee entero. La maquila SOLO el suyo: asi ve el conflicto de su
+      // propia orden sin poder listar los apartados de las demas.
+      // esMaquilaDe(), no 'tiene maquila en el perfil': asi una maquila DADA DE
+      // BAJA en el catalogo deja de leer, aunque su cuenta siga viva.
+      // Lo leen quienes encargan tareas y quienes abren el arbol de ordenes; no
+      // toda la casa. Captura o almacen nunca ven esta pantalla, y regalarles
+      // el dato seria el mismo error que este archivo ya corrigio en otras
+      // colecciones.
+      allow read: if (esInterno() && (puedeCrearTareas() || rol() in ['admin', 'completo']))
+        || (esMaquilaDe(maquilaDelPerfil())
+            && resource.data.asignaciones.keys().hasAny([maquilaDelPerfil()]));
+
+      // Apartar por primera vez. Va en el MISMO lote que la tarea.
+      allow create: if puedeCrearTareas()
+        && apartadoValido(request.resource.data)
+        // Nace en el mundo de quien lo crea: una cuenta de prueba SOLO puede
+        // escribirlo marcado, y una real nunca puede marcarlo.
+        && marcaDePruebaCoherente(request.resource.data)
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.asignaciones.size() == 1
+        && request.resource.data.asignaciones.keys().hasOnly([request.resource.data.ultimaMaquila])
+        && mismoMundoMaquila(request.resource.data.ultimaMaquila)
+        && tareaConcuerda(request.resource.data.ultimaMaquila,
+                          request.resource.data.asignaciones[request.resource.data.ultimaMaquila],
+                          request.resource.data.ot);
+
+      allow update: if puedeCrearTareas()
+        && apartadoValido(request.resource.data)
+        // El documento que ya existe tiene que ser del mismo mundo que quien
+        // lo toca: sin esto la cuenta demo podria soltar el apartado de una
+        // orden real (y al reves).
+        && mismoMundo(resource.data)
+        && request.resource.data.get('esPrueba', false) == resource.data.get('esPrueba', false)
+        && request.resource.data.ot == resource.data.ot
+        && request.resource.data.creadoEn == resource.data.creadoEn
+        && (
+          // (a) AGREGAR una segunda maquila. Solo con permiso del admin, y el
+          // permiso es para ESTA orden con ESTA maquila (sujeto 'OT__maquila'):
+          // uno para la OT a secas serviria para mandarla a cualquiera.
+          ( request.resource.data.asignaciones.diff(resource.data.asignaciones)
+                 .addedKeys().hasOnly([request.resource.data.ultimaMaquila])
+            && request.resource.data.asignaciones.diff(resource.data.asignaciones).addedKeys().size() == 1
+            && request.resource.data.asignaciones.diff(resource.data.asignaciones).removedKeys().size() == 0
+            && request.resource.data.asignaciones.diff(resource.data.asignaciones).changedKeys().size() == 0
+            && mismoMundoMaquila(request.resource.data.ultimaMaquila)
+            // ⚠️ EL PERMISO SOLO HACE FALTA SI LA ORDEN ESTA OCUPADA. Cuando se
+            // suelta, el mapa queda vacio pero el documento sigue existiendo:
+            // sin esta salvedad, volver a encargar esa misma orden -- lo normal
+            // del mundo -- habria exigido la firma del admin, y cada orden
+            // habria servido UNA sola vez en su vida.
+            && (resource.data.asignaciones.size() == 0
+                || (tieneAutorizacion(resource.data.ot + '__' + request.resource.data.ultimaMaquila,
+                                      'ot_segunda_maquila')
+            // Y el permiso SE CONSUME en este mismo lote: es de un solo uso, no
+            // una llave que quede colgada para la proxima vez.
+                    && !existsAfter(/databases/$(database)/documents/autorizaciones/$(resource.data.ot
+                         + '__' + request.resource.data.ultimaMaquila + '_ot_segunda_maquila'))))
+            && tareaConcuerda(request.resource.data.ultimaMaquila,
+                              request.resource.data.asignaciones[request.resource.data.ultimaMaquila],
+                              resource.data.ot) )
+          ||
+          // (b) SOLTAR la orden al cerrar o cancelar la tarea. Va en el mismo
+          // write que el cierre: si se pudieran separar, una tarea cancelada
+          // podria dejar su orden apartada para siempre y nadie entenderia por
+          // que esa OT ya no se puede encargar.
+          ( request.resource.data.asignaciones.diff(resource.data.asignaciones)
+                 .removedKeys().hasOnly([request.resource.data.ultimaMaquila])
+            && request.resource.data.asignaciones.diff(resource.data.asignaciones).removedKeys().size() == 1
+            && request.resource.data.asignaciones.diff(resource.data.asignaciones).addedKeys().size() == 0
+            && request.resource.data.asignaciones.diff(resource.data.asignaciones).changedKeys().size() == 0
+            && laTarea(request.resource.data.ultimaMaquila,
+                       resource.data.asignaciones[request.resource.data.ultimaMaquila])
+                 .estado in ['terminada', 'cancelada'] )
+        );
+
+      // No se borra. Un apartado con el mapa vacio YA significa 'libre', y
+      // borrarlo obligaria a distinguir "no existe" de "existe vacio" en cada
+      // lectura -- ademas de perder el rastro de quien la tuvo.
+      allow delete: if false;
+    }
+
     match /portalMaquila/{maquilaId}/salidas/{registroId} {
       allow read: if esInterno() || esMaquilaDe(maquilaId);
       allow create: if puedeEmbarcar()
@@ -2264,6 +2413,15 @@ service cloud.firestore {
         && request.resource.data.terminadaPorUid == null
         && request.resource.data.terminadaPorNombre == null
         && request.resource.data.techPackBorradoEn == null
+        // ⚠️ SI LA TAREA DICE UNA ORDEN, ESA ORDEN QUEDA APARTADA EN ESTE MISMO
+        // LOTE, a nombre de esta maquila y de esta tarea. Sin esta linea el
+        // candado dependeria de que el cliente escribiera las dos cosas, y un
+        // cliente hecho a mano se lo saltaria creando la tarea sola.
+        && (request.resource.data.get('ot', null) == null
+            || (request.resource.data.ot.matches('^[1-9A-Z][0-9A-Z/-]*$')
+                && !request.resource.data.ot.matches('^OT.*')
+                && getAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + request.resource.data.ot.toUtf8().toHexString().lower()))
+                     .data.asignaciones[maquilaId] == tareaId))
         && request.resource.data.get('fechaRequeridaCambiadaEn', null) == null
         && request.resource.data.get('fechaRequeridaCambiadaPorUid', null) == null
         && request.resource.data.get('fechaRequeridaCambiadaPorNombre', null) == null;
@@ -2285,6 +2443,11 @@ service cloud.firestore {
             // documento entero: tiene su propia rama, que la sella con nombre.
             // Si se pudiera cambiar tambien aqui, bastaria reeditar la tarea
             // para mover la fecha sin dejar rastro de quien fue.
+            // La ORDEN DE TRABAJO tampoco se cambia despues de creada: su
+            // apartado se escribio con esa orden, y cambiarla aqui dejaria
+            // apartada una orden que la tarea ya no trabaja mientras la nueva
+            // queda sin apartar. El candado dejaria de significar nada.
+            && request.resource.data.get('ot', null) == resource.data.get('ot', null)
             && request.resource.data.get('fechaRequerida', null) == resource.data.get('fechaRequerida', null)
             && request.resource.data.get('fechaRequeridaCambiadaEn', null) == resource.data.get('fechaRequeridaCambiadaEn', null)
             && request.resource.data.get('fechaRequeridaCambiadaPorUid', null) == resource.data.get('fechaRequeridaCambiadaPorUid', null)
@@ -2323,6 +2486,16 @@ service cloud.firestore {
             && (request.resource.data.get('techPack', null) == null
                 || request.resource.data.get('techPack', null) == resource.data.get('techPack', null))
             && request.resource.data.estado in ['terminada', 'cancelada']
+            // Y la orden QUEDA SUELTA. Cerrar sin soltar dejaria esa orden
+            // apartada para siempre por una tarea que ya no existe -- peor que
+            // el problema que este candado resuelve. Se comprueba el resultado
+            // del lote, no la intencion: despues de esto, el apartado ya no
+            // puede seguir apuntando a esta tarea. Si la tarea no trae orden, o
+            // si es de antes del candado y no tiene apartado, pasa de largo.
+            && (resource.data.get('ot', null) == null
+                || !existsAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
+                || getAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
+                     .data.asignaciones.get(maquilaId, '') != tareaId)
             && request.resource.data.terminadaEn == request.time
             && request.resource.data.terminadaPorUid == request.auth.uid
             && request.resource.data.terminadaPorNombre == perfil().get('nombreCompleto', '') )
