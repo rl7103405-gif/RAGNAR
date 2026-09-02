@@ -527,10 +527,10 @@ export default function PanelEmbarcarPL() {
             }}
           >
             <button className="btn-secundario" onClick={onDescargar}>
-              Excel de toda la orden
+              Excel: balance del pedido
             </button>
             <span className="texto-suave" style={{ fontSize: 12 }}>
-              para subir a Microsip
+              lo pedido vs lo entregado, por entrega
             </span>
           </div>
           {/* El PAPEL va por ENTREGA: quien firma esta recibiendo lo de hoy, y

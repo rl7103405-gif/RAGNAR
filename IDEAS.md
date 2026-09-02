@@ -439,3 +439,113 @@ repartidas entre destinos, mas hojas de PORTEOS y detalle por modelo. **No es
 el mismo documento.** Si se disena para uno solo, que sea el de licencias
 (Stylos); Walmart es un proyecto aparte.
 
+---
+
+# Tanda del 2026-09-02 — lo que pidio el PAPA revisando el PL
+
+Transcripcion completa en
+`OneDrive/Videos-para-Claude/transcripciones/2026-09-02_papa_revision-excel-pl-y-tareas.txt`
+(15:25 min). Roberto hijo le enseno el Excel y el PDF que genera RAGNAR.
+
+## ✅ El PDF de entrega: aprobado
+
+"Aqui el documento de entrega ya lo revisamos... este ejemplo esta bien."
+Un solo ajuste: **el numero de entrega tiene que ir relacionado a la PO** —
+"si ya vas en la 2 o en la 3 de esta PO, que vaya relacionado aca".
+
+## 🔴 El EXCEL esta MAL enfocado: no es una copia del PL, es el BALANCE
+
+Textual: *"No me interesa el empaque. No me interesa el precio. Me interesa
+solo el comparativo de las unidades de venta: cuantas me solicitaron y cuantas
+entregue."*
+
+Lo que quiere en el Excel, por codigo:
+
+| Total pedido | Entrega 1 | Entrega 2 | ... | Total entregado | Faltante |
+
+- **Fuera el empaque y fuera el precio.** No van.
+- Una columna por entrega, y **van creciendo** conforme se entrega.
+- *"Y es mas, que aparezcan con los folios"*: cada columna de entrega
+  identificada con su numero de referencia / folio de la entrega.
+- *"Lo que necesitamos en esto es el balance del pedido."*
+
+⚠️ El PL de Valeria y este Excel **no son el mismo documento**: el suyo es el
+papel del embarque; este es el control del pedido. Por eso el precio y el
+empaque estorban aqui aunque esten alla.
+
+## 🔴 Tareas a maquilas: ASIGNAR la OT, no recapturarla
+
+Es lo que Roberto marco como prioridad. Textual del papa:
+
+> "Si el sistema ya tiene agrupado una orden de compra, en que ordenes de
+> trabajo esta distribuida, **ya tenemos ahi implicita la tarea**. Es decir,
+> **una orden de trabajo ES una tarea**."
+
+Y de Lindbergh: *"yo quisiera pues ya solo asignarla, porque ahorita tengo que
+volver a capturar todos esos numeros"*.
+
+**El cambio:** que Lindbergh vea las OT que cuelgan de una OC (el arbol ya
+existe) y **asigne una OT a una maquila**; la tarea se genera sola con sus
+codigos y cantidades. Hoy las recaptura a mano.
+
+### Reglas que pidio junto con eso
+
+- **Una OT va a UNA sola maquila, y el sistema debe BLOQUEARLO.** "Ordenes de
+  trabajo... que solo vayan a una maquila, y deberiamos ya de bloquear".
+  Las que se reparten entre maquilas son las **ordenes de compra**, no las OT.
+- **Que no permita asignar dos veces la misma OT** ("que no le permita
+  repetido").
+- El **resurtido** tendra que trabajar igual; hoy "traemos un desorden".
+
+## 💡 Tech packs directo a RAGNAR (hoy viven en el Drive del papa)
+
+Que **desarrollo de producto** los suba a RAGNAR y no al Drive, colgando de la
+OT, y que **cada maquila vea solo el suyo** — ya existe el visor con el corral
+por maquila. Lo mismo para las fichas y "las cadenas de las maquilas".
+
+⚠️ **Su preocupacion NO es que se filtre, es quedarse sin poder trabajar:**
+*"si la informacion se me la roban, no es tanto lo que va a dar afuera, es lo
+que ya no puedo trabajar"*. **Pide un respaldo** antes de mover el Drive a la
+app. Eso hay que resolverlo ANTES, no despues.
+
+## 💡 El PL general de Walmart: otro flujo, y es grande
+
+Es el segundo documento del que hablaba ("hay dos cosas diferentes"). Como
+funciona hoy:
+
+1. Caen las ordenes de compra. **El PL es la primera informacion que levantan.**
+2. Se hace **un PL general** que dice, en grueso, cuanto falta.
+3. Las hojas por sub-cliente (Chedraui, Supercentre, Centerpoint) **se mandan
+   en CERO**: bodega va rellenando lo que SI tiene, y se ve el faltante.
+4. Con eso y las citas de Walmart se decide **a que orden de compra se le
+   asigna el faltante** — lo decide la operacion, "porque tenemos que facturar
+   exactamente lo que embarcamos".
+5. Al final, PT le da **CERRAR** y en ese momento **pasa a facturacion**.
+
+Lo que pidio explicito:
+- Que PT capture eso **en la app y no en papelitos**.
+- ⚠️ **Una celda vacia NO es un cero.** "Una celda vacia significa 'no hay' o
+  'todavia no lo cuento'; **hoy las dos se ven igual** y salen como faltantes".
+  Quiere que se distingan: para decir que hay cero se escribe una marca
+  explicita.
+- El boton de **cerrar** es lo que lo manda a facturacion, y puede cerrarse
+  incompleto a proposito ("me falta una caja pero no me va a llegar").
+
+## 📋 Contexto de negocio que dejo dicho (para no volver a preguntarlo)
+
+- A Walmart se cumple **arriba del 98% anual**; si falta algo se reporta de
+  inmediato y se procesa con las maquilas.
+- **Siempre se surte en multiplos de empaque**: Walmart no recibe cajas
+  incompletas ni piezas sueltas.
+- Si apareciera un codigo fuera de las claves conocidas, **lo ve comercial**
+  (el papa). Nunca ha pasado.
+- Quien decide si una OC se factura completa o incompleta: **logistica y
+  almacen**. Pidio un **manual de operaciones** con ese criterio escrito.
+
+## ❓ Pregunta suya que sigue sin respuesta
+
+*"Cuando no alcanza el inventario, ¿quien se queda corto?"* — si el porteo pide
+160 de una clave y hay 100, ¿como se reparte entre las ordenes? Hoy lo decide
+bodega "sin que nadie se lo diga". **Es una regla de negocio por definir**, no
+codigo.
+

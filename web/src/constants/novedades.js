@@ -36,6 +36,19 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-02-04',
+    fecha: '2026-09-02',
+    tipo: 'mejorado',
+    titulo: 'El Excel del pedido ahora es el balance',
+    detalle:
+      'El Excel que baja de Embarcar al cliente ya no repite el packing list: ahora es el '
+      + 'balance del pedido. Por cada codigo dice cuanto se pidio, cuanto se entrego en cada '
+      + 'entrega, el total entregado y lo que falta, con el porcentaje. Arriba viene la '
+      + 'referencia de cada entrega (fecha, factura y bitacora). El empaque y los precios se '
+      + 'quedan en el PDF, que es el papel que viaja con la mercancia.'
+  },
+
+  {
     id: '2026-09-02-03',
     fecha: '2026-09-02',
     tipo: 'nuevo',
