@@ -36,6 +36,20 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-02-01',
+    fecha: '2026-09-02',
+    tipo: 'nuevo',
+    titulo: 'Embarcar al cliente: el PL se arma solo',
+    detalle:
+      'En Producto Terminado hay una seccion nueva, Embarca. Registras cada entrega contra su '
+      + 'orden de compra y el packing list se va armando solo: la app le pone la ORDEN DE TRABAJO a '
+      + 'cada renglon (en el papel esa columna iba vacia) y saca los bultos y los packs del texto '
+      + 'del empaque, o sea que escribiendo 2/200 1/58 ella sola entiende 3 bultos y 458 packs. '
+      + 'Cuando quieras, un boton baja el PL en Excel con la forma de siempre. La factura, la '
+      + 'bitacora y los datos de Microsip se siguen tecleando: no son de la app.'
+  },
+
+  {
     id: '2026-09-01-05',
     fecha: '2026-09-01',
     tipo: 'corregido',

@@ -53,7 +53,35 @@ const COLOR_ESTADO = {
 
 const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—')
 
-export default function PanelPorLlegar() {
+import PanelEmbarcarPL from './PanelEmbarcarPL'
+
+// PRODUCTO TERMINADO tiene dos mitades y estaban revueltas en una sola
+// pantalla: lo que RECIBE de la maquila y lo que EMBARCA al cliente. Mismo
+// criterio con el que se juntaron las seis pestanas de Maquilas en una.
+export default function ProductoTerminado() {
+  const [seccion, setSeccion] = useState('recibe')
+  return (
+    <>
+      <div className="tabs" style={{ marginBottom: 12 }}>
+        <button
+          className={`tab ${seccion === 'recibe' ? 'activo' : ''}`}
+          onClick={() => setSeccion('recibe')}
+        >
+          Recibe de maquila
+        </button>
+        <button
+          className={`tab ${seccion === 'embarca' ? 'activo' : ''}`}
+          onClick={() => setSeccion('embarca')}
+        >
+          Embarca al cliente
+        </button>
+      </div>
+      {seccion === 'recibe' ? <PanelRecibeDeMaquila /> : <PanelEmbarcarPL />}
+    </>
+  )
+}
+
+function PanelRecibeDeMaquila() {
   const { authUser, perfil, esPrueba } = useAuth()
   const maquilas = useMaquilas()
 

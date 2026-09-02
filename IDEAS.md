@@ -361,3 +361,81 @@ llevando".
 Recibir bultos, el tech pack, iniciar/declarar la tarea, y pedir material. No
 tocarlos.
 
+---
+
+## El PL (packing list): la salida al CLIENTE — el cuarto eslabon
+
+Salio el 2026-09-01 con el PL real de Valeria
+(`datos/producto-terminado/PL STYLOS02 OC16058 PO2449.xlsx`, elaborado por
+Valeria Montesinos, Logistica).
+
+**Hoy RAGNAR cubre tres eslabones y le falta el cuarto:** la bascula captura el
+bulto, `pdfsGenerados` documenta lo que sale a maquila, `recepcionesPT`
+registra lo que vuelve... y ahi muere la cadena OC -> OT -> codigo -> folio.
+El PL es la salida al cliente y es el que la cierra.
+
+**Donde va:** la pestana `porllegar` deja de ser solo "Recibir" y se vuelve la
+de Producto Terminado con dos secciones, **Recibe** y **Embarca** — igual que
+se hizo con Maquilas al juntar seis pestanas en una. Cada entrega es un **acta
+inmutable** mas, del estilo de la recepcion. El Excel se genera con el patron
+de `excelOrdenCompra.js`: encabezados exactos del papel que ella conoce y
+**en blanco, no en cero**, lo que RAGNAR no sabe (Ped. Micro, Rem. Micro,
+FACTURA y BITACORA son de Microsip y del portal).
+
+### 🟢 El freno de las unidades es MENOR de lo que parecia — medido
+
+Roberto lo puso como el bloqueo ("sin la tabla pack-docena-pieza el modulo
+nace mintiendo"). Se midio contra el PL real y contra
+`datos/precios/packs-contenido-FINAL.csv` (145 UPC, armado el 27-ago):
+
+- **PAQS == PZAS en las 50 comparaciones del PL, cero discrepancias.** Para el
+  cliente la "pieza" ES el pack. No hay conversion pack -> pieza que hacer.
+- **El nombre del articulo trae el tamano: 27 de 27** productos dicen `3PACK`
+  o `6PACK` (21 y 6).
+- **18 de 27 UPC ya estan en la tabla de packs**, y en esos 18 los pares de la
+  tabla coinciden EXACTO con el nombre. **Cero conflictos entre las dos
+  fuentes** — se validan la una a la otra.
+- Lo que falta: **9 UPC** (los TIN NO SHOW de nina/nino/caballero, que son de
+  licencias y no de Walmart). Su tamano se deriva del nombre, pero **sin
+  confirmar**.
+
+Resultado en `datos/producto-terminado/equivalencias-pack-docena.csv`, con
+columna `fuente` que dice de donde sale cada renglon. La conversion a docena es
+`packs_por_docena = 12 / pares_por_pack` (3PACK -> 4, 6PACK -> 2).
+
+### ⛔ Lo que SI sigue bloqueado, y no se programa
+
+1. **No hay inventario de producto terminado.** El PL descuenta de una
+   existencia y hoy RAGNAR solo sabe lo que entro por `recepcionesPT`.
+   Entradas menos salidas del PL da la existencia — que es justo la segunda
+   hoja del Excel de Valeria (`INGRESO A INVENTARIO LICENCIAS`), la que ella
+   senalo diciendo "quiero pensar que es esto, pero automatico". **Pero el
+   arranque necesita un corte inicial que alguien tiene que levantar**, y ella
+   dijo que no lo tiene al dia.
+2. **Decision de Roberto: el precio de venta.** El PL trae precio al cliente e
+   importe; RAGNAR solo maneja precios de MAQUILA, que es otro catalogo y otra
+   sensibilidad. O se cargan los de venta, o el PL sale sin importe y el dinero
+   lo pone Microsip.
+3. **Los 9 UPC** de arriba.
+
+### ⚠️ El PL no se puede "generar solo" hasta que exista lo que reporta
+
+Roberto pidio que "se vayan generando automaticamente". Ojo con el orden: el PL
+es el REPORTE de unas entregas que **hoy no se capturan en ningun lado**.
+Primero la seccion **Embarca** (registrar la entrega contra una OC del plan
+maestro), y el Excel sale de ahi. Al reves seria un generador sin datos.
+
+### 🎁 Lo que se gana gratis
+
+**La columna OT del PL viene vacia en TODOS los renglones.** RAGNAR la puede
+llenar sola desde `planMaestroLineas` (que ya tiene oc, ot, codigo y cantidad).
+Ese solo dato convierte un papel administrativo en trazabilidad hasta el
+cliente.
+
+### El PL de Walmart es OTRO objeto
+
+`Downloads/PL_WM_26JUN2026.xlsx`: 17 hojas, una por CEDIS, cajas por UPC
+repartidas entre destinos, mas hojas de PORTEOS y detalle por modelo. **No es
+el mismo documento.** Si se disena para uno solo, que sea el de licencias
+(Stylos); Walmart es un proyecto aparte.
+

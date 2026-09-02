@@ -1272,6 +1272,66 @@ service cloud.firestore {
     // hora de quien conto; si algo salio mal se levanta otra y se explica en la
     // nota. Reescribir el pasado seria justamente lo que hace inservible un
     // acta a la hora de una aclaracion con la maquila.
+    // EL PL (packing list): lo que SALE al cliente. Acta INMUTABLE por entrega,
+    // igual que la recepcion: se levanta, no se reescribe. El papel se arma
+    // juntando las actas de la misma orden de compra.
+    match /entregasPL/{entregaId} {
+      // Mas estrecho que esInterno(): el PL trae PRECIO DE VENTA al cliente e
+      // importes. Un pesador y Adrian no participan del embarque y no tienen
+      // por que ver lo que se le cobra a un cliente. Mismo criterio que
+      // puedeVerReportesMaquila().
+      allow read: if esInterno() && !(rol() in ['captura', 'produccion']);
+      // Quien embarca al cliente es Producto Terminado. Cielo NO: ella lleva
+      // los pagos a maquilas, no la salida al cliente.
+      allow create: if esInterno()
+        && rol() in ['pt', 'admin']
+        && entregaPlValida()
+        // EL CANDADO CONTRA REGISTRAR DOS VECES LA MISMA ENTREGA. El ID lo
+        // amarra al contenido: OC + numero (+ el corral de prueba). Como
+        // 'create' solo aplica cuando el documento NO existe y 'update' esta
+        // prohibido, el segundo intento de la entrega 2 de la misma OC lo
+        // rechaza el servidor aunque el cliente tenga un bug o alguien de
+        // doble clic. Sin esto, dos actas de la misma entrega se sumaban en
+        // los totales del PL y el papel salia con mas packs y mas dinero de
+        // los que de verdad se entregaron.
+        && entregaId == request.resource.data.oc + '__' + string(request.resource.data.numeroEntrega)
+             + (esCuentaDePrueba() ? '__prueba' : '');
+      allow update, delete: if false;
+    }
+
+    function entregaPlValida() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['oc', 'po', 'pl', 'subcliente', 'numeroEntrega', 'factura', 'bitacora', 'pedidoMicrosip', 'remisionMicrosip', 'fechaEntregaTexto', 'renglones', 'totalBultos', 'totalPacks', 'totalPiezas', 'totalImporte', 'nota', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'esPrueba'])
+        && d.keys().hasOnly(['oc', 'po', 'pl', 'subcliente', 'numeroEntrega', 'factura', 'bitacora', 'pedidoMicrosip', 'remisionMicrosip', 'fechaEntregaTexto', 'renglones', 'totalBultos', 'totalPacks', 'totalPiezas', 'totalImporte', 'nota', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'esPrueba'])
+        && d.oc is string && d.oc.size() > 0 && d.oc.size() <= 40
+        && d.po is string && d.po.size() <= 40
+        && d.pl is string && d.pl.size() <= 40
+        && d.subcliente is string && d.subcliente.size() <= 120
+        // El papel trae hasta SEIS bloques de entrega. Mas que eso es un
+        // dedazo, no una entrega.
+        && d.numeroEntrega is int && d.numeroEntrega >= 1 && d.numeroEntrega <= 6
+        // De Microsip y del portal del cliente: pueden ir VACIOS, y vacio es
+        // la respuesta correcta cuando no se tienen. Nunca un cero.
+        && d.factura is string && d.factura.size() <= 40
+        && d.bitacora is string && d.bitacora.size() <= 40
+        && d.pedidoMicrosip is string && d.pedidoMicrosip.size() <= 40
+        && d.remisionMicrosip is string && d.remisionMicrosip.size() <= 40
+        && d.fechaEntregaTexto is string && d.fechaEntregaTexto.size() <= 40
+        && d.renglones is list
+        && d.renglones.size() > 0
+        && d.renglones.size() <= 300
+        && d.totalBultos is int && d.totalBultos >= 0
+        && d.totalPacks is int && d.totalPacks >= 0
+        && d.totalPiezas is int && d.totalPiezas >= 0
+        && d.totalImporte is number && d.totalImporte >= 0
+        && d.nota is string && d.nota.size() <= 300
+        && d.creadoEn == request.time
+        && d.creadoPorUid == request.auth.uid
+        && d.creadoPorNombre == perfil().get('nombreCompleto', '')
+        // El corral de las cuentas de prueba: una demo no ensucia el PL real.
+        && d.esPrueba == esCuentaDePrueba();
+    }
+
     match /recepcionesPT/{recepcionId} {
       allow read: if esInterno();
       allow create: if esInterno()
