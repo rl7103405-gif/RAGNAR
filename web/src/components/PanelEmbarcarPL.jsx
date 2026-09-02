@@ -35,10 +35,35 @@ export default function PanelEmbarcarPL() {
   const [error, setError] = useState('')
   const [aviso, setAviso] = useState('')
   const [guardando, setGuardando] = useState(false)
+  // El fallo al LEER las entregas ya registradas va aparte del error de la
+  // pantalla: que no se puedan listar no impide capturar una entrega nueva,
+  // y mezclarlos hacia que un aviso tapara al otro.
+  const [avisoLectura, setAvisoLectura] = useState('')
 
   useEffect(() => {
-    const unsub = escucharEntregasPL(esPrueba, setEntregas, (err) =>
-      setError('No se pudieron leer las entregas: ' + (err.message || err))
+    const unsub = escucharEntregasPL(
+      esPrueba,
+      (lista) => {
+        setEntregas(lista)
+        setAvisoLectura('')
+      },
+      (err) => {
+        // Firestore pide un indice compuesto para filtrar por el corral de
+        // prueba y ordenar por fecha. Recien desplegado tarda unos minutos en
+        // construirse, y durante ese rato la consulta falla. El mensaje crudo
+        // del SDK (con su URL de consola) no le dice nada a Valeria.
+        const m = String(err?.message || err)
+        setAvisoLectura(
+          m.includes('currently building')
+            ? 'La lista de entregas ya registradas todavia se esta preparando (tarda unos ' +
+              'minutos la primera vez). Mientras, ya puedes traer una orden y capturar: se ' +
+              'guarda igual.'
+            : m.includes('requires an index')
+            ? 'Falta preparar la lista de entregas ya registradas. Avisale a Roberto. ' +
+              'Mientras, ya puedes traer una orden y capturar: se guarda igual.'
+            : 'No se pudo leer la lista de entregas ya registradas: ' + m
+        )
+      }
     )
     return unsub
   }, [esPrueba])
@@ -47,7 +72,12 @@ export default function PanelEmbarcarPL() {
     setError('')
     setAviso('')
     const limpia = oc.trim()
-    if (!limpia) return
+    if (!limpia) {
+      // Antes esto era un `return` mudo: se picaba el boton y no pasaba nada,
+      // ni resultado ni error. Un boton que no contesta parece descompuesto.
+      setError('Escribe el numero de la orden de compra y vuelve a picar "Traer del plan".')
+      return
+    }
     setCargando(true)
     try {
       const r = await renglonesDeLaOc(limpia)
@@ -265,15 +295,21 @@ export default function PanelEmbarcarPL() {
         Registra una entrega contra su orden de compra. La app le pone la orden de
         trabajo a cada codigo y lee los bultos del empaque; el packing list se arma
         solo con lo que vayas registrando.
+        <br />
+        <strong>Usa el PO# de tu PL</strong> (el 2449 del ejemplo), que es como viene
+        la orden en el plan maestro — no el OC#.
       </p>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', margin: '14px 0' }}>
-        <label className="campo" style={{ margin: 0, maxWidth: 220 }}>
-          <span>Orden de compra</span>
+        <label className="campo" style={{ margin: 0, maxWidth: 260 }}>
+          {/* ⚠️ El plan maestro llama "OC" a lo que el PL llama "PO#". En el
+              papel de Stylos: PO# 2449 y OC# 16058 — el plan tiene la 2449.
+              El ejemplo decia 16058 y mandaba a buscar el numero equivocado. */}
+          <span>Orden de compra (el PO# de tu PL)</span>
           <input
             type="text"
             value={oc}
-            placeholder="ej. 16058"
+            placeholder="ej. 2449"
             onChange={(e) => setOc(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && buscarOc()}
           />
@@ -285,6 +321,20 @@ export default function PanelEmbarcarPL() {
 
       {error && <div className="alerta-error">{error}</div>}
       {aviso && <div className="alerta-ok">{aviso}</div>}
+      {avisoLectura && (
+        <div
+          style={{
+            background: '#fff8e6',
+            border: '1px solid #f0d9a0',
+            borderRadius: 8,
+            padding: '10px 14px',
+            margin: '8px 0',
+            fontSize: 14
+          }}
+        >
+          {avisoLectura}
+        </div>
+      )}
 
       {renglones.length > 0 && (
         <>

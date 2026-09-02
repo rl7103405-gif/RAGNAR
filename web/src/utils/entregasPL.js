@@ -39,6 +39,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { lineasDeOc, normalizarOc, versionActiva } from './planMaestro'
+import { datosDeCodigos } from './datosDelCatalogo'
 
 export class ErrorEntregaPL extends Error {}
 
@@ -99,11 +100,18 @@ export function packsPorDocena(articulo) {
  * OC -> OT -> codigo. De ahi sale sola la columna OT que en el papel va vacia.
  *
  * Cada renglon trae, ademas del plan en docenas, `packsPlan`: el plan YA
- * CONVERTIDO a packs cuando la descripcion dice el tamano del pack ("3PACK",
- * "6 PACK"), y null cuando no lo dice. El plan de Adrian esta en DOCENAS y la
- * entrega se captura en PACKS: comparar esos dos numeros sin convertir daria
- * un porcentaje sin sentido, y con null la pantalla dice la verdad ("no se
+ * CONVERTIDO a packs cuando se sabe el tamano del pack ("3PACK", "6 PACK"), y
+ * null cuando no se sabe. El plan de Adrian esta en DOCENAS y la entrega se
+ * captura en PACKS: comparar esos dos numeros sin convertir daria un
+ * porcentaje sin sentido, y con null la pantalla dice la verdad ("no se
  * cuantos packs son estas docenas") en vez de inventarlo.
+ *
+ * ⚠️ LA DESCRIPCION SALE DEL CATALOGO, no del plan. Medido contra produccion
+ * el 2026-09-02: de 370 lineas del plan vigente, CERO traen descripcion (la
+ * columna es opcional en el archivo de Adrian). Sin esto el articulo salia
+ * vacio en pantalla y el tamano del pack no se podia deducir NUNCA, asi que
+ * el cierre siempre diria "sin convertir". El catalogo si tiene descripcion y
+ * modelo por codigo, y es el mismo que usa la captura.
  */
 export async function renglonesDeLaOc(oc) {
   const version = await versionActiva()
@@ -115,7 +123,11 @@ export async function renglonesDeLaOc(oc) {
   const lineas = await lineasDeOc(version, oc)
   if (!lineas.length) {
     throw new ErrorEntregaPL(
-      `La orden de compra ${oc} no esta en el plan maestro vigente. Revisa el numero, o pide el plan actualizado.`
+      `La orden ${oc} no esta en el plan maestro vigente.\n\n` +
+        'OJO: aqui va el numero de PO# de tu PL (por ejemplo 2449), NO el OC# ' +
+        '(16058) — el plan de Adrian usa el PO#. Si ya pusiste el PO# y sigue ' +
+        'sin aparecer, es que esa orden no esta en el plan y hay que pedirlo ' +
+        'actualizado.'
     )
   }
   // Un codigo puede venir en varias OT de la misma OC: se junta por codigo y
@@ -140,11 +152,23 @@ export async function renglonesDeLaOc(oc) {
     // decia "sin plan" para TODAS las ordenes — lo cazo la revision.
     r.cantidadPlan += Number(l.cantidadPlaneada) || 0
   }
+  // El catalogo completa lo que el plan no trae. NUNCA lanza: si falla, se
+  // sigue con lo que haya (el articulo se puede teclear; el cierre dira que no
+  // sabe convertir, que es la verdad).
+  const delCatalogo = await datosDeCodigos([...porCodigo.keys()])
+
   return [...porCodigo.values()]
     .map((r) => {
-      const factor = packsPorDocena(r.descripcion)
+      const cat = delCatalogo.get(r.codigo) || {}
+      // La descripcion del plan manda si existe; si no, la del catalogo.
+      const descripcion = r.descripcion || cat.descripcion || ''
+      // Para el tamano del pack se miran las dos: el modelo del catalogo
+      // tambien suele traerlo ("SFT106 3PACK...").
+      const factor = packsPorDocena(descripcion) ?? packsPorDocena(cat.modelo)
       return {
         ...r,
+        descripcion,
+        modelo: cat.modelo || '',
         ots: [...r.ots].sort(),
         ot: [...r.ots].sort().join(' / '),
         packsPlan:
