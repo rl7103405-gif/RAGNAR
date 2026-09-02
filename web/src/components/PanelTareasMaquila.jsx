@@ -8,7 +8,7 @@
 // que el archivo termina de subir; si se corta, aqui mismo se reintenta con
 // el archivo elegido de nuevo, o se cancela la tarea.
 import { useEffect, useState } from 'react'
-import { renglonesDeLaOt } from '../utils/planMaestro'
+import { otsDeLaOc, renglonesDeLaOt } from '../utils/planMaestro'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
 import VisorTechPack from './VisorTechPack'
@@ -48,6 +48,8 @@ export default function PanelTareasMaquila() {
   // Lo que se sabe de la OT escrita: si el plan la conoce y si otra maquila ya
   // la tiene. Se calcula al picar "Traer del plan", no en cada tecla.
   const [avisoOt, setAvisoOt] = useState(null)
+  // Las OT de una OC que se van a encargar de un jalon.
+  const [otsElegidas, setOtsElegidas] = useState([])
 
   // Se escucha maquila por maquila (no collectionGroup) para que el orden por
   // fecha sea real; depende del catalogo, asi que se re-suscribe si cambia.
@@ -68,6 +70,94 @@ export default function PanelTareasMaquila() {
   const reportar = (err) => {
     console.error('[PanelTareasMaquila]', err)
     setError(err instanceof ErrorTareaEnsamble ? err.message : String(err?.message || err))
+  }
+
+  /**
+   * Encarga VARIAS ordenes de trabajo de una OC a la misma maquila, de un
+   * jalon. Roberto, 2026-09-02: *"cuando quiera jalar una orden de compra,
+   * que pueda elegir todas las OT que va a seleccionar, para que sea mas
+   * sencillo"*.
+   *
+   * ⚠️ Crea UNA TAREA POR OT, no una tarea revuelta con todas. Es lo que dijo
+   * su papa —"una orden de trabajo ES una tarea"— y ademas es lo unico que
+   * mantiene sano el resto: el candado de "una OT, una maquila" compara por
+   * OT, el arbol acredita el avance por OT, y la remision de la maquila lleva
+   * la OT en cada renglon. Una tarea con tres OT encima romperia los tres.
+   * Lo que se ahorra es la CAPTURA, que es lo que dolia.
+   */
+  const onEncargarVarias = async () => {
+    if (trabajando) return
+    setError('')
+    setAviso('')
+    if (!nueva.maquilaId) {
+      setError('Elige primero la maquila a la que le vas a encargar estas ordenes.')
+      return
+    }
+    if (!otsElegidas.length) {
+      setError('Marca al menos una orden de trabajo.')
+      return
+    }
+    setTrabajando('crear')
+    try {
+      const ids = (maquilas || []).map((m) => m.id)
+      const hechas = []
+      const saltadas = []
+      for (const ot of otsElegidas) {
+        // El candado, OT por OT: que una este ocupada no debe tumbar a las
+        // demas — se salta esa y se dice cual y por que.
+        const ocupada = await tareaQueYaTieneLaOt(ot, ids)
+        if (ocupada) {
+          saltadas.push(`${ot} (ya esta con ${ocupada.maquilaId})`)
+          continue
+        }
+        const delPlan = await renglonesDeLaOt(ot)
+        if (!delPlan.length) {
+          saltadas.push(`${ot} (el plan no la trae)`)
+          continue
+        }
+        const conDecimales = delPlan.some((r) => r.cantidad !== Math.trunc(r.cantidad))
+        if (conDecimales) {
+          saltadas.push(`${ot} (trae medias unidades: encargala aparte y redondea)`)
+          continue
+        }
+        const destino = delPlan.find((r) => r.destino)?.destino || ''
+        await crearTareaEnsamble({
+          maquilaId: nueva.maquilaId,
+          titulo: `OT ${ot}${destino ? ' - ' + destino : ''}`,
+          ot,
+          renglones: delPlan.map((r) => ({
+            codigo: r.codigo,
+            cantidad: String(r.cantidad),
+            unidad: 'docenas',
+            descripcion: r.descripcion || ''
+          })),
+          notas: nueva.notas,
+          // El tech pack NO se sube aqui: es un archivo por tarea y subir el
+          // mismo cuatro veces sin que nadie lo pida seria decidir por el.
+          // Se agrega despues a la que lo necesite.
+          archivo: null,
+          usuario: usuario(),
+          onProgreso: setProgreso
+        })
+        hechas.push(ot)
+      }
+      setOtsElegidas([])
+      setAvisoOt(null)
+      setNueva((p) => ({ ...p, ot: '', titulo: '' }))
+      setAviso(
+        (hechas.length
+          ? `Listo: ${hechas.length} tarea(s) encargadas a ${nombreMaquila(nueva.maquilaId)} ` +
+            `(OT ${hechas.join(', ')}).`
+          : 'No se encargo ninguna.') +
+          (saltadas.length ? ` Se saltaron: ${saltadas.join('; ')}.` : '') +
+          (hechas.length ? ' El tech pack se sube despues, tarea por tarea.' : '')
+      )
+    } catch (err) {
+      reportar(err)
+    } finally {
+      setTrabajando(null)
+      setProgreso('')
+    }
   }
 
   const onCrear = async (e) => {
@@ -262,8 +352,10 @@ export default function PanelTareasMaquila() {
    * implicita la tarea". Y Lindbergh: "yo quisiera solo asignarla, porque
    * ahorita tengo que volver a capturar todos esos numeros".
    */
-  const traerDelPlan = async () => {
-    const ot = String(nueva.ot || '').trim()
+  const traerDelPlan = async (otExplicita) => {
+    // La OT puede venir del boton de una OC: si se leyera del estado, todavia
+    // no estaria actualizada en este tick.
+    const ot = String(otExplicita || nueva.ot || '').trim()
     setError('')
     setAviso('')
     setAvisoOt(null)
@@ -279,9 +371,21 @@ export default function PanelTareasMaquila() {
         tareaQueYaTieneLaOt(ot, (maquilas || []).map((m) => m.id))
       ])
       if (!delPlan.length) {
+        // Antes de rendirse: puede que ese numero sea una ORDEN DE COMPRA. En
+        // el plan conviven los dos y no se parecen (las OT van del 7467 al
+        // 8042; las OC son 2422, 2449...). Si lo es, se le ofrecen sus OT en
+        // vez de contestarle "no existe" y dejarlo adivinando.
+        const ots = await otsDeLaOc(ot)
+        if (ots.length) {
+          setAvisoOt({ yaAsignada, esOc: ot, ots })
+          setAviso('')
+          setError('')
+          return
+        }
         setError(
-          `La orden de trabajo ${ot} no esta en el plan maestro vigente. ` +
-            'Puedes capturarla a mano, o pedirle a Adrian el plan actualizado.'
+          `El numero ${ot} no esta en el plan maestro vigente, ni como orden de trabajo ` +
+            'ni como orden de compra. Puedes capturar la tarea a mano, o pedirle a Adrian ' +
+            'el plan actualizado.'
         )
         setAvisoOt({ yaAsignada })
         return
@@ -621,6 +725,7 @@ export default function PanelTareasMaquila() {
               onChange={(e) => {
                 setNueva({ ...nueva, ot: e.target.value })
                 setAvisoOt(null)
+                setOtsElegidas([])
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -640,6 +745,110 @@ export default function PanelTareasMaquila() {
             {trayendoOt ? 'Buscando...' : 'Traer del plan'}
           </button>
         </div>
+
+        {avisoOt?.esOc && (
+          <div
+            style={{
+              marginTop: 8,
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: '#eef2f7',
+              border: '1px solid #c9d6e4',
+              fontSize: 14
+            }}
+          >
+            <strong>{avisoOt.esOc} es una orden de COMPRA, no una de trabajo.</strong>{' '}
+            Trae {avisoOt.ots.length} orden(es) de trabajo. Elige cual le encargas a esta
+            maquila — cada una se encarga por separado:
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              {avisoOt.ots.map((o) => {
+                const marcada = otsElegidas.includes(o.ot)
+                return (
+                  <label
+                    key={o.ot}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 8,
+                      border: '1px solid',
+                      borderColor: marcada ? '#1f4b7a' : '#c9d6e4',
+                      background: marcada ? '#e9eff6' : '#fff',
+                      borderRadius: 8,
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      minWidth: 150
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={marcada}
+                      onChange={() =>
+                        setOtsElegidas((prev) =>
+                          prev.includes(o.ot) ? prev.filter((x) => x !== o.ot) : [...prev, o.ot]
+                        )
+                      }
+                    />
+                    <span>
+                      <strong>OT {o.ot}</strong>
+                      <span className="texto-suave" style={{ fontSize: 11, display: 'block' }}>
+                        {o.codigos} codigo(s) · {Math.round(o.docenas * 100) / 100} doc.
+                      </span>
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-primario"
+                onClick={onEncargarVarias}
+                disabled={trabajando === 'crear' || !otsElegidas.length}
+              >
+                {trabajando === 'crear'
+                  ? progreso || 'Encargando...'
+                  : `Encargar ${otsElegidas.length || ''} orden(es) a esta maquila`}
+              </button>
+              <button
+                type="button"
+                className="btn-secundario"
+                onClick={() =>
+                  setOtsElegidas(
+                    otsElegidas.length === avisoOt.ots.length ? [] : avisoOt.ots.map((o) => o.ot)
+                  )
+                }
+              >
+                {otsElegidas.length === avisoOt.ots.length ? 'Ninguna' : 'Todas'}
+              </button>
+              <span className="texto-suave" style={{ fontSize: 12 }}>
+                Se crea una tarea por cada orden de trabajo, todas a la misma maquila.
+              </span>
+            </div>
+            {otsElegidas.length === 1 && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn-secundario"
+                  onClick={() => {
+                    const o = otsElegidas[0]
+                    setOtsElegidas([])
+                    setNueva((p) => ({ ...p, ot: o }))
+                    setAvisoOt(null)
+                    setTimeout(() => traerDelPlan(o), 0)
+                  }}
+                >
+                  O llenar el formulario con la OT {otsElegidas[0]} (para revisarla antes)
+                </button>
+              </div>
+            )}
+            {avisoOt.ots[0]?.destino && (
+              <div className="texto-suave" style={{ fontSize: 12, marginTop: 8 }}>
+                Va a {avisoOt.ots[0].destino}
+              </div>
+            )}
+          </div>
+        )}
 
         {avisoOt?.yaAsignada && (
           <div

@@ -191,6 +191,37 @@ export async function destinoDeOt(ot) {
 }
 
 /**
+ * Las ORDENES DE TRABAJO que cuelgan de una orden de compra, con cuantos
+ * codigos y cuantas docenas trae cada una.
+ *
+ * Existe porque la gente escribe el numero que tiene a la mano y no siempre es
+ * el que la pantalla pide: Roberto probo con la "OT 2422" y 2422 es en
+ * realidad una ORDEN DE COMPRA (cuelga de las OT 7735-7738). En vez de
+ * contestar "no existe" y dejarlo adivinando, la pantalla le ofrece las OT de
+ * esa orden para que elija.
+ *
+ * Ademas es lo que pidio el papa el 2026-09-02: *"ordenes de compra que traen
+ * muchas ordenes de trabajo, porque si las vamos a explosionar a las
+ * diferentes maquilas"*.
+ */
+export async function otsDeLaOc(oc) {
+  const versionId = await versionActiva()
+  if (!versionId) return []
+  const lineas = await lineasDeOc(versionId, oc)
+  const porOt = new Map()
+  for (const l of lineas) {
+    const ot = normalizarOt(l.ot)
+    if (!ot) continue
+    if (!porOt.has(ot)) porOt.set(ot, { ot, codigos: 0, docenas: 0, destino: l.destino || '' })
+    const g = porOt.get(ot)
+    g.codigos += 1
+    g.docenas += Number(l.cantidadPlaneada) || 0
+    if (!g.destino && l.destino) g.destino = l.destino
+  }
+  return [...porOt.values()].sort((a, b) => a.ot.localeCompare(b.ot))
+}
+
+/**
  * Los renglones de UNA orden de trabajo en el plan vigente: sus codigos con la
  * cantidad planeada.
  *

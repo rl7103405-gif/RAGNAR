@@ -36,6 +36,19 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-02-06',
+    fecha: '2026-09-02',
+    tipo: 'mejorado',
+    titulo: 'Encargar varias ordenes de trabajo de un jalon',
+    detalle:
+      'En el campo de orden de trabajo ahora tambien puedes escribir una orden de COMPRA: la '
+      + 'app reconoce cual de las dos es y, si es una orden de compra, te muestra sus ordenes '
+      + 'de trabajo para que marques las que le vas a encargar a esa maquila. Se crea una tarea '
+      + 'por cada una, con sus codigos y cantidades del plan, y te avisa si alguna ya estaba '
+      + 'asignada en vez de duplicarla.'
+  },
+
+  {
     id: '2026-09-02-05',
     fecha: '2026-09-02',
     tipo: 'nuevo',
