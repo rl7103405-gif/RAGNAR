@@ -36,6 +36,20 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-02-08',
+    fecha: '2026-09-02',
+    tipo: 'nuevo',
+    titulo: 'Cambiarle la prioridad a una tarea ya encargada',
+    detalle:
+      'Si algo cambia de urgencia, ya no tienes que cancelar la tarea y volverla a encargar: en '
+      + 'cada tarea hay un recuadro de "Para cuando" para moverle la fecha, y un boton para '
+      + 'quitarsela (entonces se le va al final de la lista a la maquila). Funciona aunque la '
+      + 'maquila ya haya empezado; en ese caso te pide confirmacion, porque a ella se le '
+      + 'reacomoda la lista en su pantalla al momento. Lo que le encargaste (codigos y '
+      + 'cantidades) no cambia. Queda anotado quien movio la prioridad y cuando.'
+  },
+
+  {
     id: '2026-09-02-07',
     fecha: '2026-09-02',
     tipo: 'nuevo',

@@ -243,7 +243,9 @@ export default function TareasEnsambleMaquila() {
   /** Que tan urgente es una tarea, para pintarla y para ordenarla. */
   const urgencia = (t) => {
     const f = t.fechaRequerida
-    if (!f) return { orden: 3, etiqueta: '', color: '' }
+    // orden 4, no 3: con 3 empataba con las de mas de tres dias adelante y el
+    // desempate las revolvia. Sin fecha va DESPUES de todo lo fechado.
+    if (!f) return { orden: 4, etiqueta: '', color: '' }
     if (f < hoyTexto) return { orden: 0, etiqueta: 'ATRASADA', color: '#a52218' }
     if (f === hoyTexto) return { orden: 1, etiqueta: 'PARA HOY', color: '#a52218' }
     // Los proximos 3 dias: ya no es "con calma".

@@ -204,8 +204,8 @@ export async function crearTareaEnsamble({
   // El mismo rango que exige la regla del servidor (mes 01-12, dia 01-31): si
   // el cliente fuera mas laxo, un '2026-13-40' moriria alla con un
   // 'permission-denied' pelado en vez de este mensaje.
-  if (fechaTexto && !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(fechaTexto)) {
-    throw new ErrorTareaEnsamble('La fecha no tiene un formato valido: vuelve a elegirla.')
+  if (fechaTexto && !fechaDeCalendario(fechaTexto)) {
+    throw new ErrorTareaEnsamble('Esa fecha no existe en el calendario: vuelve a elegirla.')
   }
   // El amarre con el plan maestro: si Lindbergh dice de que ORDEN DE TRABAJO
   // es la tarea, se congela normalizada y se le jala del plan A QUIEN VA
@@ -277,6 +277,12 @@ export async function crearTareaEnsamble({
     // ordena el trabajo de la maquila y comparar textos evita el corrimiento
     // de un dia que da convertir una fecha sin hora a Date en Mexico.
     ...(fechaTexto ? { fechaRequerida: fechaTexto } : {}),
+    // La firma de quien MUEVE la prioridad nace vacia: al crear, la fecha no
+    // se "cambio", se puso. Explicita y no ausente, para que el documento diga
+    // lo mismo que valida la regla.
+    fechaRequeridaCambiadaEn: null,
+    fechaRequeridaCambiadaPorUid: null,
+    fechaRequeridaCambiadaPorNombre: null,
     renglones: conCatalogo,
     notas: String(notas || '').trim().slice(0, 300),
     estado: contenido ? 'preparando' : 'abierta',
@@ -452,6 +458,44 @@ export async function retirarDeclaracionTareaEnsamble({ maquilaId, tareaId }) {
  * El 'iniciadaEn' original se conserva a proposito: el tiempo de armado tiene
  * que incluir el retrabajo.
  */
+/**
+ * Que la fecha EXISTA en el calendario, no solo que tenga la forma. El
+ * '<input type="date">' no deja escribir un 31 de febrero, pero la funcion
+ * tambien se llama desde otros lados y el formato por si solo lo aceptaria.
+ */
+export function fechaDeCalendario(texto) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(texto)) return false
+  const [a, m, d] = texto.split('-').map(Number)
+  const bisiesto = (a % 4 === 0 && a % 100 !== 0) || a % 400 === 0
+  const diasDelMes = [31, bisiesto ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  return d <= diasDelMes[m - 1]
+}
+
+/**
+ * Mueve la PRIORIDAD de una tarea ya encargada, sin tocar nada mas.
+ *
+ * Roberto, 2026-09-02. El caso es "esto ahora corre prisa" y casi siempre cae
+ * cuando la maquila ya empezo. Se escribe UN solo campo mas su firma: las
+ * reglas no dejan colar nada mas en este write.
+ *
+ * Fecha vacia = quitarle la prioridad (se va al final de su lista).
+ */
+export async function cambiarFechaRequerida({ maquilaId, tareaId, fecha, usuario }) {
+  if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado.')
+  const fechaTexto = String(fecha || '').trim()
+  // El mismo rango que exige la regla del servidor.
+  if (fechaTexto && !fechaDeCalendario(fechaTexto)) {
+    throw new ErrorTareaEnsamble('Esa fecha no existe en el calendario: vuelve a elegirla.')
+  }
+  await updateDoc(refTarea(maquilaId, tareaId), {
+    // null, no borrar el campo: asi el diff de las reglas lo ve cambiar.
+    fechaRequerida: fechaTexto || null,
+    fechaRequeridaCambiadaEn: serverTimestamp(),
+    fechaRequeridaCambiadaPorUid: usuario.uid,
+    fechaRequeridaCambiadaPorNombre: usuario.nombre
+  })
+}
+
 export async function devolverTareaEnsamble({ maquilaId, tareaId, usuario, motivo }) {
   if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado.')
   const motivoLimpio = String(motivo || '').trim().slice(0, 300)

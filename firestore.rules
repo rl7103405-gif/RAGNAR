@@ -2068,6 +2068,18 @@ service cloud.firestore {
             && d.get(campoNombre, '').size() > 0);
     }
 
+    // Una fecha que EXISTA: '2026-02-31' pasa cualquier regex de forma. El
+    // <input type='date'> no la deja escribir, pero un cliente hecho a mano si,
+    // y el dia que alguien lea "para el 31/02" no va a saber a que atenerse.
+    function fechaDeCalendario(f) {
+      let a = int(f.split('-')[0]);
+      let m = int(f.split('-')[1]);
+      let d = int(f.split('-')[2]);
+      let bisiesto = (a % 4 == 0 && a % 100 != 0) || a % 400 == 0;
+      return f.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')
+        && d <= (m in [1, 3, 5, 7, 8, 10, 12] ? 31 : (m == 2 ? (bisiesto ? 29 : 28) : 30));
+    }
+
     function tareaEnsambleValida(mid) {
       let d = request.resource.data;
       // Los campos del reporte de la maquila van en hasOnly pero NO en hasAll,
@@ -2076,7 +2088,7 @@ service cloud.firestore {
       // habria obligado a migrar todos los documentos ANTES de poder tocar
       // ninguno.
       return d.keys().hasAll(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn'])
-        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion', 'ot', 'destino', 'fechaRequerida'])
+        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion', 'ot', 'destino', 'fechaRequerida', 'fechaRequeridaCambiadaEn', 'fechaRequeridaCambiadaPorUid', 'fechaRequeridaCambiadaPorNombre'])
         // El amarre con el plan maestro (2026-08-18): 'ot' es la orden de
         // trabajo que esta tarea trabaja y 'destino' a quien va ('Modular
         // Walmart Jun-Sep'). Opcionales y leidos con get(...,null): las tareas
@@ -2098,7 +2110,7 @@ service cloud.firestore {
         // hora' convertida a Date se corre un dia en Mexico (regla dura 3).
         && (d.get('fechaRequerida', null) == null
             || (d.get('fechaRequerida', '') is string
-                && d.get('fechaRequerida', '').matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')))
+                && fechaDeCalendario(d.get('fechaRequerida', ''))))
         // Sin OT no hay destino que amarrar: el destino sale del plan VIA la
         // OT; suelto seria texto libre disfrazado de dato.
         && (d.get('destino', null) == null || d.get('ot', null) != null)
@@ -2106,6 +2118,10 @@ service cloud.firestore {
         && firmaCoherente(d, 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre')
         && firmaCoherente(d, 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre')
         && firmaCoherente(d, 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre')
+        // Quien movio la prioridad y cuando. Adelantarle la fecha a una tarea
+        // que la maquila YA esta armando es una decision que despues se
+        // reclama: tiene que quedar con nombre.
+        && firmaCoherente(d, 'fechaRequeridaCambiadaEn', 'fechaRequeridaCambiadaPorUid', 'fechaRequeridaCambiadaPorNombre')
         && (d.get('notaMaquila', null) == null
             || (d.get('notaMaquila', '') is string && d.get('notaMaquila', '').size() <= 300))
         && (d.get('motivoDevolucion', null) == null
@@ -2247,7 +2263,10 @@ service cloud.firestore {
         && request.resource.data.terminadaEn == null
         && request.resource.data.terminadaPorUid == null
         && request.resource.data.terminadaPorNombre == null
-        && request.resource.data.techPackBorradoEn == null;
+        && request.resource.data.techPackBorradoEn == null
+        && request.resource.data.get('fechaRequeridaCambiadaEn', null) == null
+        && request.resource.data.get('fechaRequeridaCambiadaPorUid', null) == null
+        && request.resource.data.get('fechaRequeridaCambiadaPorNombre', null) == null;
       // ---- Lo que hace QUINI (Lindbergh o el admin) ----
       allow update: if puedeCrearTareas() && mismoMundoMaquila(maquilaId) && (
           // (1) Mientras nadie la ha empezado ('preparando' o 'abierta'): se
@@ -2262,6 +2281,14 @@ service cloud.firestore {
             && request.resource.data.creadoPorUid == resource.data.creadoPorUid
             && request.resource.data.creadoPorNombre == resource.data.creadoPorNombre
             && request.resource.data.creadoEn == resource.data.creadoEn
+            // La PRIORIDAD no se toca por aqui aunque esta rama reescriba el
+            // documento entero: tiene su propia rama, que la sella con nombre.
+            // Si se pudiera cambiar tambien aqui, bastaria reeditar la tarea
+            // para mover la fecha sin dejar rastro de quien fue.
+            && request.resource.data.get('fechaRequerida', null) == resource.data.get('fechaRequerida', null)
+            && request.resource.data.get('fechaRequeridaCambiadaEn', null) == resource.data.get('fechaRequeridaCambiadaEn', null)
+            && request.resource.data.get('fechaRequeridaCambiadaPorUid', null) == resource.data.get('fechaRequeridaCambiadaPorUid', null)
+            && request.resource.data.get('fechaRequeridaCambiadaPorNombre', null) == resource.data.get('fechaRequeridaCambiadaPorNombre', null)
             // 'publicadaEn' se fija UNA vez (al publicar) y ya no se borra:
             // si se pudiera quitar, una tarea ya entregada desapareceria del
             // portal de la maquila sin rastro.
@@ -2320,11 +2347,52 @@ service cloud.firestore {
             && request.resource.data.devueltaEn == request.time
             && request.resource.data.devueltaPorUid == request.auth.uid
             && request.resource.data.devueltaPorNombre == perfil().get('nombreCompleto', '')
+            // Y que ese nombre NO venga vacio. Esta rama no revalida el
+            // documento entero, asi que sin esto un perfil interno mal dado de
+            // alta dejaria una firma coja: firmaCoherente() la rechazaria para
+            // siempre despues, y la tarea se quedaria sin poder cerrarse ni
+            // avanzar. Es un candado contra un dedazo de provisionamiento, no
+            // contra un atacante.
+            && perfil().get('nombreCompleto', '').size() > 0
             && request.resource.data.motivoDevolucion is string
             && request.resource.data.motivoDevolucion.size() > 0
             && request.resource.data.motivoDevolucion.size() <= 300 )
           ||
-          // (4) Ya cerrada: SOLO la limpieza del tech pack (borrar el
+          // (4) CAMBIAR LA PRIORIDAD, y nada mas. Roberto, 2026-09-02: hacia
+          // falta poder mover la fecha de una tarea ya encargada.
+          //
+          // El caso real es "esto ahora corre prisa", y casi siempre pasa
+          // cuando la maquila YA empezo — justo donde la rama (2) no deja
+          // tocar nada. Se abre aqui a proposito con un diff cerrado a estos
+          // cuatro campos: no cambia el ENCARGO (renglones, tech pack, precio)
+          // ni pisa la firma de la maquila, solo el ORDEN en que ella ve su
+          // trabajo. Reordenar la lista de alguien no es cambiarle el trabajo
+          // debajo de las manos; cambiarle los codigos si.
+          //
+          // Cerradas fuera: una tarea terminada es historia, y moverle la
+          // prioridad no cambia ninguna decision pendiente.
+          ( resource.data.estado in ['preparando', 'abierta', 'iniciada', 'declarada']
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['fechaRequerida', 'fechaRequeridaCambiadaEn',
+                           'fechaRequeridaCambiadaPorUid', 'fechaRequeridaCambiadaPorNombre'])
+            // Que la fecha DE VERDAD cambie: hasOnly acepta el conjunto vacio,
+            // asi que sin esto se podria sellar una firma sin haber movido
+            // nada.
+            && request.resource.data.diff(resource.data).affectedKeys().hasAll(['fechaRequerida'])
+            // El documento completo se revalida: sin esto, un perfil interno mal
+            // dado de alta (sin nombreCompleto) podria dejar una firma coja que
+            // firmaCoherente() si habria rechazado.
+            && tareaEnsambleValida(maquilaId)
+            // Que la fecha CAMBIE de verdad. Con solo hasAll, escribir el mismo
+            // valor (o null sobre un campo que ya no existia) sellaria una firma
+            // nueva sin que nada se hubiera movido.
+            && request.resource.data.get('fechaRequerida', null)
+                 != resource.data.get('fechaRequerida', null)
+            && request.resource.data.fechaRequeridaCambiadaEn == request.time
+            && request.resource.data.fechaRequeridaCambiadaPorUid == request.auth.uid
+            && request.resource.data.fechaRequeridaCambiadaPorNombre == perfil().get('nombreCompleto', '') )
+          ||
+          // (5) Ya cerrada: SOLO la limpieza del tech pack (borrar el
           // manifiesto cuando los chunks ya se barrieron). Nada mas.
           ( resource.data.estado in ['terminada', 'cancelada']
             && request.resource.data.diff(resource.data).affectedKeys()

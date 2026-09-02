@@ -25,6 +25,7 @@ import {
   subirTechPack,
   terminarTareaEnsamble,
   devolverTareaEnsamble,
+  cambiarFechaRequerida,
   ESTADOS_VIVOS
 } from '../utils/tareasEnsamble'
 
@@ -50,6 +51,11 @@ export default function PanelTareasMaquila() {
   const [avisoOt, setAvisoOt] = useState(null)
   // Las OT de una OC que se van a encargar de un jalon.
   const [otsElegidas, setOtsElegidas] = useState([])
+  // La fecha que se esta tecleando, por tarea. NO se escribe en cada tecla: un
+  // <input type="date"> dispara onChange en cada dedazo, y tecleando el ano
+  // pasa por 0002, 0020, 0202... — serian tres escrituras basura a Firestore y
+  // tres confirmaciones antes de llegar a 2026. Se guarda cuando lo piden.
+  const [fechaEditada, setFechaEditada] = useState({})
 
   // Se escucha maquila por maquila (no collectionGroup) para que el orden por
   // fecha sea real; depende del catalogo, asi que se re-suscribe si cambia.
@@ -292,6 +298,53 @@ export default function PanelTareasMaquila() {
       reportar(err)
     } finally {
       setProgreso('')
+      setTrabajando(null)
+    }
+  }
+
+  /**
+   * Mover la prioridad de una tarea ya encargada. Roberto, 2026-09-02.
+   *
+   * Se pide confirmacion cuando la maquila YA empezo: ella tiene esa tarea en
+   * pantalla y se le va a reacomodar sola: que quien la mueve sepa que del
+   * otro lado hay alguien armando.
+   */
+  const onCambiarFecha = async (tarea, fecha) => {
+    if ((tarea.fechaRequerida || '') === (fecha || '')) return
+    if (['iniciada', 'declarada'].includes(tarea.estado)) {
+      const comoSeVe = fecha ? `para el ${fecha.split('-').reverse().join('/')}` : 'sin fecha'
+      const ok = window.confirm(
+        `La maquila ya empezo esta tarea. Al dejarla ${comoSeVe} se le reacomoda la lista ` +
+          'en su pantalla. El encargo (codigos y cantidades) no cambia.\n\nCambiar la prioridad?'
+      )
+      if (!ok) return
+    }
+    setError('')
+    setAviso('')
+    setTrabajando(tarea.id)
+    try {
+      await cambiarFechaRequerida({
+        maquilaId: tarea.maquilaId,
+        tareaId: tarea.id,
+        fecha,
+        usuario: usuario()
+      })
+      setAviso(
+        fecha
+          ? `Listo: la tarea queda para el ${fecha.split('-').reverse().join('/')}.`
+          : 'Listo: la tarea se queda sin fecha y se le va al final de la lista.'
+      )
+    } catch (err) {
+      reportar(err)
+    } finally {
+      // Se suelta la edicion local pase lo que pase: si la escritura fallo, el
+      // recuadro tiene que volver a la fecha REAL del documento, no quedarse
+      // mostrando una que no se guardo.
+      setFechaEditada((p) => {
+        const copia = { ...p }
+        delete copia[tarea.id]
+        return copia
+      })
       setTrabajando(null)
     }
   }
@@ -582,6 +635,61 @@ export default function PanelTareasMaquila() {
         <p className="texto-suave" style={{ fontSize: 12, margin: '4px 0 0' }}>
           Motivo con el que se le regreso: {t.motivoDevolucion}
         </p>
+      )}
+
+      {/* CAMBIAR LA PRIORIDAD sin tocar el encargo. Aparece mientras la tarea
+          vive, incluso si la maquila ya empezo: el caso real es "esto ahora
+          corre prisa", y ahi es justo cuando pasa. Una tarea cerrada ya no se
+          reprioriza (las reglas tampoco lo dejan). */}
+      {ESTADOS_VIVOS.includes(t.estado) && (
+        <div
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center' }}
+        >
+          <label className="texto-suave" style={{ fontSize: 12 }}>
+            Para cuando:{' '}
+            <input
+              type="date"
+              value={fechaEditada[t.id] ?? (t.fechaRequerida || '')}
+              disabled={trabajando === t.id}
+              onChange={(e) => setFechaEditada((p) => ({ ...p, [t.id]: e.target.value }))}
+              style={{ fontSize: 12, padding: '2px 6px' }}
+            />
+          </label>
+          {/* El boton solo aparece cuando de verdad cambio: asi no se escribe
+              en cada tecla y se ve que quedo pendiente de guardar.
+              Y NO aparece cuando el recuadro quedo vacio teniendo fecha: al
+              reteclear el ano el input pasa por vacio un instante, y un clic
+              ahi habria quitado la prioridad en vez de moverla. Para quitarla
+              esta el boton de al lado, que lo dice. */}
+          {(fechaEditada[t.id] ?? (t.fechaRequerida || '')) !== (t.fechaRequerida || '') &&
+            (fechaEditada[t.id] || !t.fechaRequerida) && (
+            <button
+              className="btn-primario"
+              style={{ fontSize: 12, padding: '2px 10px' }}
+              disabled={trabajando === t.id}
+              onClick={() => onCambiarFecha(t, fechaEditada[t.id] || '')}
+            >
+              {trabajando === t.id ? 'Guardando...' : 'Guardar la prioridad'}
+            </button>
+          )}
+          {t.fechaRequerida && (
+            <button
+              className="btn-secundario"
+              style={{ fontSize: 12, padding: '2px 10px' }}
+              disabled={trabajando === t.id}
+              onClick={() => onCambiarFecha(t, '')}
+              title="La tarea se va al final de la lista de la maquila"
+            >
+              Quitar la fecha
+            </button>
+          )}
+          {t.fechaRequeridaCambiadaPorNombre && (
+            <span className="texto-suave" style={{ fontSize: 11 }}>
+              prioridad movida por {t.fechaRequeridaCambiadaPorNombre}
+              {t.fechaRequeridaCambiadaEn ? ` el ${fechaHora(t.fechaRequeridaCambiadaEn)}` : ''}
+            </span>
+          )}
+        </div>
       )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center' }}>
