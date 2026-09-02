@@ -23,6 +23,13 @@ import {
   retirarDeclaracionTareaEnsamble
 } from '../utils/tareasEnsamble'
 
+/** El dia de HOY en texto 'AAAA-MM-DD', en hora local. */
+function diaDeHoy() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
 export default function TareasEnsambleMaquila() {
   const { maquilaId, perfil, authUser, esPrueba } = useAuth()
   const [tareas, setTareas] = useState([])
@@ -210,7 +217,63 @@ export default function TareasEnsambleMaquila() {
   // 'preparando' con publicadaEn: Quini le esta cambiando el archivo a una
   // tarea que la maquila ya vio. No es una tarea cerrada ni cancelada -- antes
   // se mostraba como "cancelada", que era mentira.
-  const enMisManos = tareas.filter((t) => ESTADOS_EN_LA_MAQUILA.includes(t.estado))
+  // HOY, en texto 'AAAA-MM-DD' y en hora LOCAL. Se compara texto contra texto
+  // a proposito: convertir una fecha sin hora a Date la corre un dia en Mexico
+  // (es la regla dura 3 del proyecto), y aqui un dia de diferencia es "urgente"
+  // contra "no urgente".
+  //
+  // ⚠️ Y SE REFRESCA. En la maquila la pantalla se queda abierta todo el dia y
+  // a veces toda la noche: si 'hoy' se calculara una sola vez, al amanecer una
+  // tarea vencida seguiria diciendo "PARA HOY" hasta que algo mas la moviera.
+  // Cada 5 minutos y al volver a la pestana basta y sobra.
+  const [hoyTexto, setHoyTexto] = useState(() => diaDeHoy())
+  useEffect(() => {
+    const revisar = () => setHoyTexto((antes) => {
+      const ahora = diaDeHoy()
+      return ahora === antes ? antes : ahora
+    })
+    const id = setInterval(revisar, 5 * 60 * 1000)
+    document.addEventListener('visibilitychange', revisar)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', revisar)
+    }
+  }, [])
+
+  /** Que tan urgente es una tarea, para pintarla y para ordenarla. */
+  const urgencia = (t) => {
+    const f = t.fechaRequerida
+    if (!f) return { orden: 3, etiqueta: '', color: '' }
+    if (f < hoyTexto) return { orden: 0, etiqueta: 'ATRASADA', color: '#a52218' }
+    if (f === hoyTexto) return { orden: 1, etiqueta: 'PARA HOY', color: '#a52218' }
+    // Los proximos 3 dias: ya no es "con calma".
+    const en = new Date(hoyTexto + 'T12:00:00')
+    en.setDate(en.getDate() + 3)
+    const p = (n) => String(n).padStart(2, '0')
+    const limite = `${en.getFullYear()}-${p(en.getMonth() + 1)}-${p(en.getDate())}`
+    if (f <= limite) return { orden: 2, etiqueta: 'esta semana', color: '#8a5a00' }
+    return { orden: 3, etiqueta: 'para ' + f.split('-').reverse().join('/'), color: '#4b5663' }
+  }
+
+  /** Lo mas urgente arriba. Las que no traen fecha van al final: no es que no
+   *  corran prisa, es que nadie dijo para cuando — y adivinarlo seria peor. */
+  const porPrioridad = (lista) =>
+    [...lista].sort((a, b) => {
+      const ua = urgencia(a)
+      const ub = urgencia(b)
+      if (ua.orden !== ub.orden) return ua.orden - ub.orden
+      if (a.fechaRequerida && b.fechaRequerida) {
+        return a.fechaRequerida.localeCompare(b.fechaRequerida)
+      }
+      // Entre las que NO traen fecha, la mas VIEJA primero: son las que se
+      // pueden quedar olvidadas, y hundirlas conforme llegan tareas nuevas
+      // seria la forma mas facil de perderlas de vista.
+      const ca = a.creadoEn?.toMillis ? a.creadoEn.toMillis() : 0
+      const cb = b.creadoEn?.toMillis ? b.creadoEn.toMillis() : 0
+      return ca - cb
+    })
+
+  const enMisManos = porPrioridad(tareas.filter((t) => ESTADOS_EN_LA_MAQUILA.includes(t.estado)))
   const actualizandose = tareas.filter((t) => t.estado === 'preparando')
   const cerradas = tareas.filter((t) => ['terminada', 'cancelada'].includes(t.estado))
 
@@ -243,6 +306,27 @@ export default function TareasEnsambleMaquila() {
             {t.destino ? ` · ${t.destino}` : ''}
           </span>
           )}
+
+          {(() => {
+            const u = urgencia(t)
+            if (!u.etiqueta) return null
+            const fuerte = u.orden <= 1
+            return (
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: fuerte ? 700 : 600,
+                  color: fuerte ? '#fff' : u.color,
+                  background: fuerte ? u.color : 'transparent',
+                  border: fuerte ? 0 : `1px solid ${u.color}`,
+                  borderRadius: 999,
+                  padding: '2px 10px'
+                }}
+              >
+                {u.etiqueta}
+              </span>
+            )
+          })()}
 
           <span className="texto-suave" style={{ fontSize: 13 }}>
             {ESTADOS_TAREA_ENSAMBLE[t.estado] || t.estado} · encargada el {fechaHora(t.creadoEn)}
@@ -371,7 +455,8 @@ export default function TareasEnsambleMaquila() {
       <div className="tarjeta">
         <h2>Tareas de ensamble ({enMisManos.length})</h2>
         <p className="texto-suave" style={{ fontSize: 13, marginTop: 2 }}>
-          Lo que Quini te encargo armar. Marca <strong>&quot;Ya empece&quot;</strong> cuando arranques y{' '}
+          Lo que Quini te encargo armar, <strong>lo mas urgente primero</strong>. Marca{' '}
+          <strong>&quot;Ya empece&quot;</strong> cuando arranques y{' '}
           <strong>&quot;Ya termine&quot;</strong> cuando acabes; Quini lo confirma de su lado. El tech pack se
           consulta <strong>aqui en pantalla</strong> mientras la tarea es tuya.
         </p>

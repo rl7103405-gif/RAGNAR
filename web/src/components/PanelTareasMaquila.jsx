@@ -41,7 +41,7 @@ export default function PanelTareasMaquila() {
   const [visor, setVisor] = useState(null) // { maquilaId, tareaId, techPack }
   const [mostrarCerradas, setMostrarCerradas] = useState(false)
 
-  const [nueva, setNueva] = useState({ maquilaId: '', titulo: '', ot: '', notas: '' })
+  const [nueva, setNueva] = useState({ maquilaId: '', ot: '', fechaRequerida: '', notas: '' })
   const [renglones, setRenglones] = useState([{ ...RENGLON_VACIO }])
   const [archivo, setArchivo] = useState(null)
   const [trayendoOt, setTrayendoOt] = useState(false)
@@ -85,6 +85,14 @@ export default function PanelTareasMaquila() {
    * la OT en cada renglon. Una tarea con tres OT encima romperia los tres.
    * Lo que se ahorra es la CAPTURA, que es lo que dolia.
    */
+  /** El titulo que se guarda: la orden y a donde va. */
+  const tituloSugerido = () => {
+    const ot = String(nueva.ot || '').trim()
+    const destino = avisoOt?.destino || avisoOt?.ots?.[0]?.destino || ''
+    if (!ot) return 'Tarea sin orden'
+    return `OT ${ot}${destino ? ' - ' + destino : ''}`
+  }
+
   const onEncargarVarias = async () => {
     if (trabajando) return
     setError('')
@@ -98,10 +106,14 @@ export default function PanelTareasMaquila() {
       return
     }
     setTrabajando('crear')
+    // Fuera del try A PROPOSITO: si se cae la red en la OT 3 de 5, las dos que
+    // YA se crearon son reales y estan en Firestore. El catch tiene que poder
+    // decir cuales, o el usuario ve solo el error, cree que no se guardo nada
+    // y vuelve a encargarlas todas.
+    const hechas = []
+    const saltadas = []
     try {
       const ids = (maquilas || []).map((m) => m.id)
-      const hechas = []
-      const saltadas = []
       for (const ot of otsElegidas) {
         // El candado, OT por OT: que una este ocupada no debe tumbar a las
         // demas — se salta esa y se dice cual y por que.
@@ -125,6 +137,7 @@ export default function PanelTareasMaquila() {
           maquilaId: nueva.maquilaId,
           titulo: `OT ${ot}${destino ? ' - ' + destino : ''}`,
           ot,
+          fechaRequerida: nueva.fechaRequerida,
           renglones: delPlan.map((r) => ({
             codigo: r.codigo,
             cantidad: String(r.cantidad),
@@ -143,7 +156,7 @@ export default function PanelTareasMaquila() {
       }
       setOtsElegidas([])
       setAvisoOt(null)
-      setNueva((p) => ({ ...p, ot: '', titulo: '' }))
+      setNueva((p) => ({ ...p, ot: '' }))
       setAviso(
         (hechas.length
           ? `Listo: ${hechas.length} tarea(s) encargadas a ${nombreMaquila(nueva.maquilaId)} ` +
@@ -154,6 +167,15 @@ export default function PanelTareasMaquila() {
       )
     } catch (err) {
       reportar(err)
+      // Lo que si alcanzo a guardarse, dicho aparte del error: son tareas que
+      // la maquila ya esta viendo.
+      if (hechas.length) {
+        setAviso(
+          `Ojo: antes de la falla si se encargaron ${hechas.length} tarea(s) ` +
+            `(OT ${hechas.join(', ')}). No las vuelvas a encargar; reintenta solo las demas.`
+        )
+        setOtsElegidas((prev) => prev.filter((o) => !hechas.includes(o)))
+      }
     } finally {
       setTrabajando(null)
       setProgreso('')
@@ -166,6 +188,26 @@ export default function PanelTareasMaquila() {
     setAviso('')
     setTrabajando('crear')
     try {
+      // ⚠️ Que el numero escrito NO sea una ORDEN DE COMPRA. El campo acepta
+      // las dos y el flujo bueno es picar "Traer del plan", pero nadie impide
+      // teclear una OC, capturar los renglones a mano y mandar. Si eso pasa,
+      // la OC queda guardada COMO SI FUERA una OT y contamina en silencio las
+      // tres cosas que dependen de ese campo: el candado de "una OT, una
+      // maquila", la agrupacion del arbol y la columna OT de la remision.
+      if (String(nueva.ot || '').trim()) {
+        const comoOt = await renglonesDeLaOt(nueva.ot)
+        if (!comoOt.length) {
+          const ots = await otsDeLaOc(nueva.ot)
+          if (ots.length) {
+            setAvisoOt({ esOc: String(nueva.ot).trim(), ots })
+            throw new ErrorTareaEnsamble(
+              `${nueva.ot} es una orden de COMPRA, no de trabajo. Abajo estan sus ` +
+                'ordenes de trabajo: marca las que le encargas a esta maquila.'
+            )
+          }
+        }
+      }
+
       // El candado: una OT va a UNA maquila. Se revisa contra lo que hay en
       // ese momento, no contra lo que la pantalla vio hace rato.
       const ocupada = await tareaQueYaTieneLaOt(nueva.ot, (maquilas || []).map((m) => m.id))
@@ -184,15 +226,20 @@ export default function PanelTareasMaquila() {
       }
       await crearTareaEnsamble({
         maquilaId: nueva.maquilaId,
-        titulo: nueva.titulo,
+        // El titulo ya no se teclea: era lo mismo que la orden. Roberto,
+        // 2026-09-02: "lo del titulo pedido o cliente, al final del dia es lo
+        // mismo; que nada mas se quede uno". Se arma con la orden y su
+        // destino, que es como la gente la nombra de todos modos.
+        titulo: tituloSugerido(),
         ot: nueva.ot,
+        fechaRequerida: nueva.fechaRequerida,
         renglones,
         notas: nueva.notas,
         archivo,
         usuario: usuario(),
         onProgreso: setProgreso
       })
-      setNueva({ maquilaId: '', titulo: '', ot: '', notas: '' })
+      setNueva({ maquilaId: '', ot: '', fechaRequerida: '', notas: '' })
       setRenglones([{ ...RENGLON_VACIO }])
       setArchivo(null)
       setAviso(
@@ -477,6 +524,14 @@ export default function PanelTareasMaquila() {
 
         <span className="texto-suave" style={{ fontSize: 13 }}>
           {ESTADOS_TAREA_ENSAMBLE[t.estado] || t.estado} · pedida el {fechaDe(t.creadoEn)}
+          {t.fechaRequerida ? (
+            <>
+              {' · '}
+              <strong style={{ color: '#8a5a00' }}>
+                para el {t.fechaRequerida.split('-').reverse().join('/')}
+              </strong>
+            </>
+          ) : null}
         </span>
       </div>
       <div style={{ marginTop: 6, fontSize: 13 }}>
@@ -701,25 +756,31 @@ export default function PanelTareasMaquila() {
                 ))}
             </select>
           </label>
-          <label className="campo" style={{ flex: '2 1 260px' }}>
-            <span>Titulo (pedido o cliente)</span>
+          {/* PARA CUANDO SE NECESITA. Es lo que ordena el trabajo de la
+              maquila: lo de hoy le sale arriba, lo de dentro de dos semanas
+              abajo. Roberto, 2026-09-02: "si necesitamos algo hoy que le
+              aparezca como primera tarea, pero si tiene algo para dentro de
+              dos semanas, que le de mas calma". */}
+          <label className="campo" style={{ flex: '1 1 160px' }}>
+            <span>Para cuando (prioridad)</span>
             <input
-              type="text"
-              placeholder="ej. Shasa OC 1116302"
-              maxLength={120}
-              value={nueva.titulo}
-              onChange={(e) => setNueva({ ...nueva, titulo: e.target.value })}
+              type="date"
+              value={nueva.fechaRequerida}
+              onChange={(e) => setNueva({ ...nueva, fechaRequerida: e.target.value })}
             />
           </label>
           {/* El amarre con el plan de Adrian. Opcional a proposito: una tarea
               de una OT que el plan no trae (o sin OT) se crea igual. Si el
               plan la conoce, la tarea queda con su "a quien va" congelado y
               el arbol la puede agrupar. */}
-          <label className="campo" style={{ flex: '1 1 140px' }}>
-            <span>Orden de trabajo (opcional)</span>
+          <label className="campo" style={{ flex: '1 1 170px' }}>
+            {/* UN SOLO campo: acepta las dos. Si es una OC, la pantalla ofrece
+                sus OT. Antes decia solo "orden de trabajo" y Roberto escribio
+                una OC (la 2422) y la app contesto que no existia. */}
+            <span>Orden de trabajo o de compra</span>
             <input
               type="text"
-              placeholder="ej. 7887"
+              placeholder="ej. 7887 o 2422"
               maxLength={40}
               value={nueva.ot}
               onChange={(e) => {

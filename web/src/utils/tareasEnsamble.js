@@ -188,6 +188,7 @@ export async function crearTareaEnsamble({
   maquilaId,
   titulo,
   ot,
+  fechaRequerida,
   renglones,
   notas,
   archivo,
@@ -196,6 +197,16 @@ export async function crearTareaEnsamble({
 }) {
   if (!maquilaId) throw new ErrorTareaEnsamble('Elige la maquila.')
   const tituloLimpio = String(titulo || '').trim().slice(0, 120)
+  // Una fecha con formato raro NO se descarta callando: la tarea se crearia
+  // sin prioridad y nadie sabria por que la maquila no la ve marcada. Pasa si
+  // el navegador degrada el input de fecha a texto libre.
+  const fechaTexto = String(fechaRequerida || '').trim()
+  // El mismo rango que exige la regla del servidor (mes 01-12, dia 01-31): si
+  // el cliente fuera mas laxo, un '2026-13-40' moriria alla con un
+  // 'permission-denied' pelado en vez de este mensaje.
+  if (fechaTexto && !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(fechaTexto)) {
+    throw new ErrorTareaEnsamble('La fecha no tiene un formato valido: vuelve a elegirla.')
+  }
   // El amarre con el plan maestro: si Lindbergh dice de que ORDEN DE TRABAJO
   // es la tarea, se congela normalizada y se le jala del plan A QUIEN VA
   // ('Modular Walmart Jun-Sep'). Todo opcional y nada bloquea: una tarea de
@@ -262,6 +273,10 @@ export async function crearTareaEnsamble({
     // 'destino' exige que haya 'ot' (el destino sale del plan VIA la OT).
     ...(otLimpia ? { ot: otLimpia } : {}),
     ...(otLimpia && destino ? { destino } : {}),
+    // Para cuando se necesita. Texto AAAA-MM-DD y no timestamp: es lo que
+    // ordena el trabajo de la maquila y comparar textos evita el corrimiento
+    // de un dia que da convertir una fecha sin hora a Date en Mexico.
+    ...(fechaTexto ? { fechaRequerida: fechaTexto } : {}),
     renglones: conCatalogo,
     notas: String(notas || '').trim().slice(0, 300),
     estado: contenido ? 'preparando' : 'abierta',

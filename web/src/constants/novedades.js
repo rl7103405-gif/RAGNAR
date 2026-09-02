@@ -36,6 +36,20 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-02-07',
+    fecha: '2026-09-02',
+    tipo: 'nuevo',
+    titulo: 'Las maquilas ven primero lo que corre prisa',
+    detalle:
+      'Al encargarle una tarea a una maquila ahora pones PARA CUANDO la necesitas. Con eso, en '
+      + 'la pantalla de la maquila las tareas ya no salen por orden de captura sino por urgencia: '
+      + 'lo que se paso de fecha aparece hasta arriba marcado como ATRASADA, lo de hoy como PARA '
+      + 'HOY, lo de los proximos dias como "esta semana", y lo demas mas abajo con su fecha. Lo '
+      + 'que no lleva fecha se va al final. Tambien se quito el campo de titulo: se arma solo con '
+      + 'la orden y a donde va, que es como se le nombra de todos modos.'
+  },
+
+  {
     id: '2026-09-02-06',
     fecha: '2026-09-02',
     tipo: 'mejorado',

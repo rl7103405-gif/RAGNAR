@@ -2076,7 +2076,7 @@ service cloud.firestore {
       // habria obligado a migrar todos los documentos ANTES de poder tocar
       // ninguno.
       return d.keys().hasAll(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn'])
-        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion', 'ot', 'destino'])
+        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion', 'ot', 'destino', 'fechaRequerida'])
         // El amarre con el plan maestro (2026-08-18): 'ot' es la orden de
         // trabajo que esta tarea trabaja y 'destino' a quien va ('Modular
         // Walmart Jun-Sep'). Opcionales y leidos con get(...,null): las tareas
@@ -2091,6 +2091,14 @@ service cloud.firestore {
             || (d.get('destino', '') is string
                 && d.get('destino', '').size() > 0
                 && d.get('destino', '').size() <= 120))
+        // PARA CUANDO SE NECESITA (2026-09-02). Es lo que ordena el trabajo de
+        // la maquila: lo de hoy arriba, lo de dentro de dos semanas abajo.
+        // Va como TEXTO 'AAAA-MM-DD', no como timestamp, a proposito: asi se
+        // ordena y se compara sin pasar por zonas horarias — una fecha 'sin
+        // hora' convertida a Date se corre un dia en Mexico (regla dura 3).
+        && (d.get('fechaRequerida', null) == null
+            || (d.get('fechaRequerida', '') is string
+                && d.get('fechaRequerida', '').matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')))
         // Sin OT no hay destino que amarrar: el destino sale del plan VIA la
         // OT; suelto seria texto libre disfrazado de dato.
         && (d.get('destino', null) == null || d.get('ot', null) != null)
