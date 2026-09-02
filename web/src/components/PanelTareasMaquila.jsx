@@ -904,11 +904,18 @@ export default function PanelTareasMaquila() {
               }}
             />
           </label>
+          {/* ⚠️ El onClick va CON FLECHA. Con `onClick={traerDelPlan}` React le
+              pasa el evento del clic como primer argumento, y como el evento es
+              un objeto (verdadero, no vacio) la funcion lo tomaba por la orden
+              escrita: buscaba literalmente "[object Object]" en el plan e
+              ignoraba lo que el usuario habia tecleado. Roberto lo cazo el
+              2026-09-02 — ninguna OC ni OT funcionaba al picar el boton, aunque
+              el numero SI estuviera en el plan; solo servia darle Enter. */}
           <button
             type="button"
             className="btn-secundario"
             style={{ alignSelf: 'flex-end', marginBottom: 2 }}
-            onClick={traerDelPlan}
+            onClick={() => traerDelPlan()}
             disabled={trayendoOt}
           >
             {trayendoOt ? 'Buscando...' : 'Traer del plan'}
