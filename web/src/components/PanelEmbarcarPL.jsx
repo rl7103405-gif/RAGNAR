@@ -21,6 +21,8 @@ import {
 } from '../utils/entregasPL'
 import { normalizarOc } from '../utils/planMaestro'
 import { generarExcelPL } from '../utils/excelPL'
+import { generarPdfPL } from '../utils/pdfPL'
+import { descargarPdf } from '../utils/pdf'
 import { descargarArchivo } from '../utils/excelSalida'
 
 export default function PanelEmbarcarPL() {
@@ -260,6 +262,34 @@ export default function PanelEmbarcarPL() {
     }
   }
 
+  /** El PAPEL de una entrega: el que se imprime, viaja con la mercancia y
+   *  donde firman la salida y el recibido. Es de UNA entrega a proposito — el
+   *  Excel es el que lleva todas juntas para Microsip. */
+  const onDescargarPdf = (entrega) => {
+    setError('')
+    try {
+      const blob = generarPdfPL({
+        entrega,
+        elaboro: perfil?.nombreCompleto || '',
+        esPrueba
+      })
+      descargarPdf(
+        blob,
+        `PL ${entrega.pl || ''} OC${entrega.oc} entrega ${entrega.numeroEntrega}.pdf`
+          .replace(/\s+/g, ' ')
+          .trim()
+      )
+    } catch (err) {
+      console.error('[PL] No se pudo generar el PDF:', err)
+      setError('No se pudo generar el PDF: ' + (err?.message || err))
+    }
+  }
+
+  const entregasDeLaOc = useMemo(
+    () => entregas.filter((e) => e.oc === normalizarOc(oc)).sort((a, b) => a.numeroEntrega - b.numeroEntrega),
+    [entregas, oc]
+  )
+
   const plDeLaOc = useMemo(() => {
     const deEsta = entregas.filter((e) => e.oc === normalizarOc(oc))
     return deEsta.length ? armarPlDeLaOc(deEsta) : null
@@ -487,9 +517,39 @@ export default function PanelEmbarcarPL() {
           <p className="texto-suave" style={{ fontSize: 13 }}>
             Esto es lo que ya llevas registrado. Se arma solo con las entregas de arriba.
           </p>
-          <button className="btn-primario" style={{ marginBottom: 12 }} onClick={onDescargar}>
-            Descargar el PL en Excel
-          </button>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 10,
+              alignItems: 'center',
+              marginBottom: 12
+            }}
+          >
+            <button className="btn-secundario" onClick={onDescargar}>
+              Excel de toda la orden
+            </button>
+            <span className="texto-suave" style={{ fontSize: 12 }}>
+              para subir a Microsip
+            </span>
+          </div>
+          {/* El PAPEL va por ENTREGA: quien firma esta recibiendo lo de hoy, y
+              darle una hoja con lo de semanas pasadas lo invita a firmar por
+              mercancia que no esta viendo. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+            {entregasDeLaOc.map((e) => (
+              <button
+                key={e.numeroEntrega}
+                className="btn-primario"
+                onClick={() => onDescargarPdf(e)}
+              >
+                PDF de la entrega {e.numeroEntrega}
+              </button>
+            ))}
+            <span className="texto-suave" style={{ fontSize: 12, alignSelf: 'center' }}>
+              el papel que se imprime y se firma
+            </span>
+          </div>
           <div className="tabla-scroll">
             <table className="tabla">
               <thead>

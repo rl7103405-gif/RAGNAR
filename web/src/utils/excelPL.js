@@ -17,7 +17,13 @@
 // ⚠️ LO QUE NO SE INVENTA. FACTURA, BITÁCORA, Ped. Micro y Rem. Micro salen de
 // Microsip y del portal del cliente, no de RAGNAR. Si la entrega no los trae,
 // la celda va VACÍA, no en cero: un cero ahí sería una factura que no existe.
-// Van explicados en la portada para que nadie los lea como dato de la app.
+//
+// ⚠️ UNA SOLA HOJA, sin portada. Aquí hubo una hoja "Léeme" explicando qué
+// llena la app y qué no; Roberto la quitó el 2026-09-02 ("no sirve mucho"), y
+// tiene una razón de más peso: este archivo puede acabar en manos del CLIENTE,
+// y las explicaciones internas de RAGNAR no tienen por qué viajar con él. El
+// papel es el papel. Lo que la app llena y lo que no se explica en la pantalla
+// y en el manual, no dentro del documento.
 import { cargarWorkbook } from './excelJs.js'
 import { armarPlDeLaOc, cierreDelRenglon } from './entregasPL'
 
@@ -53,24 +59,6 @@ export async function generarExcelPL({ oc, entregas, plan }) {
   const usadas = numeros.slice(0, MAX_ENTREGAS)
   const porCodigoPlan = new Map((plan || []).map((p) => [p.codigo, Number(p.cantidadPlan) || 0]))
   const enc = entregas[0] || {}
-
-  // ---- Portada: qué es esto y qué NO trae -------------------------------
-  const portada = libro.addWorksheet('Léeme')
-  portada.getColumn(1).width = 100
-  portada.addRow([`Packing list de la orden de compra ${oc}`])
-  portada.getRow(1).font = { bold: true, size: 14 }
-  portada.addRow([])
-  portada.addRow([`Generado por RAGNAR con las ${entregas.length} entrega(s) registradas de esta orden.`])
-  portada.addRow([])
-  portada.addRow(['Columnas que RAGNAR NO llena, porque no son suyas:'])
-  portada.getRow(portada.rowCount).font = { bold: true, color: { argb: 'FFB45309' } }
-  portada.addRow(['  FACTURA y BITÁCORA — salen de Microsip y del portal del cliente.'])
-  portada.addRow(['  Ped. Micro y Rem. Micro — son de Microsip.'])
-  portada.addRow(['Si están vacías es porque no se capturaron, no porque valgan cero.'])
-  portada.addRow([])
-  portada.addRow(['La columna OT sí la pone RAGNAR, desde el plan maestro de Adrián.'])
-  portada.getRow(portada.rowCount).font = { bold: true, color: { argb: 'FF1A7A3A' } }
-  portada.addRow(['Los BULTOS y los PAQS salen del texto del EMPAQUE ("2/200 1/58" = 3 bultos, 458 packs).'])
 
   // ---- Hoja PEDIDO: el papel ---------------------------------------------
   const h = libro.addWorksheet('PEDIDO')

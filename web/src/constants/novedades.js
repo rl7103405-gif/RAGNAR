@@ -36,6 +36,19 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-02-03',
+    fecha: '2026-09-02',
+    tipo: 'nuevo',
+    titulo: 'El PL ahora sale en PDF, para firmarlo',
+    detalle:
+      'En Embarcar al cliente hay dos descargas y cada una es para algo distinto: el EXCEL de '
+      + 'toda la orden, para subir a Microsip, y un PDF por cada entrega — el papel que se '
+      + 'imprime, viaja con la mercancia y trae los espacios de Elaboro, Surtio, Transporte y '
+      + 'la firma o sello de recibido del cliente. El PDF lleva solo la entrega de ese dia: '
+      + 'quien firma esta recibiendo lo de hoy, no lo de hace tres semanas.'
+  },
+
+  {
     id: '2026-09-02-02',
     fecha: '2026-09-02',
     tipo: 'corregido',
