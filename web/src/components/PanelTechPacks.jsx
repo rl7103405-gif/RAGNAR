@@ -13,7 +13,8 @@
 // RAGNAR: lo que Lety sube se ve al instante.
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { versionActiva } from '../utils/planMaestro'
+import { renglonesDeLaOt, versionActiva } from '../utils/planMaestro'
+import { normalizarOt } from '../utils/planMaestroNucleo'
 import { formatoDeArchivo, MAX_TECHPACK_BYTES } from '../utils/tareasEnsamble'
 import {
   codigoComoId,
@@ -45,6 +46,11 @@ export default function PanelTechPacks() {
   const [cruce, setCruce] = useState(null) // null | 'cargando' | [...]
   // codigo -> [{ot, oc}] segun el plan vigente; null mientras carga, Map vacio si no hay plan
   const [enPlan, setEnPlan] = useState(null)
+  // Buscar por ORDEN DE TRABAJO: Lety conoce la OT antes que el codigo (Roberto,
+  // 2026-09-03: 'ella lo unico que tiene que hacer es ligar el tech pack con la
+  // OT'). Se resuelve OT -> codigos con el plan y ella elige a cual va.
+  const [ot, setOt] = useState('')
+  const [codigosDeOt, setCodigosDeOt] = useState(null) // null | 'buscando' | [] | [{codigo, descripcion, oc}]
 
   useEffect(() => {
     const parar = escucharBiblioteca(
@@ -132,6 +138,24 @@ export default function PanelTechPacks() {
     }
   }
 
+  const onBuscarOt = async () => {
+    const limpia = normalizarOt(ot)
+    setError('')
+    if (!limpia) {
+      setError('Escribe la orden de trabajo (4 digitos, ej. 7887).')
+      return
+    }
+    setCodigosDeOt('buscando')
+    try {
+      const r = await renglonesDeLaOt(limpia)
+      setCodigosDeOt(r.map((x) => ({ codigo: codigoComoId(x.codigo), descripcion: x.descripcion, oc: x.oc })).filter((x) => x.codigo))
+      if (!r.length) setError(`El plan vigente no conoce la OT ${limpia}. Pide a Adrian que la suba, o escribe el codigo directo.`)
+    } catch (err) {
+      setCodigosDeOt(null)
+      reportar(err)
+    }
+  }
+
   const onQuitar = async (item, tipo) => {
     if (!window.confirm(`¿Quitar ${TIPOS[tipo].titulo.toLowerCase()} de ${item.codigo}? Las tareas que ya lo tienen pegado no se tocan.`)) return
     setTrabajando(true)
@@ -208,6 +232,37 @@ export default function PanelTechPacks() {
       {puedeSubirTechPacks && (
         <div className="tarjeta" style={{ background: '#f8fafc' }}>
           <h3>Subir un documento</h3>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+            <input
+              placeholder="Orden de trabajo (ej. 7887)"
+              value={ot}
+              onChange={(e) => setOt(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && onBuscarOt()}
+              disabled={trabajando}
+              style={{ width: 200 }}
+            />
+            <button className="btn-secundario" onClick={onBuscarOt} disabled={trabajando || codigosDeOt === 'buscando'}>
+              {codigosDeOt === 'buscando' ? 'Buscando...' : 'Ver los codigos de esa OT'}
+            </button>
+            {Array.isArray(codigosDeOt) && codigosDeOt.length > 0 && (
+              <span style={{ fontSize: 13, color: '#475569' }}>Elige a cual va el documento:</span>
+            )}
+          </div>
+          {Array.isArray(codigosDeOt) && codigosDeOt.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+              {codigosDeOt.map((c) => (
+                <button
+                  key={c.codigo}
+                  className={codigo === c.codigo ? 'btn-primario' : 'btn-secundario'}
+                  onClick={() => setCodigo(c.codigo)}
+                  title={c.descripcion || ''}
+                >
+                  {c.codigo}
+                  {c.descripcion ? <span style={{ fontWeight: 400, color: codigo === c.codigo ? '#e2e8f0' : '#64748b' }}> · {c.descripcion.slice(0, 40)}</span> : null}
+                </button>
+              ))}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <input
               placeholder="Codigo del diseno (ej. WKD225T401)"
