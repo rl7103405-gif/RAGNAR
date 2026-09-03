@@ -552,3 +552,99 @@ table th, table td {
   padding-bottom: 10px;
 }
 .version-app strong { color: #334155; }
+
+/* ------------------------------------------------------------------
+   TECH PACKS (biblioteca de Lety). Prefijo tp- para no pisar nada.
+   ------------------------------------------------------------------ */
+.tp { display: flex; flex-direction: column; gap: 16px; }
+.tp-cabecera { display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-between; align-items: flex-start; }
+.tp-tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+.tp-tile {
+  min-width: 118px;
+  padding: 10px 14px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: var(--fondo);
+}
+.tp-tile-valor { font-size: 1.6rem; font-weight: 800; line-height: 1.1; color: var(--texto); }
+.tp-tile-titulo { font-size: 0.78rem; color: var(--texto-suave); margin-top: 2px; }
+.tp-tile-ok { background: #f0fdf4; border-color: #bbf7d0; }
+.tp-tile-ok .tp-tile-valor { color: #15803d; }
+.tp-tile-aviso { background: #fffbeb; border-color: #fde68a; }
+.tp-tile-aviso .tp-tile-valor { color: #b45309; }
+
+.tp-subir { display: flex; flex-direction: column; gap: 18px; }
+.tp-paso { display: flex; gap: 14px; align-items: flex-start; }
+.tp-paso-apagado { opacity: 0.55; }
+.tp-num {
+  flex: none;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--azul);
+  color: #fff;
+  font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+.tp-fila { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.tp-input {
+  padding: 10px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  font-size: 0.95rem;
+  min-height: 40px;
+}
+.tp-input:focus { outline: 2px solid #bfdbfe; border-color: var(--azul); }
+.tp-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.tp-chip {
+  padding: 8px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--superficie);
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--texto);
+}
+.tp-chip:hover { border-color: var(--azul); }
+.tp-chip.activo { background: var(--azul); border-color: var(--azul); color: #fff; }
+.tp-chip.activo span { color: #dbeafe; }
+.tp-codigo {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.tp-btn-archivo { display: inline-flex; align-items: center; padding: 10px 16px; cursor: pointer; min-height: 40px; font-size: 0.9rem; }
+.tp-btn-archivo.apagado { opacity: 0.5; cursor: default; }
+.tp-progreso { color: var(--azul); font-weight: 600; margin: 10px 0 0; }
+.tp-check { display: flex; gap: 6px; align-items: center; font-size: 0.9rem; }
+
+.tp-vacio { padding: 28px 12px; text-align: center; }
+.tp-vacio-titulo { font-weight: 700; font-size: 1.05rem; margin-bottom: 4px; }
+
+.tp-pill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin: 2px 4px 2px 0;
+  white-space: nowrap;
+}
+.tp-pill-aviso { background: #fffbeb; color: #b45309; }
+.tp-pill-falta { background: var(--error-bg); color: var(--error); }
+.tp-ok { color: #15803d; font-weight: 600; }
+.tp-aviso { color: #b45309; }
+
+.tp-doc { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tp-btn-chico { padding: 6px 12px; min-height: 32px; font-size: 0.85rem; }
+.tp-quitar {
+  background: transparent;
+  border: none;
+  color: var(--error);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 4px 6px;
+}
+.tp-quitar:hover { text-decoration: underline; }
+.tp-quitar:disabled { opacity: 0.5; cursor: default; }

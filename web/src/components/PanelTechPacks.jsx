@@ -11,6 +11,11 @@
 // El proyecto de julio (RESUMEN_PROYECTO_QUINI_FICHAS_BOM) media esto
 // escaneando Google Drive y regenerando un HTML a mano. Aqui la fuente es
 // RAGNAR: lo que Lety sube se ve al instante.
+//
+// La subida va en DOS pasos a proposito (Roberto, 2026-09-03: "ella lo unico
+// que tiene que hacer es ligar el tech pack con la OT"): primero se dice de
+// que orden de trabajo (o codigo) es, y hasta que el codigo esta elegido se
+// habilitan los botones de subir. Asi no se sube nada "al aire".
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { renglonesDeLaOt, versionActiva } from '../utils/planMaestro'
@@ -46,9 +51,7 @@ export default function PanelTechPacks() {
   const [cruce, setCruce] = useState(null) // null | 'cargando' | [...]
   // codigo -> [{ot, oc}] segun el plan vigente; null mientras carga, Map vacio si no hay plan
   const [enPlan, setEnPlan] = useState(null)
-  // Buscar por ORDEN DE TRABAJO: Lety conoce la OT antes que el codigo (Roberto,
-  // 2026-09-03: 'ella lo unico que tiene que hacer es ligar el tech pack con la
-  // OT'). Se resuelve OT -> codigos con el plan y ella elige a cual va.
+  // Buscar por ORDEN DE TRABAJO: Lety conoce la OT antes que el codigo.
   const [ot, setOt] = useState('')
   const [codigosDeOt, setCodigosDeOt] = useState(null) // null | 'buscando' | [] | [{codigo, descripcion, oc}]
 
@@ -90,13 +93,40 @@ export default function PanelTechPacks() {
     setError(err instanceof ErrorBiblioteca ? err.message : 'Fallo: ' + (err.message || err))
   }
 
+  const onBuscarOt = async () => {
+    const limpia = normalizarOt(ot)
+    setError('')
+    setAviso('')
+    if (!limpia) {
+      setError('Escribe la orden de trabajo (4 digitos, ej. 7887).')
+      return
+    }
+    setCodigosDeOt('buscando')
+    try {
+      const r = await renglonesDeLaOt(limpia)
+      const lista = r
+        .map((x) => ({ codigo: codigoComoId(x.codigo), descripcion: x.descripcion, oc: x.oc }))
+        .filter((x) => x.codigo)
+      setCodigosDeOt(lista)
+      if (!lista.length) {
+        setError(`El plan vigente no conoce la OT ${limpia}. Pide a Adrian que la suba, o escribe el codigo directo.`)
+      } else if (lista.length === 1) {
+        // Un solo codigo: se elige solo, que es lo normal.
+        setCodigo(lista[0].codigo)
+      }
+    } catch (err) {
+      setCodigosDeOt(null)
+      reportar(err)
+    }
+  }
+
   const onSubir = async (tipo, file) => {
     if (!file) return
     setError('')
     setAviso('')
     const id = codigoComoId(codigo)
     if (!id) {
-      setError('Escribe primero el codigo del diseno (ej. WKD225T401).')
+      setError('Primero di de que codigo es: busca la orden de trabajo o escribe el codigo.')
       return
     }
     const formato = formatoDeArchivo(file.name)
@@ -135,24 +165,6 @@ export default function PanelTechPacks() {
     } finally {
       setProgreso('')
       setTrabajando(false)
-    }
-  }
-
-  const onBuscarOt = async () => {
-    const limpia = normalizarOt(ot)
-    setError('')
-    if (!limpia) {
-      setError('Escribe la orden de trabajo (4 digitos, ej. 7887).')
-      return
-    }
-    setCodigosDeOt('buscando')
-    try {
-      const r = await renglonesDeLaOt(limpia)
-      setCodigosDeOt(r.map((x) => ({ codigo: codigoComoId(x.codigo), descripcion: x.descripcion, oc: x.oc })).filter((x) => x.codigo))
-      if (!r.length) setError(`El plan vigente no conoce la OT ${limpia}. Pide a Adrian que la suba, o escribe el codigo directo.`)
-    } catch (err) {
-      setCodigosDeOt(null)
-      reportar(err)
     }
   }
 
@@ -208,128 +220,184 @@ export default function PanelTechPacks() {
   }, [biblioteca, filtro, soloSin])
 
   const otsConFaltantes = Array.isArray(cruce) ? cruce.filter((o) => o.faltan.length) : []
+  const codigoListo = Boolean(codigoComoId(codigo))
+  const ligueDelElegido = codigoListo && enPlan ? enPlan.get(codigoComoId(codigo)) : null
 
   return (
-    <div>
-      <div className="tarjeta">
-        <h2>Tech packs</h2>
-        <p style={{ color: '#475569', marginTop: 4 }}>
-          Un renglon por codigo. <strong>Tener la FTT no es tener tech pack</strong>: el que se le
-          manda a la maquila es el <strong>tech pack de empaque</strong>; la ficha tecnica de tejido
-          se guarda aparte, solo para saber que ya existe.
-        </p>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10 }}>
-          <Dato titulo="Codigos en la biblioteca" valor={resumen.total} />
-          <Dato titulo="Con tech pack de empaque" valor={resumen.conTp} color="#16a34a" />
-          <Dato titulo="Con FTT" valor={resumen.conFtt} />
-          <Dato titulo="Solo FTT, sin tech pack" valor={resumen.soloFtt} color={resumen.soloFtt ? '#d97706' : undefined} />
+    <div className="tp">
+      {/* ------------------------------------------------ cabecera + tiles */}
+      <div className="tarjeta tp-cabecera">
+        <div>
+          <h2 style={{ margin: 0 }}>Tech packs</h2>
+          <p className="texto-suave" style={{ margin: '6px 0 0' }}>
+            Un renglon por codigo de diseno. <strong>Tener la FTT no es tener tech pack</strong>: a la
+            maquila se le manda el <strong>tech pack de empaque</strong>; la ficha de tejido se guarda
+            aparte, solo para saber que ya existe.
+          </p>
+        </div>
+        <div className="tp-tiles">
+          <Tile titulo="Codigos" valor={resumen.total} />
+          <Tile titulo="Con tech pack" valor={resumen.conTp} tono="ok" />
+          <Tile titulo="Con FTT" valor={resumen.conFtt} />
+          <Tile titulo="Solo FTT" valor={resumen.soloFtt} tono={resumen.soloFtt ? 'aviso' : ''} />
           {resumen.fueraDelPlan != null && (
-            <Dato titulo="Sin OT en el plan vigente" valor={resumen.fueraDelPlan} color={resumen.fueraDelPlan ? '#d97706' : undefined} />
+            <Tile titulo="Sin OT en el plan" valor={resumen.fueraDelPlan} tono={resumen.fueraDelPlan ? 'aviso' : ''} />
           )}
         </div>
       </div>
 
+      {error && <div className="alerta-error">{error}</div>}
+      {aviso && <div className="alerta-exito">{aviso}</div>}
+
+      {/* ------------------------------------------------ subir, en dos pasos */}
       {puedeSubirTechPacks && (
-        <div className="tarjeta" style={{ background: '#f8fafc' }}>
-          <h3>Subir un documento</h3>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-            <input
-              placeholder="Orden de trabajo (ej. 7887)"
-              value={ot}
-              onChange={(e) => setOt(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && onBuscarOt()}
-              disabled={trabajando}
-              style={{ width: 200 }}
-            />
-            <button className="btn-secundario" onClick={onBuscarOt} disabled={trabajando || codigosDeOt === 'buscando'}>
-              {codigosDeOt === 'buscando' ? 'Buscando...' : 'Ver los codigos de esa OT'}
-            </button>
-            {Array.isArray(codigosDeOt) && codigosDeOt.length > 0 && (
-              <span style={{ fontSize: 13, color: '#475569' }}>Elige a cual va el documento:</span>
-            )}
-          </div>
-          {Array.isArray(codigosDeOt) && codigosDeOt.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-              {codigosDeOt.map((c) => (
-                <button
-                  key={c.codigo}
-                  className={codigo === c.codigo ? 'btn-primario' : 'btn-secundario'}
-                  onClick={() => setCodigo(c.codigo)}
-                  title={c.descripcion || ''}
-                >
-                  {c.codigo}
-                  {c.descripcion ? <span style={{ fontWeight: 400, color: codigo === c.codigo ? '#e2e8f0' : '#64748b' }}> · {c.descripcion.slice(0, 40)}</span> : null}
+        <div className="tarjeta tp-subir">
+          <div className="tp-paso">
+            <span className="tp-num">1</span>
+            <div style={{ flex: 1 }}>
+              <h3 style={{ margin: 0 }}>¿De que orden de trabajo es?</h3>
+              <p className="texto-suave" style={{ margin: '4px 0 10px' }}>
+                Escribe la OT y la app te dice sus codigos. Si ya sabes el codigo, escribelo directo.
+              </p>
+              <div className="tp-fila">
+                <input
+                  className="tp-input"
+                  placeholder="Orden de trabajo (ej. 7887)"
+                  value={ot}
+                  onChange={(e) => setOt(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && onBuscarOt()}
+                  disabled={trabajando}
+                  style={{ width: 220 }}
+                />
+                <button className="btn-secundario" onClick={onBuscarOt} disabled={trabajando || codigosDeOt === 'buscando'}>
+                  {codigosDeOt === 'buscando' ? 'Buscando...' : 'Ver sus codigos'}
                 </button>
-              ))}
+                <span className="texto-suave">o</span>
+                <input
+                  className="tp-input"
+                  placeholder="Codigo del diseno (ej. WKD225T401)"
+                  value={codigo}
+                  onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+                  disabled={trabajando}
+                  style={{ width: 280 }}
+                />
+              </div>
+              {Array.isArray(codigosDeOt) && codigosDeOt.length > 0 && (
+                <div className="tp-chips">
+                  <span className="texto-suave" style={{ fontSize: 13 }}>
+                    {codigosDeOt.length === 1 ? 'Esa OT lleva un solo codigo:' : `Esa OT lleva ${codigosDeOt.length} codigos, elige a cual va:`}
+                  </span>
+                  {codigosDeOt.map((c) => (
+                    <button
+                      key={c.codigo}
+                      className={`tp-chip ${codigo === c.codigo ? 'activo' : ''}`}
+                      onClick={() => setCodigo(c.codigo)}
+                      title={c.descripcion || ''}
+                    >
+                      <strong>{c.codigo}</strong>
+                      {c.descripcion ? <span> · {c.descripcion.slice(0, 40)}</span> : null}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input
-              placeholder="Codigo del diseno (ej. WKD225T401)"
-              value={codigo}
-              onChange={(e) => setCodigo(e.target.value.toUpperCase())}
-              disabled={trabajando}
-              style={{ minWidth: 260 }}
-            />
-            <label className="btn-primario" style={{ cursor: trabajando ? 'wait' : 'pointer' }}>
-              {trabajando ? 'Subiendo...' : 'Subir TECH PACK de empaque'}
-              <input
-                type="file"
-                accept=".pdf,.xlsx"
-                style={{ display: 'none' }}
-                disabled={trabajando}
-                onChange={(e) => {
-                  onSubir('tp', e.target.files?.[0])
-                  e.target.value = ''
-                }}
-              />
-            </label>
-            <label className="btn-secundario" style={{ cursor: trabajando ? 'wait' : 'pointer' }}>
-              Subir FTT (ficha de tejido)
-              <input
-                type="file"
-                accept=".pdf,.xlsx"
-                style={{ display: 'none' }}
-                disabled={trabajando}
-                onChange={(e) => {
-                  onSubir('ftt', e.target.files?.[0])
-                  e.target.value = ''
-                }}
-              />
-            </label>
           </div>
-          <p style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
-            PDF o Excel, maximo 15 MB. Mejor PDF: el Excel se muestra como extraccion. Si el codigo ya
-            tiene ese documento, lo reemplaza y sube la version.
-          </p>
-          {progreso && <p style={{ color: '#2563eb' }}>{progreso}</p>}
+
+          <div className={`tp-paso ${codigoListo ? '' : 'tp-paso-apagado'}`}>
+            <span className="tp-num">2</span>
+            <div style={{ flex: 1 }}>
+              <h3 style={{ margin: 0 }}>
+                {codigoListo ? (
+                  <>
+                    Sube el documento de <span className="tp-codigo">{codigoComoId(codigo)}</span>
+                  </>
+                ) : (
+                  'Sube el documento'
+                )}
+              </h3>
+              <p className="texto-suave" style={{ margin: '4px 0 10px' }}>
+                {!codigoListo
+                  ? 'Se habilita cuando el codigo este elegido arriba.'
+                  : ligueDelElegido?.length
+                    ? `Ligado a ${ligueDelElegido.length === 1 ? 'la OT' : 'las OT'} ${ligueDelElegido.map((x) => x.ot + (x.oc ? ` (OC ${x.oc})` : '')).join(', ')}.`
+                    : enPlan
+                      ? 'Ese codigo no esta en ninguna OT del plan vigente. Se puede subir igual.'
+                      : 'Leyendo el plan...'}
+              </p>
+              <div className="tp-fila">
+                <label className={`btn-primario tp-btn-archivo ${!codigoListo || trabajando ? 'apagado' : ''}`}>
+                  {trabajando ? 'Subiendo...' : 'Subir TECH PACK de empaque'}
+                  <input
+                    type="file"
+                    accept=".pdf,.xlsx"
+                    style={{ display: 'none' }}
+                    disabled={!codigoListo || trabajando}
+                    onChange={(e) => {
+                      onSubir('tp', e.target.files?.[0])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <label className={`btn-secundario tp-btn-archivo ${!codigoListo || trabajando ? 'apagado' : ''}`}>
+                  Subir FTT (ficha de tejido)
+                  <input
+                    type="file"
+                    accept=".pdf,.xlsx"
+                    style={{ display: 'none' }}
+                    disabled={!codigoListo || trabajando}
+                    onChange={(e) => {
+                      onSubir('ftt', e.target.files?.[0])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <span className="texto-suave" style={{ fontSize: 13 }}>
+                  PDF o Excel, maximo 15 MB. Mejor PDF. Si ya habia uno, lo reemplaza y sube la version.
+                </span>
+              </div>
+              {progreso && <p className="tp-progreso">{progreso}</p>}
+            </div>
+          </div>
         </div>
       )}
 
-      {error && <div className="alerta error">{error}</div>}
-      {aviso && <div className="alerta ok">{aviso}</div>}
-
+      {/* ------------------------------------------------ la biblioteca */}
       <div className="tarjeta">
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            placeholder="Buscar por codigo o descripcion"
-            value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
-            style={{ minWidth: 260 }}
-          />
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input type="checkbox" checked={soloSin} onChange={(e) => setSoloSin(e.target.checked)} />
-            Solo los que NO tienen tech pack
-          </label>
-          <span style={{ color: '#64748b', fontSize: 13 }}>{visibles.length} de {biblioteca.length}</span>
+        <div className="tp-fila" style={{ justifyContent: 'space-between' }}>
+          <h3 style={{ margin: 0 }}>Biblioteca</h3>
+          <div className="tp-fila">
+            <input
+              className="tp-input"
+              placeholder="Buscar por codigo o descripcion"
+              value={filtro}
+              onChange={(e) => setFiltro(e.target.value)}
+              style={{ width: 260 }}
+            />
+            <label className="tp-check">
+              <input type="checkbox" checked={soloSin} onChange={(e) => setSoloSin(e.target.checked)} />
+              Solo los que no tienen tech pack
+            </label>
+            <span className="texto-suave" style={{ fontSize: 13 }}>{visibles.length} de {biblioteca.length}</span>
+          </div>
         </div>
         {visibles.length === 0 ? (
-          <p style={{ color: '#64748b', marginTop: 10 }}>
-            {biblioteca.length === 0 ? 'La biblioteca esta vacia.' : 'Nada con ese filtro.'}
-          </p>
+          <div className="tp-vacio">
+            {biblioteca.length === 0 ? (
+              <>
+                <div className="tp-vacio-titulo">Todavia no hay nada en la biblioteca</div>
+                <div className="texto-suave">
+                  {puedeSubirTechPacks
+                    ? 'Arriba: escribe la orden de trabajo, elige el codigo y sube el tech pack.'
+                    : 'Cuando Lety suba el primer tech pack aparece aqui.'}
+                </div>
+              </>
+            ) : (
+              <div className="texto-suave">Nada con ese filtro.</div>
+            )}
+          </div>
         ) : (
-          <div style={{ overflowX: 'auto', marginTop: 10 }}>
-            <table>
+          <div style={{ overflowX: 'auto', marginTop: 12 }}>
+            <table className="tabla-datos">
               <thead>
                 <tr>
                   <th>Codigo</th>
@@ -343,12 +411,20 @@ export default function PanelTechPacks() {
               <tbody>
                 {visibles.map((b) => (
                   <tr key={b.id}>
-                    <td><strong>{b.codigo}</strong></td>
-                    <td>{b.descripcion || <span style={{ color: '#94a3b8' }}>sin descripcion</span>}</td>
-                    <td style={{ fontSize: 13 }}><LigueAlPlan lista={enPlan ? enPlan.get(b.codigo) : undefined} cargando={enPlan === null} /></td>
-                    <td><Documento item={b} tipo="tp" onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} /></td>
-                    <td><Documento item={b} tipo="ftt" onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} /></td>
-                    <td style={{ fontSize: 13, color: '#475569' }}>
+                    <td>
+                      <span className="tp-codigo">{b.codigo}</span>
+                    </td>
+                    <td>{b.descripcion || <span className="texto-suave">sin descripcion</span>}</td>
+                    <td style={{ fontSize: 13 }}>
+                      <LigueAlPlan lista={enPlan ? enPlan.get(b.codigo) : undefined} cargando={enPlan === null} />
+                    </td>
+                    <td>
+                      <Documento item={b} tipo="tp" onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} />
+                    </td>
+                    <td>
+                      <Documento item={b} tipo="ftt" onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} />
+                    </td>
+                    <td className="texto-suave" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
                       {fecha(b.actualizadoEn)}
                       {b.actualizadoPorNombre ? ` · ${b.actualizadoPorNombre}` : ''}
                     </td>
@@ -360,26 +436,31 @@ export default function PanelTechPacks() {
         )}
       </div>
 
+      {/* ------------------------------------------------ cruce con el plan */}
       <div className="tarjeta">
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <h3 style={{ margin: 0 }}>Ordenes de trabajo del plan sin tech pack</h3>
+        <div className="tp-fila" style={{ justifyContent: 'space-between' }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Ordenes de trabajo del plan sin tech pack</h3>
+            <p className="texto-suave" style={{ margin: '4px 0 0', fontSize: 13 }}>
+              Por cada OT del plan vigente, los codigos a los que les falta el tech pack de empaque: lo
+              que Lindbergh no va a poder pegar al encargar la tarea.
+            </p>
+          </div>
           <button className="btn-secundario" onClick={onCruzar} disabled={cruce === 'cargando'}>
             {cruce === 'cargando' ? 'Cruzando...' : cruce ? 'Volver a cruzar' : 'Cruzar con el plan maestro'}
           </button>
         </div>
-        <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
-          Por cada OT del plan vigente, los codigos a los que les falta el tech pack de empaque. Es lo
-          que Lindbergh no va a poder pegar al encargar la tarea.
-        </p>
-        {Array.isArray(cruce) && (
-          otsConFaltantes.length === 0 ? (
-            <p style={{ color: '#16a34a', marginTop: 8 }}>Todas las OT del plan tienen tech pack para todos sus codigos.</p>
+        {Array.isArray(cruce) &&
+          (otsConFaltantes.length === 0 ? (
+            <p className="tp-ok" style={{ marginTop: 12 }}>
+              Todas las OT del plan tienen tech pack para todos sus codigos.
+            </p>
           ) : (
-            <div style={{ overflowX: 'auto', marginTop: 8 }}>
-              <p style={{ color: '#b45309' }}>
+            <div style={{ overflowX: 'auto', marginTop: 12 }}>
+              <p className="tp-aviso">
                 <strong>{otsConFaltantes.length}</strong> de {cruce.length} OT tienen al menos un codigo sin tech pack.
               </p>
-              <table>
+              <table className="tabla-datos">
                 <thead>
                   <tr>
                     <th>OT</th>
@@ -391,20 +472,28 @@ export default function PanelTechPacks() {
                 <tbody>
                   {otsConFaltantes.map((o) => (
                     <tr key={o.ot}>
-                      <td><strong>{o.ot}</strong></td>
-                      <td>{o.oc || <span style={{ color: '#94a3b8' }}>sin OC</span>}</td>
+                      <td>
+                        <strong>{o.ot}</strong>
+                      </td>
+                      <td>{o.oc || <span className="texto-suave">sin OC</span>}</td>
                       <td>{o.destino}</td>
                       <td>
-                        {o.faltan.join(', ')}
-                        <span style={{ color: '#64748b' }}> ({o.faltan.length} de {o.total})</span>
+                        {o.faltan.map((c) => (
+                          <span key={c} className="tp-pill tp-pill-falta">
+                            {c}
+                          </span>
+                        ))}
+                        <span className="texto-suave" style={{ fontSize: 13 }}>
+                          {' '}
+                          ({o.faltan.length} de {o.total})
+                        </span>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )
-        )}
+          ))}
       </div>
 
       {visor && (
@@ -418,47 +507,52 @@ export default function PanelTechPacks() {
   )
 }
 
-function Dato({ titulo, valor, color }) {
+function Tile({ titulo, valor, tono = '' }) {
   return (
-    <div style={{ minWidth: 150 }}>
-      <div style={{ fontSize: 12, color: '#64748b' }}>{titulo}</div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: color || '#0f172a' }}>{valor}</div>
-    </div>
-  )
-}
-
-function Documento({ item, tipo, onVer, onQuitar, puedeEditar, ocupado }) {
-  const m = item[TIPOS[tipo].campo]
-  if (!m?.totalChunks) return <span style={{ color: tipo === 'tp' ? '#dc2626' : '#94a3b8' }}>{tipo === 'tp' ? 'FALTA' : '—'}</span>
-  return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-      <button className="btn-secundario" onClick={() => onVer({ codigo: item.codigo, tipo, manifiesto: m })}>
-        Ver
-      </button>
-      <span style={{ fontSize: 12, color: '#475569' }}>
-        v{m.version || 1} · {m.formato?.toUpperCase()} · {mb(m.tamano)} · {fecha(m.subidoEn)}
-      </span>
-      {puedeEditar && (
-        <button className="btn-secundario" style={{ color: '#dc2626' }} disabled={ocupado} onClick={() => onQuitar(item, tipo)}>
-          Quitar
-        </button>
-      )}
+    <div className={`tp-tile ${tono ? 'tp-tile-' + tono : ''}`}>
+      <div className="tp-tile-valor">{valor}</div>
+      <div className="tp-tile-titulo">{titulo}</div>
     </div>
   )
 }
 
 function LigueAlPlan({ lista, cargando }) {
-  if (cargando) return <span style={{ color: '#94a3b8' }}>leyendo el plan...</span>
-  if (!lista?.length) return <span style={{ color: '#d97706' }}>sin OT en el plan vigente</span>
+  if (cargando) return <span className="texto-suave">leyendo el plan...</span>
+  if (!lista?.length) return <span className="tp-pill tp-pill-aviso">sin OT en el plan</span>
   return (
     <span>
-      {lista.map((x, i) => (
-        <span key={x.ot}>
-          {i > 0 ? ', ' : ''}
-          <strong>{x.ot}</strong>
-          {x.oc ? <span style={{ color: '#64748b' }}> (OC {x.oc})</span> : <span style={{ color: '#94a3b8' }}> (sin OC)</span>}
+      {lista.map((x) => (
+        <span key={x.ot} className="tp-pill">
+          {x.ot}
+          {x.oc ? <span className="texto-suave"> · OC {x.oc}</span> : null}
         </span>
       ))}
     </span>
+  )
+}
+
+function Documento({ item, tipo, onVer, onQuitar, puedeEditar, ocupado }) {
+  const m = item[TIPOS[tipo].campo]
+  if (!m?.totalChunks) {
+    return tipo === 'tp' ? (
+      <span className="tp-pill tp-pill-falta">FALTA</span>
+    ) : (
+      <span className="texto-suave">—</span>
+    )
+  }
+  return (
+    <div className="tp-doc">
+      <button className="btn-secundario tp-btn-chico" onClick={() => onVer({ codigo: item.codigo, tipo, manifiesto: m })}>
+        Ver
+      </button>
+      <span className="texto-suave" style={{ fontSize: 12 }}>
+        v{m.version || 1} · {m.formato?.toUpperCase()} · {mb(m.tamano)} · {fecha(m.subidoEn)}
+      </span>
+      {puedeEditar && (
+        <button className="tp-quitar" disabled={ocupado} onClick={() => onQuitar(item, tipo)}>
+          Quitar
+        </button>
+      )}
+    </div>
   )
 }
