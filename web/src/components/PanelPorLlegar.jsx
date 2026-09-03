@@ -433,6 +433,7 @@ export default function PanelRecibeDeMaquila() {
                 <th>Folio de salida</th>
                 <th>Maquila</th>
                 <th>¿Cuadró?</th>
+                <th>Qué llegó, por orden de trabajo</th>
                 <th>Quién recibió</th>
               </tr>
             </thead>
@@ -448,6 +449,26 @@ export default function PanelRecibeDeMaquila() {
                       : `No — ${r.renglonesConProblema} ${
                           r.renglonesConProblema === 1 ? 'orden' : 'órdenes'
                         }`}
+                  </td>
+                  {/* El detalle que Valeria pidio el 03-09: sin abrir el acta,
+                      ver de cada OT cuanto salio, cuanto llego y que paso. */}
+                  <td style={{ fontSize: 13 }}>
+                    {(r.renglones || []).map((g, i) => (
+                      <div key={i} style={{ marginBottom: 4, color: COLOR_ESTADO[g.estado] || '#0f172a' }}>
+                        <strong>{g.ot || SIN_OT}</strong>
+                        {g.descripcion ? <span className="texto-suave"> · {g.descripcion}</span> : null}
+                        {' · '}
+                        {g.docenasRecibidas == null
+                          ? `sin contar (salieron ${g.docenasEnviadas} doc)`
+                          : `${g.docenasRecibidas} de ${g.docenasEnviadas} doc`}
+                        {' · '}
+                        {ETIQUETA_ESTADO[g.estado] || g.estado}
+                        {g.estado === 'faltante' && ` (faltaron ${g.docenasEnviadas - g.docenasRecibidas})`}
+                        {g.estado === 'sobrante' && ` (de más ${g.docenasRecibidas - g.docenasEnviadas})`}
+                        {g.nota ? <span className="texto-suave"> — {g.nota}</span> : null}
+                      </div>
+                    ))}
+                    {r.nota ? <div className="texto-suave">Nota: {r.nota}</div> : null}
                   </td>
                   <td>{r.recibidoPorNombre || '—'}</td>
                 </tr>

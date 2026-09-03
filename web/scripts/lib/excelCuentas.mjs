@@ -37,11 +37,13 @@ export const QUE_VE = {
   almacen: 'Avios: pedidos de material, envios, inventario y catalogo',
   captura: 'Solo Captura: leer folio y pesar',
   produccion: 'Sube el plan maestro (que OT cuelgan de cada orden de compra)',
-  maquila: 'Solo su portal: lo que recibe, su material y su inventario'
+  maquila: 'Solo su portal: lo que recibe, su material y su inventario',
+  pt: 'Producto Terminado: recibe lo que devuelven las maquilas, embarca al cliente e inventario de PT',
+  desarrollo: 'Desarrollo de Producto (Lety): sube los tech packs a la biblioteca, por codigo. Nada mas'
 }
 
 /** Los roles internos que puede tener alguien de Quini. */
-export const ROLES_INTERNOS = ['admin', 'completo', 'consulta', 'almacen', 'captura', 'produccion']
+export const ROLES_INTERNOS = ['admin', 'completo', 'consulta', 'almacen', 'captura', 'produccion', 'pt', 'desarrollo']
 
 // Alfabeto sin caracteres que se confunden al dictar por telefono o teclear
 // a mano: nada de l/I/1, O/0, 5/S.

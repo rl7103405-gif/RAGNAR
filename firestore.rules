@@ -51,7 +51,10 @@ service cloud.firestore {
       //   pt         -> Valeria, Producto Terminado: recibe lo que devuelven las
       //                 maquilas y lleva su inventario. NO paga ni pone precios
       //                 (eso es de Cielo) ni captura folios.
-      return rol() in ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion', 'pt']
+      //   desarrollo -> Lety, Desarrollo de Producto: sube los TECH PACKS a la
+      //                 biblioteca (por codigo). No captura, no embarca, no
+      //                 encarga tareas ni ve inventarios.
+      return rol() in ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion', 'pt', 'desarrollo']
         // Defensa en profundidad: un perfil que trae 'maquilaId' es de una
         // empresa EXTERNA y jamas es interno, aunque su rol diga otra cosa.
         // Sin esto, una cuenta hibrida (rol interno + maquilaId) le abriria a
@@ -1167,7 +1170,8 @@ service cloud.firestore {
     // contenido de 'capturas' se valida solo en forma (lista del mismo
     // tamano que folios).
     match /pdfsGenerados/{registroId} {
-      allow read: if esInterno();
+      // desarrollo (Lety) no ve esto: sube tech packs, no opera.
+      allow read: if esInterno() && rol() != 'desarrollo';
       allow create: if puedeEmbarcar()
         // Una cuenta de prueba solo puede emitir a la maquila ficticia, y el
         // registro nace con esPrueba:true (una cuenta real NO puede escribir
@@ -1291,7 +1295,8 @@ service cloud.firestore {
       // importes. Un pesador y Adrian no participan del embarque y no tienen
       // por que ver lo que se le cobra a un cliente. Mismo criterio que
       // puedeVerReportesMaquila().
-      allow read: if esInterno() && !(rol() in ['captura', 'produccion']);
+      // desarrollo (Lety) no ve esto: sube tech packs, no opera; el PL trae precio de venta.
+      allow read: if esInterno() && !(rol() in ['captura', 'produccion', 'desarrollo']);
       // Quien embarca al cliente es Producto Terminado. Cielo NO: ella lleva
       // los pagos a maquilas, no la salida al cliente.
       allow create: if esInterno()
@@ -2352,7 +2357,8 @@ service cloud.firestore {
     // tallas"). Con la llave por codigo, RBFW26T412 pedia capturar seis veces
     // el mismo precio, y el sexto se iba a quedar sin poner.
     match /portalMaquila/{maquilaId}/preciosEnsamble/{modelo} {
-      allow read: if esInterno() || esMaquilaDe(maquilaId);
+      // desarrollo (Lety) no ve esto: sube tech packs, no opera; trae lo que se le paga a la maquila.
+      allow read: if (esInterno() && rol() != 'desarrollo') || esMaquilaDe(maquilaId);
       // mismoMundoMaquila y NO soloCuentaReal: una cuenta de prueba SI debe
       // poder ponerle precios a la maquila ficticia (es su corral), y una
       // cuenta real NO debe tocarla. soloCuentaReal bloqueaba la prueba
@@ -2773,5 +2779,142 @@ service cloud.firestore {
         && request.resource.data.direccion.size() <= 300;
       allow delete: if false;
     }
+
+    // ===================================================================
+    // BIBLIOTECA DE TECH PACKS (2026-09-03)
+    // ===================================================================
+    // Lety sube, POR CODIGO, el tech pack de empaque (B6) y la ficha tecnica
+    // de tejido (FTT, B2). Son dos documentos distintos y viven en dos campos
+    // distintos del mismo documento: techPack y ftt. A la tarea de ensamble
+    // solo se pega el tech pack; la FTT es para el tablero.
+    //
+    // El original es PERMANENTE: al pegarlo a una tarea se COPIAN los chunks
+    // a la tarea, y lo que se borra al cerrarla es esa copia. Aqui nadie borra
+    // salvo quien sube.
+    //
+    // Los archivos van troceados igual que en las tareas: chunks de hasta
+    // 950 KB con id '<tipo>-NN' (tp-00..tp-16, ftt-00..ftt-16), manifiesto
+    // con sha256 en el documento padre.
+    function puedeSubirTechPacks() {
+      return esInterno() && rol() in ['admin', 'desarrollo'];
+    }
+    // Quien VE la biblioteca: el que sube, el que encarga tareas (Lindbergh)
+    // y direccion/embarques ('completo': el papa). Cielo (consulta) tambien,
+    // por seguimiento. Los pesadores, Adrian y Valeria (pt) no la necesitan:
+    // la lista es la MISMA que las pestanas de Estacion.jsx, a proposito.
+    function puedeVerTechPacks() {
+      return esInterno() && (puedeSubirTechPacks() || puedeCrearTareas()
+        || rol() in ['completo']);
+    }
+    function manifiestoTechPackValido(m) {
+      return m is map
+        && m.keys().hasAll(['nombre', 'formato', 'tamano', 'totalChunks', 'sha256', 'version', 'subidoEn', 'subidoPorUid', 'subidoPorNombre'])
+        && m.keys().hasOnly(['nombre', 'formato', 'tamano', 'totalChunks', 'sha256', 'version', 'subidoEn', 'subidoPorUid', 'subidoPorNombre'])
+        && m.nombre is string && m.nombre.size() > 0 && m.nombre.size() <= 200
+        && m.formato in ['pdf', 'xlsx']
+        && m.tamano is int && m.tamano > 0 && m.tamano <= 15728640
+        && m.totalChunks is int && m.totalChunks >= 1 && m.totalChunks <= 17
+        && m.sha256 is string && m.sha256.matches('^[0-9a-f]{64}$')
+        && m.version is int && m.version >= 1
+        && m.subidoEn is timestamp
+        // NO se exige subidoPorUid == request.auth.uid aqui: eso viviria mal
+        // en un validador de FORMA que corre igual en create y en update. La
+        // propiedad "solo quien firma puede tocar SU manifiesto" se exige en
+        // el update de mas abajo (campoDeManifiestoOk), campo por campo.
+        && m.subidoPorUid is string && m.subidoPorUid.size() > 0
+        && m.subidoPorNombre is string && m.subidoPorNombre.size() <= 120;
+    }
+    function techPackDocValido(d) {
+      return d.keys().hasAll(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba'])
+        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba'])
+        && d.codigo is string && d.codigo.size() > 0 && d.codigo.size() <= 60
+        && d.descripcion is string && d.descripcion.size() <= 200
+        // Obligatorio y booleano SIEMPRE (nunca opcional, a diferencia de
+        // otras colecciones que usan marcaDePruebaCoherente): asi el where()
+        // de la biblioteca (escucharBiblioteca) puede filtrar por esPrueba en
+        // el servidor sin que la regla dependa de un default.
+        && d.esPrueba is bool
+        && (d.techPack == null || manifiestoTechPackValido(d.techPack))
+        && (d.ftt == null || manifiestoTechPackValido(d.ftt))
+        && d.actualizadoEn is timestamp
+        && d.actualizadoPorUid == request.auth.uid
+        && d.actualizadoPorNombre is string && d.actualizadoPorNombre.size() <= 120;
+    }
+    // El corral tambien va en el ID del documento, no solo en el campo
+    // esPrueba (como los folios internos ZZTEST): sin esto, una cuenta de
+    // prueba con rol admin podia crear techPacks/WKD225T401 con esPrueba:true
+    // y dejar ese codigo real INUTILIZABLE para Lety (update/read/chunks le
+    // fallan por mundo distinto, y el documento no se puede borrar desde el
+    // cliente -- delete es siempre false).
+    function codigoTechPackDelMundoOk(codigo) {
+      return esCuentaDePrueba() ? codigo.matches('^ZZTEST.*') : !codigo.matches('^ZZTEST.*');
+    }
+    // En UPDATE, cada manifiesto (techPack, ftt) solo se puede tocar si: se
+    // deja igual, se quita (null), o quien firma el manifiesto NUEVO es quien
+    // esta escribiendo. Antes techPackDocValido exigia subidoPorUid ==
+    // request.auth.uid en LOS DOS manifiestos en cada update, y eso bloqueaba
+    // a Lety si Roberto habia subido la FTT: no podia ni tocar el tech pack
+    // de empaque sin antes anular el manifiesto ajeno.
+    function campoDeManifiestoOk(campo) {
+      return request.resource.data[campo] == resource.data[campo]
+        || request.resource.data[campo] == null
+        || request.resource.data[campo].subidoPorUid == request.auth.uid;
+    }
+    match /techPacks/{codigo} {
+      // En un GET de un documento que no existe, 'resource' es null (no hay
+      // dato que leer): sin ese caso aparte, desreferenciar resource.data
+      // tronaba con permission-denied en vez de exists()==false, y eso
+      // rompia getDoc() en guardarEnBiblioteca (para saber si el codigo es
+      // nuevo) y el Promise.all de techPacksDeLaOt.
+      allow read: if puedeVerTechPacks()
+        && (resource == null || resource.data.esPrueba == esCuentaDePrueba());
+      // El id ES el codigo: asi un codigo tiene un solo documento y las
+      // busquedas por OT son lecturas directas, sin consulta.
+      allow create: if puedeSubirTechPacks()
+        && request.resource.data.codigo == codigo
+        && techPackDocValido(request.resource.data)
+        && request.resource.data.techPack == null
+        && request.resource.data.ftt == null
+        && request.resource.data.creadoEn is timestamp
+        && request.resource.data.creadoPorUid == request.auth.uid
+        && request.resource.data.esPrueba == esCuentaDePrueba()
+        && codigoTechPackDelMundoOk(codigo);
+      // Al actualizar solo se mueven los manifiestos y el sello de quien lo
+      // hizo. codigo, creadoEn y la marca de prueba quedan como nacieron.
+      allow update: if puedeSubirTechPacks()
+        && resource.data.esPrueba == esCuentaDePrueba()
+        && techPackDocValido(request.resource.data)
+        && request.resource.data.codigo == resource.data.codigo
+        && request.resource.data.creadoEn == resource.data.creadoEn
+        && request.resource.data.creadoPorUid == resource.data.creadoPorUid
+        && request.resource.data.esPrueba == resource.data.esPrueba
+        && campoDeManifiestoOk('techPack')
+        && campoDeManifiestoOk('ftt')
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['techPack', 'ftt', 'descripcion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre']);
+      // No se borra el documento: se quitan los manifiestos (update a null).
+      // Un codigo que existio deja rastro de quien lo toco y cuando.
+      allow delete: if false;
+    }
+    match /techPacks/{codigo}/chunks/{chunkId} {
+      // El get() del padre ya garantiza que exista: si no existe, se deniega
+      // (y esta bien -- no se puede subir un chunk sin el manifiesto padre).
+      allow read: if puedeVerTechPacks()
+        && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;
+      allow create, update: if puedeSubirTechPacks()
+        && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba
+        && chunkId.matches('^(tp|ftt)-(0[0-9]|1[0-6])$')
+        && request.resource.data.keys().hasAll(['codigo', 'tipo', 'datos'])
+        && request.resource.data.keys().hasOnly(['codigo', 'tipo', 'datos'])
+        && request.resource.data.codigo == codigo
+        && request.resource.data.tipo in ['tp', 'ftt']
+        && chunkId.matches('^' + request.resource.data.tipo + '-.*$')
+        && request.resource.data.datos is bytes
+        && request.resource.data.datos.size() > 0
+        && request.resource.data.datos.size() <= 950000;
+      allow delete: if puedeSubirTechPacks()
+        && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;
+    }
+
   }
 }

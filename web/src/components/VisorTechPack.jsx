@@ -15,6 +15,7 @@
 import { cargarWorkbook } from '../utils/excelJs.js'
 import { useEffect, useRef, useState } from 'react'
 import { descargarTechPack, ErrorTareaEnsamble } from '../utils/tareasEnsamble'
+import { ErrorBiblioteca } from '../utils/techPacks'
 
 // Topes del render de XLSX: un Excel chico puede descomprimirse enorme y
 // congelar la pestana. Lo que pase del tope se avisa, no se truena.
@@ -35,7 +36,9 @@ function celdaATexto(valor) {
   return String(valor)
 }
 
-export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar }) {
+// `cargar` (opcional): quien tenga el archivo en otro lado (la biblioteca de
+// tech packs) pasa su propia funcion que devuelve el ArrayBuffer ya validado.
+export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, cargar }) {
   const [estado, setEstado] = useState('cargando') // cargando | listo | error
   const [mensaje, setMensaje] = useState('Bajando el tech pack...')
   const [hojas, setHojas] = useState([]) // xlsx: [{nombre, filas, imagenes, recortada}]
@@ -50,11 +53,13 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar }
 
   useEffect(() => {
     let cancelado = false
-    const cargar = async () => {
+    // OJO: no se llama 'cargar' porque ese es el PROP (la biblioteca pasa su
+    // propio lector); con el mismo nombre la funcion se llamaba a si misma.
+    const cargarArchivo = async () => {
       try {
         setEstado('cargando')
         setMensaje('Bajando el tech pack...')
-        const buffer = await descargarTechPack({ maquilaId, tareaId, techPack })
+        const buffer = cargar ? await cargar() : await descargarTechPack({ maquilaId, tareaId, techPack })
         if (cancelado) return
         if (techPack.formato === 'pdf') {
           await renderPdf(buffer)
@@ -67,7 +72,7 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar }
         if (cancelado) return
         setEstado('error')
         setMensaje(
-          err instanceof ErrorTareaEnsamble
+          err instanceof ErrorTareaEnsamble || err instanceof ErrorBiblioteca
             ? err.message
             : 'No se pudo abrir el tech pack: ' + (err.message || err)
         )
@@ -152,7 +157,7 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar }
       setHojaActiva(0)
     }
 
-    cargar()
+    cargarArchivo()
     return () => {
       cancelado = true
       urlsCreadas.current.forEach((u) => URL.revokeObjectURL(u))

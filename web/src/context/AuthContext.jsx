@@ -67,7 +67,7 @@ export function AuthProvider({ children }) {
   // vez de una app que se ve completa y truena en cada boton.
   //   produccion -> Adrian (jefe de produccion): sube el plan maestro que
   //                 agrupa las OT bajo su orden de compra. No opera embarques.
-  const ROLES_INTERNOS = ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion', 'pt']
+  const ROLES_INTERNOS = ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion', 'pt', 'desarrollo']
   const rol = perfil?.rol || ''
   // Mismo criterio que las reglas: un perfil con maquilaId NUNCA es interno,
   // aunque traiga un rol interno. Sin esto, un perfil hibrido veria la UI
@@ -141,6 +141,10 @@ export function AuthProvider({ children }) {
     administraCatalogoAvios:
       esInterno && (rol === 'admin' || perfil?.administraCatalogoAvios === true),
     recibeProductoTerminado: esInterno && (rol === 'admin' || rol === 'pt'),
+    // Lety (rol 'desarrollo'): sube los TECH PACKS a la biblioteca, por codigo.
+    // No captura, no embarca, no encarga tareas. El admin tambien sube.
+    soloDesarrollo: esInterno && rol === 'desarrollo',
+    puedeSubirTechPacks: esInterno && (rol === 'admin' || rol === 'desarrollo'),
     cargando,
     iniciarSesion,
     cerrarSesion

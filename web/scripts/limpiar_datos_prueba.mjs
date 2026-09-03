@@ -59,7 +59,12 @@ console.log(ejecutar ? '== MODO REAL: se borra ==\n' : '== ENSAYO: no se borra n
 // diria "nada que limpiar" antes de mirar maquilas.
 const perfilesPrueba = await db.collection('usuarios').where('esPrueba', '==', true).get()
 const maquilasPrueba = await db.collection('maquilas').where('esPrueba', '==', true).get()
-if (perfilesPrueba.empty && maquilasPrueba.empty) {
+// techPacks (2026-09-03): coleccion nueva, con su propio corral en el campo
+// esPrueba (booleano obligatorio, ver firestore.rules, techPackDocValido) y
+// en el prefijo ZZTEST del id. Se busca por CAMPO, no por uid de quien subio:
+// lo que importa para el corral es el mundo del documento, no quien lo toco.
+const techPacksPrueba = await db.collection('techPacks').where('esPrueba', '==', true).get()
+if (perfilesPrueba.empty && maquilasPrueba.empty && techPacksPrueba.empty) {
   console.log('No hay ninguna cuenta ni maquila marcada como de prueba (esPrueba:true). Nada que limpiar.')
   process.exit(0)
 }
@@ -379,6 +384,12 @@ if (borrarCuentas) {
 if (rutasPortal.length) {
   console.log(`      1+  portal completo de: ${idsMaquilaPrueba.join(', ')}  (cantidad no contada en el total)`)
 }
+if (techPacksPrueba.size) {
+  console.log(
+    `      1+  tech pack(s) de prueba con sus chunks: ${techPacksPrueba.docs.map((d) => d.id).join(', ')}` +
+      '  (cantidad no contada en el total)'
+  )
+}
 if (apartadosPrueba.length) {
   total += apartadosPrueba.length
   console.log(`  ${String(apartadosPrueba.length).padStart(5)}  apartados de ordenes de trabajo del mundo de prueba (otsAsignadas)`)
@@ -506,6 +517,9 @@ if (!ejecutar) {
   if (rutasPortal.length) {
     console.log(`   (+ el portal completo de ${idsMaquilaPrueba.join(', ')}: cantidad no contada arriba)`)
   }
+  if (techPacksPrueba.size) {
+    console.log(`   (+ ${techPacksPrueba.size} tech pack(s) de prueba con sus chunks: cantidad no contada arriba)`)
+  }
   console.log('Para aplicarlo:  EJECUTAR=1 node scripts/limpiar_datos_prueba.mjs')
   if (remisionesPurasDePrueba.length) {
     console.log(`Para borrar tambien las ${remisionesPurasDePrueba.length} remision(es) de puros folios de prueba: agrega BORRAR_PDFS=1`)
@@ -555,6 +569,13 @@ if (borrarPdfs) {
 for (const ref of rutasPortal) {
   await db.recursiveDelete(ref)
   console.log(`  vaciado el portal de ${ref.id}`)
+}
+
+// techPacks de prueba: recursiveDelete se lleva tambien la subcoleccion
+// chunks (igual que rutasPortal con acuses/avios/tareasEnsamble).
+for (const d of techPacksPrueba.docs) {
+  await db.recursiveDelete(d.ref)
+  console.log(`  tech pack de prueba borrado (con sus chunks): ${d.id}`)
 }
 
 // Los apartados de prueba. Van DESPUES del portal: si se borraran antes, las

@@ -31,6 +31,7 @@ import PanelMaquilasTodo from '../components/PanelMaquilasTodo'
 import PanelOrdenesYPlan from '../components/PanelOrdenesYPlan'
 import PanelMiEquipo from '../components/PanelMiEquipo'
 import PanelMiPerfil from '../components/PanelMiPerfil'
+import PanelTechPacks from '../components/PanelTechPacks'
 import { useAuth } from '../context/AuthContext'
 
 const TABS = [
@@ -60,6 +61,9 @@ const TABS = [
   // reporte de Microsip "Pendientes de surtir por cliente" que Valeria usa.
   // Roberto, 2026-09-03: "pon el inventario de PT tambien ahi".
   { id: 'inventariopt', label: 'Inventario de PT' },
+  // La biblioteca de Lety y el tablero de que OT siguen sin tech pack
+  // (Roberto, 2026-09-03: 'que vivan en RAGNAR').
+  { id: 'techpacks', label: 'Tech packs' },
   { id: 'registros', label: 'Registros' },
   // Copiadas de captura-mecanicos, que ya las tenia (Roberto, 19-08). Van al
   // final: se consultan de vez en cuando, no son trabajo diario.
@@ -108,6 +112,9 @@ const TABS_PT = ['porllegar', 'embarcar', 'inventariopt', 'maquilas', 'reportes'
 // mismo lugar que quedo bien amarrado.
 const TABS_PRODUCCION = ['ordenes']
 
+// Lety (rol 'desarrollo'): sube tech packs y ve que falta. Nada mas.
+const TABS_DESARROLLO = ['techpacks']
+
 // 'Mi equipo' (la plantilla) es para direccion y embarques. 'Mi perfil' lo ve
 // TODO el mundo — Roberto fue explicito el 19-08: "Juan, Angel, todos, todos
 // pueden tener lo de mi perfil". Ahi cada quien cambia su contrasena sin
@@ -127,6 +134,7 @@ const TABS_COMPLETO = [
   'reportes',
   'indicadores',
   'maquilas',
+  'techpacks',
   'registros'
 ]
 
@@ -140,6 +148,7 @@ export default function Estacion() {
     esInterno,
     esMaquila,
     puedeCrearTareas,
+    soloDesarrollo,
     puedeSubirPlanMaestro,
     soloProduccion,
     rol,
@@ -206,6 +215,8 @@ export default function Estacion() {
   // el rol.
   const base = soloCaptura
     ? TABS_CAPTURA
+    : soloDesarrollo
+      ? TABS_DESARROLLO
     : soloProduccion
       ? TABS_PRODUCCION
     : soloPT
@@ -269,6 +280,7 @@ export default function Estacion() {
       {tabActiva === 'miequipo' && <PanelMiEquipo />}
       {tabActiva === 'miperfil' && <PanelMiPerfil />}
       {tabActiva === 'registros' && <PanelAutorizaciones />}
+      {tabActiva === 'techpacks' && <PanelTechPacks />}
     </Layout>
   )
 }

@@ -14,6 +14,7 @@ import { sujetoDelPermiso, TIPO_PERMISO_OT } from '../utils/otsAsignadas'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
 import VisorTechPack from './VisorTechPack'
+import { ErrorBiblioteca, pegarTechPackATarea, techPacksDeLaOt } from '../utils/techPacks'
 import {
   ESTADOS_TAREA_ENSAMBLE,
   ErrorTareaEnsamble,
@@ -43,6 +44,8 @@ export default function PanelTareasMaquila() {
   const [progreso, setProgreso] = useState('')
   const [trabajando, setTrabajando] = useState(null)
   const [visor, setVisor] = useState(null) // { maquilaId, tareaId, techPack }
+  // { tareaId, conTechPack, sinTechPack, codigos } mientras se elige de la biblioteca
+  const [biblioteca, setBiblioteca] = useState(null)
   const [mostrarCerradas, setMostrarCerradas] = useState(false)
 
   const [nueva, setNueva] = useState({ maquilaId: '', ot: '', fechaRequerida: '', notas: '' })
@@ -99,6 +102,75 @@ export default function PanelTareasMaquila() {
     }
     setError(err instanceof ErrorTareaEnsamble ? err.message : String(err?.message || err))
   }
+  // "Pegar de la biblioteca": la OT de la tarea se resuelve a codigos con el
+  // plan maestro y se buscan sus tech packs. Si hay uno solo se pega directo;
+  // si hay varios, Lindbergh elige (una tarea lleva UN tech pack).
+  const onBuscarEnBiblioteca = async (tarea) => {
+    setError('')
+    setAviso('')
+    if (!tarea.ot) {
+      setError('Esta tarea no tiene orden de trabajo: la biblioteca se busca por OT. Sube el archivo a mano.')
+      return
+    }
+    setTrabajando(tarea.id)
+    try {
+      const r = await techPacksDeLaOt(tarea.ot, esPrueba)
+      if (!r.codigos.length) {
+        setError(`El plan maestro no conoce la OT ${tarea.ot}: no hay contra que buscar. Sube el archivo a mano o pide a Adrian que suba el plan.`)
+        return
+      }
+      if (!r.conTechPack.length) {
+        setError(`Ninguno de los ${r.codigos.length} codigos de la OT ${tarea.ot} tiene tech pack en la biblioteca (${r.sinTechPack.map((x) => x.codigo).join(', ')}). Falta que Lety lo suba.`)
+        return
+      }
+      if (r.conTechPack.length === 1) {
+        await onPegarDeBiblioteca(tarea, r.conTechPack[0])
+        return
+      }
+      setBiblioteca({ tareaId: tarea.id, ...r })
+    } catch (err) {
+      reportar(err)
+    } finally {
+      setTrabajando(null)
+    }
+  }
+
+  const onPegarDeBiblioteca = async (tarea, elegido) => {
+    setBiblioteca(null)
+    if (!tarea) {
+      setError('Esa tarea ya no esta en la lista: vuelve a intentarlo.')
+      return
+    }
+    setTrabajando(tarea.id)
+    try {
+      // Primero se baja y valida el original; solo si esta integro se pone la
+      // tarea en 'preparando' (la maquila deja de verla). Al reves, un origen
+      // corrupto dejaba la tarea sin tech pack y fuera de la vista de la maquila.
+      const contenido = await pegarTechPackATarea({
+        soloValidar: true,
+        codigo: elegido.codigo,
+        techPack: elegido.techPack,
+        onProgreso: setProgreso
+      })
+      if (tarea.estado === 'abierta') await prepararCambioDeTechPack(tarea.maquilaId, tarea.id)
+      await pegarTechPackATarea({
+        codigo: elegido.codigo,
+        techPack: elegido.techPack,
+        contenido,
+        maquilaId: tarea.maquilaId,
+        tareaId: tarea.id,
+        onProgreso: setProgreso
+      })
+      setAviso(`Tech pack de ${elegido.codigo} pegado a "${tarea.titulo}": la maquila ya lo puede ver.`)
+    } catch (err) {
+      if (err instanceof ErrorBiblioteca) setError(err.message)
+      else reportar(err)
+    } finally {
+      setProgreso('')
+      setTrabajando(null)
+    }
+  }
+
 
   /**
    * Pedirle al admin permiso para repartir una orden entre dos maquilas.
@@ -785,6 +857,14 @@ export default function PanelTareasMaquila() {
         )}
         {t.estado === 'preparando' && (
           <>
+            <button
+              className="btn-primario"
+              disabled={trabajando === t.id}
+              onClick={() => onBuscarEnBiblioteca(t)}
+              title="Busca en la biblioteca de Lety los tech packs de los codigos de esta OT"
+            >
+              Pegar de la biblioteca
+            </button>
             <label className="btn-secundario" style={{ cursor: 'pointer' }}>
               {trabajando === t.id ? 'Subiendo...' : 'Subir el tech pack (se corto la subida)'}
               <input
@@ -809,6 +889,14 @@ export default function PanelTareasMaquila() {
         )}
         {t.estado === 'abierta' && (
           <>
+            <button
+              className="btn-secundario"
+              disabled={trabajando === t.id}
+              onClick={() => onBuscarEnBiblioteca(t)}
+              title="Busca en la biblioteca de Lety los tech packs de los codigos de esta OT"
+            >
+              {t.techPack ? 'Cambiar por uno de la biblioteca' : 'Pegar de la biblioteca'}
+            </button>
             <label className="btn-secundario" style={{ cursor: 'pointer' }}>
               {t.techPack ? 'Cambiar tech pack' : 'Adjuntar tech pack'}
               <input
@@ -1290,6 +1378,30 @@ export default function PanelTareasMaquila() {
       </div>
 
       {visor && <VisorTechPack {...visor} onCerrar={() => setVisor(null)} />}
+      {biblioteca && (
+        <div className="tarjeta" style={{ position: 'fixed', bottom: 16, right: 16, maxWidth: 520, zIndex: 50, boxShadow: '0 8px 30px rgba(0,0,0,.25)' }}>
+          <h3 style={{ marginTop: 0 }}>Esta OT trae varios tech packs. ¿Cual va?</h3>
+          <p style={{ fontSize: 13, color: '#475569' }}>
+            Una tarea lleva UN tech pack. Si la maquila necesita mas de uno, encarga una tarea por codigo.
+          </p>
+          {biblioteca.conTechPack.map((c) => (
+            <button
+              key={c.codigo}
+              className="btn-secundario"
+              style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 6 }}
+              onClick={() => onPegarDeBiblioteca(tareas.find((x) => x.id === biblioteca.tareaId), c)}
+            >
+              <strong>{c.codigo}</strong> {c.descripcion ? `· ${c.descripcion}` : ''} · {c.techPack.nombre}
+            </button>
+          ))}
+          {biblioteca.sinTechPack.length > 0 && (
+            <p style={{ fontSize: 12, color: '#b45309' }}>
+              Sin tech pack en la biblioteca: {biblioteca.sinTechPack.map((x) => x.codigo).join(', ')}
+            </p>
+          )}
+          <button className="btn-secundario" onClick={() => setBiblioteca(null)}>Cancelar</button>
+        </div>
+      )}
     </>
   )
 }

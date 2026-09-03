@@ -629,3 +629,285 @@ pedido de Microsip. Sus OC coinciden con las del plan para Pierre Cardin
 numero del cliente). Si un dia se quiere comparar los dos, hay que amarrar por
 OC y aceptar que Walmart no cruza.
 
+
+## 💡 Folio propio para el movimiento de ingreso (lo pidio Valeria)
+
+Valeria pregunto el 2026-09-03: *"independientemente del registro por folio de
+procesos iniciales, ¿se genera algún tipo de folio del movimiento de ingreso?"*
+
+**Hoy no.** El acta de recepcion (`recepcionesPT`) se guarda con el ID
+autogenerado de Firestore, que nadie puede dictar por telefono, y se identifica
+por el **folio interno de la SALIDA** contra la que se recibio, mas maquila,
+fecha, quien conto y a que hora. Funciona para rastrear, pero no le da a
+logistica un numero propio del ingreso que pueda anotar en su papel o cruzar
+con Microsip.
+
+Si se hace, tendria que ser **consecutivo real y reservado en el servidor**,
+como el folio interno de las salidas — no un contador de cliente. Ojo con la
+regla dura: el consecutivo no se toca sin permiso del Ing. Roberto.
+
+Decision de Roberto, no se hizo hoy.
+
+## 💡 Pedirle a las maquilas el folio interno en su remision
+
+Sale del mismo correo de Valeria: **no todas las remisiones de maquila traen el
+# de pedido / # de OT**, y ella tiene que adivinar a que corresponde cada una.
+
+En la app no es bloqueante —la salida se encuentra por folio de bulto, por OT,
+por OC o por nombre de maquila— pero se resolveria de raiz pidiendoles que
+anoten en SU remision el **folio interno del documento de salida** con el que
+Quini les mando la mercancia. Es un cambio de procedimiento, no de codigo:
+entraria en el manual de maquilas que ya existe.
+
+## 💡 Capturar preferida sin que venga en el ruteo (decidido 2026-09-03)
+
+Roberto lo pidio asi: *"hay que crear un codigo predeterminado para la
+preferida"*, y al aterrizarlo resulto ser **capturar un bulto de preferida
+aunque su folio NO este en el Excel de Atalanta**, asignandole el 9002 a mano.
+
+**Lo que YA existe** (verificado el 03-09-2026 contra el catalogo vigente
+`v1787677804489_bbc669`, 38,498 codigos): el codigo **`9002` esta dado de alta
+como `PREFERIDA`** — modelo/talla/color en VARIOS, referencia PREFERIDA, linea
+NINGUNO. Entro con el catalogo de Atalanta. **No hay que crear el codigo**, el
+dato ya esta.
+
+**Lo que falta.** Hoy `resolverProductoEnTx` (`utils/cruceProducto.js`) empieza
+leyendo `foliosRuteo/{folio}`; si el folio no existe devuelve
+`{ producto: null, cruce: 'sin_ruteo' }` y el bulto se guarda **sin producto**:
+sin codigo, sin docenas, sin descripcion. En Captura se ve como *SIN RUTEO*.
+Como la preferida no nace de un pedido, es justo la que puede llegar sin estar
+en el archivo.
+
+**Diseno propuesto (sin implementar):** en la vista previa de captura, cuando
+el estado sea `sin_ruteo`, ofrecer marcar el bulto como **preferida**; el cruce
+se resuelve entonces contra el catalogo con el codigo `9002` fijo, en la misma
+transaccion, y el bulto queda con la descripcion buena en pantalla, PDF y
+etiqueta. Las docenas las teclea quien pesa (no hay ruteo de donde sacarlas).
+
+⚠️ **Puntos a resolver antes de escribir codigo:**
+- **Dejar rastro de que el codigo se puso A MANO**, no del archivo. Igual que
+  `otOrigen` distingue 'plan' de 'texto': aqui haria falta algo como
+  `codigoOrigen: 'manual'`, o el dia que un numero no cuadre nadie podra saber
+  si el bulto se cruzo con el dato bueno o a dedo.
+- **No abrir la puerta a capturar CUALQUIER cosa sin ruteo.** Si se permite
+  teclear codigo libre, se pierde el control que hoy da el archivo. Por eso la
+  propuesta es un boton de "es preferida" con el 9002 fijo, no un campo abierto.
+- **Las docenas escritas a mano entran a los mismos totales** que las del
+  ruteo. Revisar que no ensucien el avance de las OT (la preferida cae en SIN
+  ORDEN, asi que probablemente no, pero hay que verificarlo).
+- Revisar si las **reglas de Firestore** permiten el bulto sin ruteo tal cual.
+
+Sale del correo de Valeria del 03-09 sobre como registrar lo que se recibe de
+preferidas.
+
+## ✅ HECHO 2026-09-03 (sin desplegar) — Biblioteca de tech packs de Lety, pegados por OT
+
+Construida el mismo dia: `web/src/utils/techPacks.js`, `PanelTechPacks.jsx`, boton en
+`PanelTareasMaquila.jsx`, rol `desarrollo`, reglas e indice. Revisada por Codex,
+pentester, code-reviewer, debugger y qa-tester. Detalle y pendientes en el vault:
+`04-Bitacora/2026-09-03-biblioteca-tech-packs.md`. Lo de abajo queda como historia.
+
+### (historia) Biblioteca de tech packs de Lety, pegados por OT (pedido 2026-09-03)
+
+Roberto: *"cuando Lindbergh asigna una tarea a maquilas necesita subir el tech
+pack, pero quiero tener un control de los tech packs que suba Lety para que
+cuando Lindbergh asigne una tarea con la OT se peguen directo los tech packs"*.
+Ademas: que el papa tenga control de los avances de Lety.
+
+**Lo que hay hoy** (verificado en el vault y el codigo el 03-09-2026):
+
+- **Lindbergh sube el tech pack A MANO** en cada tarea de ensamble. El archivo
+  se trocea dentro de Firestore (`techPackChunks/00..16`, 950 KB por chunk,
+  tope 15 MB, manifiesto con sha256) y **se borra al cerrar la tarea**. Ese
+  borrado es deliberado: la maquila no debe conservarlo.
+- **Lety no trabaja en RAGNAR.** Trabaja en **RUNA**
+  (`quini-muestristas.web.app`, repo `Documents\RUNA`, vanilla JS sin build),
+  que es **otro proyecto de Firebase**. Ahi sube la **F.T.T.** (Excel
+  corporativo, una hoja por variante), crea desarrollos, asigna muestristas,
+  autoriza pausas y aprueba fichas con su firma.
+- **El papa YA tiene acceso a los avances de Lety**: cuenta CEO de solo
+  lectura en RUNA desde el **2026-08-24**, con **Tareas y Dashboard**.
+
+**Los tres nudos que hay que desatar antes de escribir codigo:**
+
+1. **Lety trabaja por CODIGO; Lindbergh asigna por OT.** No hay puente hoy. El
+   unico lugar donde OT y codigo se tocan es el **plan maestro de Adrian**
+   (OT ↔ pedido ↔ codigo). Si la biblioteca se guarda por codigo, "pegar por
+   OT" es resolver OT → codigos → tech packs con el plan vigente. Hay que
+   decidir la llave y aceptar que una OT puede traer VARIOS tech packs.
+2. **Son dos proyectos Firebase distintos.** Lo que se sube en RUNA no lo ve
+   RAGNAR. **Propuesta: la biblioteca vive en RAGNAR**, que es donde se
+   consume (Lindbergh asigna, la maquila lee) y donde ya estan el plan maestro,
+   el troceo y el corral de permisos. Lety necesitaria cuenta en RAGNAR con un
+   rol nuevo y acotado: subir y versionar tech packs, nada mas.
+3. **La biblioteca es PERMANENTE y la copia de la tarea es EFIMERA.** No se
+   contradice con el borrado actual si se separan: el original vive en la
+   biblioteca, al asignar se copia a la tarea, y al cerrar se borra la copia,
+   nunca el original. ⚠️ Si se implementa mal, el cierre de una tarea borraria
+   el maestro.
+
+⚠️ **Este es el momento de resolver el pendiente #32** (tech packs troceados en
+Firestore "porque Storage exige plan de pago", cuando el proyecto **esta en
+Blaze**). Guardar para siempre y por duplicado varios PDF de hasta 15 MB
+troceados en documentos de Firestore es caro y fragil. Con Storage esto es un
+archivo y una URL firmada.
+
+❓ **Pregunta de negocio sin resolver:** ¿la **F.T.T.** que Lety sube en RUNA es
+el MISMO documento que el **tech pack** que Lindbergh manda a la maquila, o son
+dos papeles distintos? De eso depende si la biblioteca se alimenta sola de RUNA
+o si Lety sube un documento aparte.
+
+### ⚠️ CORRECCION al plan de arriba — el documento RESUMEN_PROYECTO_QUINI_FICHAS_BOM
+
+Roberto dejo `RESUMEN_PROYECTO_QUINI_FICHAS_BOM.docx` en la raiz del repo el
+03-09-2026. Es el resumen de un proyecto YA HECHO (julio 2026) que invalida
+varios supuestos del plan de arriba:
+
+- **Los tech packs NO viven en RUNA ni en RAGNAR: viven en Google Drive.** Ahi
+  es donde Lety los sube hoy, y ya existe un `scan_drive.py` que los clasifica
+  por nombre de archivo y mantiene `cache_fichas_quini.json` con **75 disenos**
+  y su estatus documental.
+- **La arquitectura documental ya esta definida**: 9 documentos en 3 capas
+  (A1-A2 comercial, **B1-B6 de Lety**, C1 muestras). El **tech pack de empaque
+  es el B6**; la FTT es B2 (Excel) y B3 (PDF escaneado).
+- 🔴 **REGLA CRITICA del documento: tener FTT NO equivale a tener Tech Pack.**
+  *"Son documentos completamente distintos. B6 es el unico que contiene las
+  habilitaciones de empaque. Esta confusion fue el error de origen del
+  proyecto."* Cualquier diseno que trate la FTT como fuente del tech pack
+  repite ese error.
+- **La llave OT ↔ diseno ya existe** en ese sistema, y usa la **OT SCQ**
+  (Microsip) como semaforo: si esta vacia, la FTT no se ha capturado en el ERP.
+- **Ya hay un dashboard** (`dashboard_fichas_v2.html`, 79 renglones, 9
+  indicadores por OT, filtros por cliente/pedido/estado) y un
+  **BOM de empaque** (`BOM_HABILITACIONES_EMPAQUE_v4.xlsx`).
+
+**La debilidad declarada es exactamente lo que Roberto quiere resolver:** *"No
+es live. Si Lety sube un TP, el dashboard no se actualiza solo — hay que correr
+el proceso en Claude para re-escanear y regenerar."* Y el cache vive en el
+proyecto de Claude, no en un servidor.
+
+**Entonces el trabajo NO es construir una biblioteca donde Lety suba otra vez.**
+Lety ya sube a Drive; pedirle que suba dos veces garantiza que una de las dos
+copias quede vieja. Lo que falta es que **RAGNAR lea Drive** (o reciba el
+escaneo), guarde el estatus documental por diseno y por OT, y con eso:
+1. Al asignar la tarea por OT, **traer el B6 solo** en vez de que Lindbergh lo
+   busque a mano.
+2. Dar el tablero vivo que hoy es snapshot — que es el "control de los avances
+   de Lety" que Roberto pide para su papa.
+
+📌 **Dato que urge y no es de software:** **29 disenos (39%) siguen sin Tech
+Pack**, con pedidos completos bloqueados y **fechas ya vencidas** (SFT Chedraui
+6-jul, Marti Reebok 15-jun, Weekend Suburbia 31-jul, Price Shoes 31-jul). Y
+`WKD125C402` tiene la carpeta VACIA con 3 OT del pedido 2300 detenidas. Ningun
+dashboard arregla eso: es trabajo pendiente de Lety.
+
+### ✅ DECISION de Roberto (03-09-2026): los tech packs viven en RAGNAR
+
+Roberto lo decidio despues de ver la objecion: *"lo que queremos es que vivan en
+RAGNAR, que no vivan en Google Drive, para tenerlo todo ahi... podemos ver el
+resumen de cuanto esta haciendo Lety, si le falta algo, y poderla presionar un
+poquito mas"*. Y reconfirmo la regla: **tener FTT NO equivale a tener Tech
+Pack**.
+
+⚠️ **Condicion que hace que esto funcione: RAGNAR tiene que ser la UNICA fuente.**
+Si Lety sigue subiendo a Drive ademas de a RAGNAR, en un mes nadie sabra cual
+copia es la buena. Hay que avisarle que el tech pack de empaque (B6) se sube a
+RAGNAR y ya no a Drive. Es cambio de proceso, no de codigo.
+
+Consecuencias del cambio de sede:
+- El `scan_drive.py` y el `cache_fichas_quini.json` dejan de ser el motor y
+  pasan a ser, a lo mucho, **la carga inicial** de los tech packs que ya
+  existen en Drive. Vale la pena pedirselos a Roberto para no arrancar vacio.
+- El tablero de avance de Lety se alimenta de RAGNAR, no de un escaneo. Eso
+  resuelve la debilidad declarada del proyecto de julio ("no es live").
+- Sigue en pie el pendiente #32: con archivos permanentes, **Storage** en vez de
+  trocear en Firestore (el proyecto YA esta en Blaze).
+
+## 🔎 Debate de diseno con Codex sobre la captura de preferida (03-09-2026)
+
+Codex reviso el diseno propuesto. **Dos hallazgos criticos, ambos VERIFICADOS
+contra el codigo:**
+
+1. 🔴 **El bulto de preferida NO puede quedarse con `cruce: 'sin_ruteo'`.**
+   `recruzarBultos.js:50` barre justo los bultos `sin_ruteo`/`sin_catalogo`
+   cada vez que se carga un Excel. Si mas tarde apareciera ese folio en el
+   ruteo, el recruce **pisaria el 9002 y las docenas manuales** con lo del
+   archivo. Se protege guardando `cruce: 'completo'`, porque
+   `recruzarBultos.js:81` corta con `ya_cruzado`. **Confirmado leyendo el
+   archivo.**
+2. 🔴 **Carrera entre la vista previa y el guardado.** La vista previa lee
+   `foliosRuteo` FUERA de transaccion (`PanelCaptura.jsx:171`) y el guardado
+   resuelve dentro de otra (`PanelCaptura.jsx:745`). Si alguien carga el Excel
+   en medio, la marca manual pisaria el producto real. La transaccion tiene
+   que **volver a comprobar que el folio sigue sin ruteo y abortar** si
+   aparecio, en vez de elegir en silencio.
+
+**Efectos aguas abajo que hay que decidir (son de negocio, no tecnicos):**
+
+- ❓ **¿La preferida cuenta como produccion?** Sus docenas se sumarian a los
+  indicadores como calcetin normal (`PanelIndicadores.jsx:20`). Si "docenas
+  producidas" significa producto vendible, el desecho **contamina el KPI**.
+- ❓ **¿Una tarea por CODIGO deberia contarla?** Una tarea con objetivo 9002 y
+  sin OT restrictiva sumaria esas docenas y podria cerrarse sola
+  (`PanelTareas.jsx:174` y `:385`).
+- ❓ **El PDF imprime piezas = docenas × 12.** ¿Tiene sentido para desecho que
+  se vende a granel?
+- En **Recepcion PT** todo lo que no trae OT se consolida en un solo renglon
+  (`recepcionPT.js:119`): la preferida se mezclaria con cualquier otro bulto
+  sin OT. Convendria agrupar tambien por codigo.
+- En **Inventario PT** caeria en el acumulado "sin orden de compra"
+  (`PanelInventarioPT.jsx:116`), leyendose como anomalia en vez de como
+  desecho.
+
+**Controles adicionales aceptados:**
+- Las reglas hoy permiten docenas de 0 a casi 100 millones
+  (`firestore.rules:266`, **verificado**). Para un valor tecleado a mano hace
+  falta un tope creible.
+- Guardar `docenasOrigen: 'manual'` ademas de `codigoOrigen`: el segundo no
+  explica de donde salio la cantidad.
+- Registrar la clasificacion como preferida en `cambiosCaptura`.
+- Limpiar la marca "es preferida" al cambiar de folio, o el siguiente escaneo
+  la hereda.
+- Extraer de `resolverProductoEnTx` un helper interno con
+  `CODIGO_PREFERIDA = '9002'` como **constante privada** — nunca una funcion
+  que acepte un codigo arbitrario, o la excepcion cerrada se vuelve captura
+  manual libre.
+
+## 💡 Precio por modelo para MODELOS NUEVOS: sugerir por patron (Roberto, 2026-09-03)
+
+Hoy los precios de ensamble (`preciosEnsamble`, pestana de Cielo) son **por
+modelo**: 50 de 50 con precio, carga inicial autorizada por direccion 27-08.
+El problema: cuando Lindbergh encarga una tarea de un **modelo nuevo**, no hay
+precio, y la remision de la maquila **sale sin precio**. Nadie se entera hasta
+que la maquila regresa la tarea.
+
+Lo que Roberto pidio, en sus palabras: *"encuentra el patron entre la
+descripcion — si es tin, si es calcetin — porque cada uno tiene un precio
+diferente... Lindbergh va a tener que confirmar el precio... 'esta orden de
+compra le falta un precio real, esto es un estimado'... registrar los que no
+se movieron para este patron... que ya sea automatico: 'como este casi tienes
+de esta manera, esto normalmente lo cobran a seis pesos'"*.
+
+**Diseno propuesto (sin implementar):**
+1. **Avisar en el momento correcto**: al crear la tarea de ensamble (y al
+   subir una OC del plan), si algun modelo de la OT no tiene precio, decirlo
+   AHI, no cuando vuelva la remision.
+2. **Sugerir por patron**, no adivinar: a partir de los 50 precios existentes,
+   sacar el precio tipico por *familia* del modelo (tin, calcetin, tobillera,
+   etc.) leyendo la descripcion del catalogo — mediana por familia, con cuantos
+   modelos la respaldan. Mostrarlo como **"estimado $6.00, como los 12 tines
+   que ya tienen precio"**.
+3. **Lindbergh confirma o corrige.** El estimado NUNCA se guarda solo como
+   precio: se guarda con `origen: 'estimado'` y quien lo confirmo. La remision
+   marca los estimados hasta que alguien los confirme.
+4. **Aprender de los confirmados**: cada precio confirmado alimenta la familia,
+   y se lleva registro de cuales estimados se quedaron tal cual (no se
+   movieron) para saber si el patron acierta.
+
+⚠️ Riesgo que hay que nombrar: los precios de ensamble son lo que **se le paga
+a la maquila**. Un estimado mal confirmado es dinero. Por eso confirmar es un
+paso explicito de Lindbergh y queda sellado con nombre.
+
+Pendiente de decidir: quien puede confirmar (hoy los precios los pone Cielo;
+Roberto dice que Lindbergh los confirme al encargar) y como se extrae la
+familia del modelo (descripcion del catalogo vs. una tabla de familias).
