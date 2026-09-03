@@ -48,7 +48,7 @@ console.log('============================================================')
 console.log('\n--- LO QUE ENTRO ---')
 console.log(n(d.totalLineas), 'lineas del plan (OC + OT + codigo)')
 console.log(n(d.totalOcs), 'ordenes de compra')
-console.log(n(d.totalOts), 'ordenes de trabajo CON orden de compra')
+console.log(n(d.totalOts), 'ordenes de trabajo con linea en el plan (con o sin OC)')
 console.log(n(d.totalPedidos), 'entradas del diccionario pedido -> OT')
 console.log(n(d.otsEnDiccionario), 'ordenes de trabajo que conoce el diccionario')
 
@@ -75,7 +75,7 @@ if (d.ambiguedades.length) {
 }
 
 console.log('\n--- LO QUE NO ENTRO ---')
-console.log(n(d.sinOc), 'renglones sin orden de compra (normal: la columna es nueva)')
+console.log(n(d.sinOc), 'renglones sin orden de compra (ENTRAN IGUAL desde el 2026-09-03; solo no cuelgan del arbol)')
 console.log(n(d.ocInvalida), "renglones con OC no valida ('0', 'FCST'...)")
 console.log(n(d.formulaSinResultado), 'renglones cuya OC es una FORMULA QUE EXCEL NO GUARDO CALCULADA')
 console.log(n(d.sinCantidad), 'lineas sin meta (entran, pero no se les puede medir avance)')
@@ -107,6 +107,7 @@ pedidos.slice(0, 8).forEach((p) => {
 // Las OC con mas ordenes de trabajo: es la vista que va a ver Lindbergh.
 const porOc = new Map()
 lineas.forEach((l) => {
+  if (!l.oc) return // las sin OC no forman una orden de compra (irian como "null")
   if (!porOc.has(l.oc)) porOc.set(l.oc, new Set())
   porOc.get(l.oc).add(l.ot)
 })

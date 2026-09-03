@@ -76,6 +76,12 @@ const numero = (v) => {
 /** Los tres desenlaces de un renglon. El estado se DERIVA de las cantidades:
  *  no se le pide a nadie que lo teclee y que ademas cuadre con el numero. */
 export function estadoDelRenglon(enviada, recibida) {
+  // ⚠️ null, undefined y '' son "nadie conto", NO cero. Number(null) es 0 y
+  // Number('') es 0, asi que sin esta guarda una orden que Valeria dejo en
+  // blanco se guardaba como 'faltante' -- como si de verdad hubiera faltado
+  // toda la mercancia -- y entraba a renglonesConProblema. Lo cazo el QA el
+  // 2026-09-03, justo cuando el inventario de PT empezo a leer estas actas.
+  if (recibida === null || recibida === undefined || recibida === '') return 'sin_contar'
   const e = Number(enviada)
   const r = Number(recibida)
   if (!Number.isFinite(r)) return 'sin_contar'
@@ -92,35 +98,49 @@ export const ETIQUETA_ESTADO = {
   sin_referencia: 'Sin referencia de salida'
 }
 
+/** La OT vacia se agrupa bajo esta llave, para que un bulto que salio sin
+ *  orden no se pierda del acta ni se confunda con una orden real. */
+export const SIN_OT = '(sin OT)'
+
 /**
  * Convierte un documento de salida en la lista de lo que se mando, AGRUPADO
- * POR CODIGO.
+ * POR ORDEN DE TRABAJO.
  *
- * Se agrupa a proposito: el papel viaja por folios (un bulto es un folio),
- * pero la maquila devuelve producto armado en cajas, no los mismos bultos. A
- * Valeria le sirve "de este codigo salieron 24 docenas", no la lista de los
- * seis folios que las traian. Los folios se conservan aparte por si hace falta
- * rastrear uno.
+ * Primero se agrupo por codigo. Roberto lo cambio el 2026-09-03 despues de ver
+ * a Valeria usarlo: *"a Valeria solo le sirve el consolidado, ni los codigos ni
+ * los bultos"*. El papel viaja por folios (un bulto es un folio) y cada bulto
+ * trae su codigo, pero la maquila devuelve la ORDEN armada en cajas, y lo que
+ * ella cuenta es "de la 8042 llegaron 9 docenas". Una salida suele traer una o
+ * dos ordenes; con codigos eran seis renglones para lo mismo.
+ *
+ * Los codigos y los folios se conservan dentro del renglon, por si hace falta
+ * rastrear uno, pero no son lo que se cuenta.
  */
 export function renglonesDeLaSalida(salida) {
-  const porCodigo = new Map()
+  const porOt = new Map()
   ;(salida?.capturas || []).forEach((c) => {
     const p = c.producto || {}
-    const codigo = texto(p.codigo, 60) || '(sin codigo)'
-    if (!porCodigo.has(codigo)) {
-      porCodigo.set(codigo, {
-        codigo,
-        descripcion: texto(p.descripcion, 200),
-        ot: texto(otDelBultoDeSalida(p), 40),
-        docenasEnviadas: 0,
-        folios: []
-      })
+    const ot = texto(otDelBultoDeSalida(p), 40) || SIN_OT
+    if (!porOt.has(ot)) {
+      porOt.set(ot, { ot, docenasEnviadas: 0, codigos: new Set(), descripciones: new Set(), folios: [] })
     }
-    const r = porCodigo.get(codigo)
+    const r = porOt.get(ot)
     r.docenasEnviadas += numero(p.docenas)
+    const codigo = texto(p.codigo, 60)
+    if (codigo) r.codigos.add(codigo)
+    const descripcion = texto(p.descripcion, 200)
+    if (descripcion) r.descripciones.add(descripcion)
     r.folios.push(String(c.folio))
   })
-  return [...porCodigo.values()].sort((a, b) => a.codigo.localeCompare(b.codigo))
+  return [...porOt.values()]
+    .map(({ descripciones, ...r }) => ({
+      ...r,
+      codigos: [...r.codigos].sort(),
+      // Una orden casi siempre es un solo articulo; si junta varios se dicen
+      // todos, separados, en vez de elegir uno al azar.
+      descripcion: [...descripciones].sort().join(' · ')
+    }))
+    .sort((a, b) => a.ot.localeCompare(b.ot, 'es', { numeric: true }))
 }
 
 /**
@@ -223,12 +243,17 @@ export async function registrarRecepcionPT({ salida, contado, nota, usuario, esP
     throw new ErrorRecepcion('Elige de qué salida es lo que llegó.')
   }
 
+  // Un renglon POR ORDEN DE TRABAJO (ver renglonesDeLaSalida). La OT viaja en
+  // el acta: es la llave con la que el inventario de producto terminado suma lo
+  // recibido contra lo que despues se embarca al cliente.
   const renglones = renglonesDeLaSalida(salida).map((r) => {
-    const c = contado?.[r.codigo] || {}
+    const c = contado?.[r.ot] || {}
     const recibida = c.docenas === '' || c.docenas == null ? null : Number(c.docenas)
     return {
-      codigo: r.codigo,
-      descripcion: r.descripcion,
+      ot: r.ot === SIN_OT ? '' : r.ot,
+      codigos: r.codigos.slice(0, 60),
+      descripcion: texto(r.descripcion, 200),
+      bultos: r.folios.length,
       docenasEnviadas: r.docenasEnviadas,
       docenasRecibidas: Number.isFinite(recibida) && recibida >= 0 ? recibida : null,
       estado: estadoDelRenglon(r.docenasEnviadas, recibida),
@@ -240,7 +265,7 @@ export async function registrarRecepcionPT({ salida, contado, nota, usuario, esP
   // Se exige contar AL MENOS uno. Un acta con todo vacio no dice "llego cero":
   // dice que nadie conto, y despues nadie sabe distinguirlo.
   if (!renglones.some((r) => r.docenasRecibidas !== null)) {
-    throw new ErrorRecepcion('Escribe cuántas docenas llegaron de al menos un código.')
+    throw new ErrorRecepcion('Escribe cuántas docenas llegaron de al menos una orden de trabajo.')
   }
 
   const conProblema = renglones.filter((r) => r.estado === 'faltante' || r.estado === 'sobrante')

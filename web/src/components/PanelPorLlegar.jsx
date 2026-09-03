@@ -29,6 +29,7 @@ import {
   otsYOcsDeSalida,
   registrarRecepcionPT,
   renglonesDeLaSalida,
+  SIN_OT,
   salidasParaRecibir,
   textoBuscableDeSalida
 } from '../utils/recepcionPT'
@@ -235,7 +236,7 @@ export default function PanelRecibeDeMaquila() {
 
           <p className="texto-suave" style={{ fontSize: 13, marginTop: 0 }}>
             {salidaId
-              ? 'Cuenta lo que llegó de cada código. Si te equivocaste de salida, pica "Quitar".'
+              ? 'Cuenta lo que llegó de cada orden de trabajo. Si te equivocaste de salida, pica "Quitar".'
               : encontradas.length === salidas.length
               ? `Las más recientes de ${salidas.length}. Si la tuya no está a la vista, búscala.`
               : `${encontradas.length} de ${salidas.length} salidas coinciden.`}
@@ -314,8 +315,9 @@ export default function PanelRecibeDeMaquila() {
         <>
           <p className="texto-suave">
             Salió el <strong>{salida.fechaTexto || '—'}</strong> a{' '}
-            <strong>{salida.maquila?.nombre}</strong>, con{' '}
-            <strong>{(salida.capturas || []).length} bultos</strong>.
+            <strong>{salida.maquila?.nombre}</strong>:{' '}
+            <strong>{renglones.reduce((a, r) => a + r.docenasEnviadas, 0)} docenas</strong> en{' '}
+            {renglones.length} {renglones.length === 1 ? 'orden de trabajo' : 'órdenes de trabajo'}.
             {yaRecibidas.has(salida.id) && (
               <>
                 {' '}
@@ -326,12 +328,15 @@ export default function PanelRecibeDeMaquila() {
             )}
           </p>
 
+          {/* UN RENGLON POR ORDEN DE TRABAJO. Roberto, 2026-09-03, viendo a
+              Valeria usarlo: "a Valeria solo le sirve el consolidado, ni los
+              codigos ni los bultos". La descripcion queda como pista chica bajo
+              la OT, por si hay que reconocer de que se trata. */}
           <table className="tabla-datos">
             <thead>
               <tr>
-                <th>Código</th>
-                <th>Descripción</th>
-                <th>OT</th>
+                <th>Orden de trabajo</th>
+                <th>Orden de compra</th>
                 <th style={{ textAlign: 'right' }}>Salieron</th>
                 <th style={{ textAlign: 'right' }}>Llegaron</th>
                 <th>Cómo quedó</th>
@@ -340,18 +345,18 @@ export default function PanelRecibeDeMaquila() {
             </thead>
             <tbody>
               {renglones.map((r) => {
-                const c = contado[r.codigo] || {}
+                const c = contado[r.ot] || {}
                 const est = estadoDelRenglon(r.docenasEnviadas, c.docenas)
+                const oc = r.ot !== SIN_OT ? otAOc.get(r.ot) : ''
                 return (
-                  <tr key={r.codigo}>
+                  <tr key={r.ot}>
                     <td>
-                      <strong>{r.codigo}</strong>
+                      <strong>{r.ot}</strong>
                       <div className="texto-suave" style={{ fontSize: 12 }}>
-                        {r.folios.length} {r.folios.length === 1 ? 'bulto' : 'bultos'}
+                        {r.descripcion || (r.codigos.length ? r.codigos.join(', ') : '—')}
                       </div>
                     </td>
-                    <td>{r.descripcion || '—'}</td>
-                    <td>{r.ot || '—'}</td>
+                    <td>{oc || '—'}</td>
                     <td style={{ textAlign: 'right' }}>{r.docenasEnviadas} doc</td>
                     <td style={{ textAlign: 'right' }}>
                       <input
@@ -360,7 +365,7 @@ export default function PanelRecibeDeMaquila() {
                         step="0.5"
                         style={{ width: 90, textAlign: 'right' }}
                         value={c.docenas ?? ''}
-                        onChange={(e) => ponContado(r.codigo, 'docenas', e.target.value)}
+                        onChange={(e) => ponContado(r.ot, 'docenas', e.target.value)}
                       />
                     </td>
                     <td style={{ color: COLOR_ESTADO[est] }}>{ETIQUETA_ESTADO[est]}</td>
@@ -369,7 +374,7 @@ export default function PanelRecibeDeMaquila() {
                         type="text"
                         placeholder="opcional"
                         value={c.nota ?? ''}
-                        onChange={(e) => ponContado(r.codigo, 'nota', e.target.value)}
+                        onChange={(e) => ponContado(r.ot, 'nota', e.target.value)}
                       />
                     </td>
                   </tr>
@@ -441,7 +446,7 @@ export default function PanelRecibeDeMaquila() {
                     {r.cuadro
                       ? 'Sí, todo completo'
                       : `No — ${r.renglonesConProblema} ${
-                          r.renglonesConProblema === 1 ? 'código' : 'códigos'
+                          r.renglonesConProblema === 1 ? 'orden' : 'órdenes'
                         }`}
                   </td>
                   <td>{r.recibidoPorNombre || '—'}</td>

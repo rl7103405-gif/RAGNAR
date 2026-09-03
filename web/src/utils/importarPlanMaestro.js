@@ -365,18 +365,27 @@ export async function leerPlanMaestro(archivo) {
         continue
       }
       const { estado, oc } = clasificarOc(crudoOc)
-      // Sin OC la OT no cuelga de ninguna rama del arbol. NO es un error: es
-      // el estado normal de la mayoria del archivo, porque esa columna se
-      // empezo a llenar en abril. Se cuenta para poder decirlo en pantalla.
-      if (estado === OC_SIN) {
-        sinOc += 1
-        continue
-      }
+      // ⚠️ SIN OC LA LINEA ENTRA IGUAL, con oc = null (2026-09-03).
+      //
+      // Antes se descartaba ("sin OC la OT no cuelga de ninguna rama del
+      // arbol"), y eso era razonable cuando el plan solo alimentaba el arbol
+      // OC -> OT. Pero desde el 2026-09-02 el plan tambien alimenta "Traer del
+      // plan" al encargar TAREAS a maquilas, y ahi una OT sin OC era una OT
+      // que "no existe": Roberto tecleo la 7993 (Barbie, sin OC, SI esta en el
+      // Excel) y la app le contesto que no estaba en el plan. Medido contra
+      // produccion ese dia: 1,128 de las 1,299 OT del archivo se tiraban por
+      // esto, 119 de ellas de trabajo actual, incluida una que ya habia salido
+      // fisicamente a una maquila.
+      //
+      // Se sigue contando (sinOc) para decirlo en pantalla, pero como
+      // informacion, no como descarte. Una OC que SI es basura ('0', 'FCST')
+      // sigue fuera: eso no es "sin OC", es una OC inventada.
+      if (estado === OC_SIN) sinOc += 1
       if (estado === OC_INVALIDA) {
         ocInvalida += 1
         continue
       }
-      if (estado !== OC_VALIDA) continue
+      if (estado !== OC_VALIDA && estado !== OC_SIN) continue
 
       // Una OT que ya aporto otra hoja no se vuelve a tomar: seria contar dos
       // veces la misma meta.
@@ -397,7 +406,10 @@ export async function leerPlanMaestro(archivo) {
       }
 
       lineas.push({
-        oc,
+        // null, no '': asi las reglas distinguen "no trae orden de compra" de
+        // una cadena vacia, y el resumen del arbol la salta sin confundirla
+        // con una OC real.
+        oc: estado === OC_SIN ? null : oc,
         ot,
         codigo: normalizarCodigo(identificadorDeCelda(val(columnas.codigo)) ?? '').slice(0, 60),
         // ⚠️ null, NO cero. Sin cantidad la linea SIGUE valiendo: amarra la OT
@@ -420,7 +432,9 @@ export async function leerPlanMaestro(archivo) {
     hojasLeidas.push({ hoja: hoja.name, lineas: deLaHoja, pedidos: pedidosDeLaHoja, columnas })
   })
 
-  const ocs = new Set(lineas.map((l) => l.oc))
+  // Sin el filtro, el null de las lineas sin OC contaria como "una orden de
+  // compra" mas en el resumen que ve Adrian.
+  const ocs = new Set(lineas.map((l) => l.oc).filter(Boolean))
   const otsConOc = new Set(lineas.map((l) => l.ot))
   const otsDelDiccionario = new Set([...pedidos.values()].map((p) => p.ot))
 

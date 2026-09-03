@@ -36,6 +36,45 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-03-03',
+    fecha: '2026-09-03',
+    tipo: 'nuevo',
+    titulo: 'Inventario de PT: lo que falta por surtir a cada cliente',
+    detalle:
+      'Pestana nueva para Producto Terminado, con la forma del reporte de Microsip "Pendientes de '
+      + 'surtir por cliente": por cliente y orden de compra, cuanto pide el plan, cuanto ya volvio de '
+      + 'las maquilas, cuanto ya se embarco y cuanto falta. Pica una orden para ver el detalle por '
+      + 'codigo. Ojo con las unidades: el plan va en docenas y el PL en packs; donde la app no sabe '
+      + 'cuantos pares trae el pack dice "sin equivalencia" en vez de inventar el saldo.'
+  },
+
+  {
+    id: '2026-09-03-02',
+    fecha: '2026-09-03',
+    tipo: 'mejorado',
+    titulo: 'Recibir: se cuenta por orden de trabajo, no por codigo',
+    detalle:
+      'Al registrar lo que llega de una maquila ya no aparece un renglon por cada codigo y sus '
+      + 'bultos: aparece uno por ORDEN DE TRABAJO, con su orden de compra, cuantas docenas salieron '
+      + 'y cuantas llegaron. Es lo que se cuenta en realidad. El acta guarda la orden de trabajo, y '
+      + 'con eso el inventario de PT sabe a que orden de compra abonar lo recibido.'
+  },
+
+  {
+    id: '2026-09-03-01',
+    fecha: '2026-09-03',
+    tipo: 'corregido',
+    titulo: 'Las ordenes de trabajo SIN orden de compra ya existen para la app',
+    detalle:
+      'El plan de Adrian trae muchas ordenes de trabajo cuya celda de orden de compra viene vacia '
+      + '(Barbie, resurtidos, reposiciones). Hasta hoy la app las tiraba al subir el plan, asi que '
+      + '"Traer del plan" decia que no existian: pasaba con la 7993 y con 118 mas de las que se '
+      + 'estan trabajando. Ya entran igual, con sus codigos y cantidades, y se pueden encargar a '
+      + 'las maquilas. Lo unico que no pueden es colgar de una orden de compra en el arbol. PARA '
+      + 'QUE APAREZCAN, Adrian tiene que volver a subir el mismo Excel una vez.'
+  },
+
+  {
     id: '2026-09-02-09',
     fecha: '2026-09-02',
     tipo: 'nuevo',

@@ -897,9 +897,15 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['versionId', 'oc', 'ot', 'codigo', 'cantidadPlaneada', 'unidad', 'cliente', 'descripcion', 'destino', 'hoja', 'creadoEn', 'subidoPorUid'])
         && request.resource.data.versionId is string
         && request.resource.data.versionId.size() > 0
-        && request.resource.data.oc is string
-        && request.resource.data.oc.size() > 0
-        && request.resource.data.oc.size() <= 40
+        // ⚠️ oc admite null desde el 2026-09-03: una linea SIN orden de compra
+        // sigue siendo una orden de trabajo real con sus codigos y cantidades,
+        // y es lo que "Traer del plan" necesita para encargar tareas. Antes el
+        // importador las tiraba y 1,128 de 1,299 OT no existian para la app.
+        // null y no '': que "no trae" se distinga de "trae vacio".
+        && (request.resource.data.oc == null
+            || (request.resource.data.oc is string
+                && request.resource.data.oc.size() > 0
+                && request.resource.data.oc.size() <= 40))
         && request.resource.data.ot is string
         && request.resource.data.ot.size() > 0
         && request.resource.data.ot.size() <= 40

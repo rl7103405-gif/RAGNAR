@@ -589,3 +589,43 @@ Lo que pidio explicito:
 bodega "sin que nadie se lo diga". **Es una regla de negocio por definir**, no
 codigo.
 
+---
+
+# Tanda del 2026-09-03 — Valeria y el plan sin OC
+
+## 💡 Rama "Sin orden de compra" en el arbol de ordenes
+
+Desde hoy las lineas del plan sin OC entran a `planMaestroLineas` con
+`oc: null` (antes se tiraban: 1,128 de 1,299 OT no existian para la app). El
+arbol (`resumirOcs`, `PanelArbolOrdenes`) las sigue SALTANDO: no cuelgan de
+ninguna rama. Falta una rama "Sin orden de compra" agrupada por destino/cliente
+para que Adrian y Lindbergh las vean ahi tambien. No se hizo hoy porque
+`abrirOc` consulta `where('oc','==',x)` y con null hay que decidir la llave y
+el resumen del puntero. **Lo urgente ("Traer del plan" las encuentra) ya quedo.**
+
+## ⏳ Adrian tiene que volver a subir el mismo Excel
+
+La version activa (`DxoESk6nRdfY5bL8tdjd`, subida hoy 08:33) se importo con el
+codigo viejo: las OT sin OC NO estan. Para que aparezcan hay que volver a subir
+`Planeación pedidos calcetín Septiembre 2026.xlsx` una vez con la app nueva.
+El resumen de la subida va a decir ~1,100 "OT nuevas": es verdad, son las que
+antes se tiraban.
+
+## 💡 Inventario de PT: lo que no puede decir todavia
+
+La pestana nueva calcula pendiente y "en bodega" solo cuando sabe convertir
+packs a docenas (`packsPorDocena` desde la descripcion). Medido el 2026-09-02:
+**0 de 111 codigos** de la OC 2449 convierten. Mientras no exista la tabla
+pack↔docena (pendiente desde el PL), la mayoria de las ordenes van a decir
+"sin equivalencia". No es un bug de la pantalla: es el mismo hueco del PL.
+
+## 💡 "Pendientes de surtir" de Microsip vs. RAGNAR
+
+El reporte de Microsip que Valeria usa (`Pendientes de surtir por cliente.xlsx`,
+copia de hoy en la raiz del repo) cuenta en PIEZAS y por PEDIDO (`PED19252`),
+con fecha de entrega comprometida. RAGNAR no tiene la fecha de entrega ni el
+pedido de Microsip. Sus OC coinciden con las del plan para Pierre Cardin
+(`062026`, `052026`), Valeta (`18`)...; para Walmart NO (ahi "O. compra" es el
+numero del cliente). Si un dia se quiere comparar los dos, hay que amarrar por
+OC y aceptar que Walmart no cruza.
+

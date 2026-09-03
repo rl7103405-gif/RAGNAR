@@ -357,8 +357,23 @@ export async function guardarPlanMaestro({
   // Las lineas se agrupan por id: si el Excel trae el mismo renglon repetido,
   // se suma en vez de pisarse en silencio (dos entregas del mismo codigo en la
   // misma OT son dos renglones legitimos, y perder uno cambiaria la meta).
-  const porId = new Map()
+  //
+  // ⚠️ Y ANTES DE ESO, UNA OT TIENE UNA SOLA OC. Desde que las lineas sin OC
+  // entran (2026-09-03), el mismo archivo puede traer la misma OT con la celda
+  // de OC llena en un renglon y vacia en otro. Como el id lleva la OC, saldrian
+  // DOS documentos para la misma OT+codigo y "Traer del plan" sumaria las dos
+  // cantidades: una tarea encargada con el doble de docenas. Se resuelve la OC
+  // por OT primero, y el renglon en blanco toma la de su hermano.
+  const ocDelArchivoPorOt = new Map()
   for (const l of lineas) {
+    if (l.oc && l.ot && !ocDelArchivoPorOt.has(l.ot)) ocDelArchivoPorOt.set(l.ot, l.oc)
+  }
+  const lineasResueltas = lineas.map((l) =>
+    !l.oc && ocDelArchivoPorOt.has(l.ot) ? { ...l, oc: ocDelArchivoPorOt.get(l.ot) } : l
+  )
+
+  const porId = new Map()
+  for (const l of lineasResueltas) {
     const id = idDeLinea({ versionId, oc: l.oc, ot: l.ot, codigo: l.codigo })
     const previa = porId.get(id)
     if (previa) {
@@ -403,6 +418,43 @@ export async function guardarPlanMaestro({
     pedidosNuevos: new Set(porPedido.size ? [...porPedido.values()].map((p) => p.pedidoClave) : []),
     onProgreso
   })
+  // ⚠️ UNA LINEA QUE LLEGA SIN OC HEREDA LA OC QUE SU OT YA TENIA.
+  //
+  // Desde que las lineas sin OC entran al plan (2026-09-03), una OT puede venir
+  // en el archivo nuevo con la celda de OC en blanco aunque el plan anterior si
+  // la tuviera amarrada a una OC. Como esa OT SI se menciona en el archivo, lo
+  // acumulativo no la arrastra -- y sin esto la OC se perderia en silencio,
+  // que es exactamente el accidente del 18-08 (122 tareas sin OC de golpe). El
+  // archivo manda cuando dice algo; cuando calla, se conserva lo que ya se
+  // sabia.
+  //
+  // Va AQUI, antes de mezclar lo heredado, a proposito: en este punto porId
+  // solo tiene lo del archivo nuevo. Si corriera despues, tambien le pondria
+  // OC a las lineas heredadas que se guardaron sin ella, y la meta de esa OC
+  // creceria sola entre versiones sin que ningun archivo lo dijera (lo cazo la
+  // auditoria).
+  const ocAnteriorDeOt = heredado.ocAnteriorDeOt || new Map()
+  for (const [id, l] of [...porId.entries()]) {
+    if (l.oc) continue
+    const ocQueTenia = ocAnteriorDeOt.get(l.ot)
+    if (!ocQueTenia) continue
+    porId.delete(id)
+    const nuevoId = idDeLinea({ versionId, oc: ocQueTenia, ot: l.ot, codigo: l.codigo })
+    const previa = porId.get(nuevoId)
+    if (!previa) {
+      porId.set(nuevoId, { ...l, oc: ocQueTenia })
+    } else if (typeof previa.cantidadPlaneada === 'number' && typeof l.cantidadPlaneada === 'number') {
+      // Mismo criterio que el dedupe de arriba: dos renglones de la misma
+      // OT+codigo se SUMAN, no se pisa uno con el otro.
+      previa.cantidadPlaneada += l.cantidadPlaneada
+    } else {
+      previa.cantidadPlaneada = null
+    }
+  }
+  // La foto de lo que trajo el archivo, ya con sus OC resueltas y heredadas,
+  // ANTES de mezclar lo arrastrado: es sobre esto que se cuenta que cambio.
+  const entradasFinales = [...porId.entries()]
+
   heredado.lineas.forEach((l) => {
     const id = idDeLinea({ versionId, oc: l.oc, ot: l.ot, codigo: l.codigo })
     if (!porId.has(id)) porId.set(id, l)
@@ -417,6 +469,7 @@ export async function guardarPlanMaestro({
   // mismo gesto y no tiene por que aprenderse otro. Sin esto, subir un plan es
   // un acto ciego: no se sabe si aporto algo o si piso lo que ya estaba.
   const ocAntes = heredado.ocAnteriorDeOt || new Map()
+
   const ocsAntes = new Set([...ocAntes.values()])
   const cambios = {
     ocsNuevas: [],
@@ -428,18 +481,20 @@ export async function guardarPlanMaestro({
     pedidosConservados: heredado.pedidos.length
   }
   const ocsDelArchivo = new Map() // oc -> Set(ot)
-  entradas.forEach(([, l]) => {
+  entradasFinales.forEach(([, l]) => {
     if (!l.oc) return
     if (!ocsDelArchivo.has(l.oc)) ocsDelArchivo.set(l.oc, new Set())
     ocsDelArchivo.get(l.oc).add(l.ot)
   })
   const otsVistas = new Set()
-  entradas.forEach(([, l]) => {
+  entradasFinales.forEach(([, l]) => {
     if (otsVistas.has(l.ot)) return
     otsVistas.add(l.ot)
     const antes = ocAntes.get(l.ot)
     if (!antes) cambios.otsNuevas += 1
-    else if (antes !== l.oc) {
+    // Sin OC en el archivo no hay mudanza: la OT conserva la que tenia (ver
+    // arriba). Contarla como "cambio a ninguna" seria una alarma falsa.
+    else if (l.oc && antes !== l.oc) {
       cambios.otsActualizadas += 1
       // Una OT que se mueve de orden de compra es lo mas delicado que puede
       // traer un archivo: hay que verlo, no enterarse despues.
@@ -574,7 +629,11 @@ export async function mapaOtAOc() {
     const m = new Map()
     if (Array.isArray(vigente?.ocs)) {
       vigente.ocs.forEach((o) =>
-        (o.ots || []).forEach((ot) => m.set(String(ot).trim(), o.oc))
+        // normalizarOt, no trim: es la MISMA llave con la que las actas y las
+        // tareas guardan la OT. Si aqui se guardara cruda, un 'OT 7887' del
+        // plan no cruzaria con el '7887' del acta y lo recibido caeria en
+        // "sin orden de compra" en silencio.
+        (o.ots || []).forEach((ot) => m.set(normalizarOt(ot), o.oc))
       )
     }
     return m

@@ -321,9 +321,11 @@ export default function PanelPlanMaestro() {
                 )}
                 {d.sinOc > 0 && (
                   <li>
-                    {d.sinOc} renglones <strong>sin orden de compra</strong>. No es un error: esos
-                    quedan fuera del arbol hasta que se les asigne una, pero su orden de trabajo si
-                    entra al diccionario.
+                    {d.sinOc} renglones <strong>sin orden de compra</strong>. No es un error y{' '}
+                    <strong>entran igual</strong>: sus ordenes de trabajo ya se pueden encargar a
+                    las maquilas con sus codigos y cantidades. Lo unico que no pueden es colgar de
+                    una orden de compra en el arbol hasta que se les asigne una. Si esa OT ya tenia
+                    orden de compra en el plan anterior, la conserva.
                   </li>
                 )}
                 {d.ocInvalida > 0 && (
