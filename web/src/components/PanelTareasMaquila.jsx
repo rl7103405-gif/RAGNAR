@@ -1391,7 +1391,7 @@ export default function PanelTareasMaquila() {
               style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 6 }}
               onClick={() => onPegarDeBiblioteca(tareas.find((x) => x.id === biblioteca.tareaId), c)}
             >
-              <strong>{c.codigo}</strong> {c.descripcion ? `· ${c.descripcion}` : ''} · {c.techPack.nombre}
+              <strong>{c.codigo}</strong>{c.talla ? ` (talla ${c.talla})` : ''}{c.folio ? ` · folio ${c.folio}` : ''} {c.descripcion ? `· ${c.descripcion}` : ''} · {c.techPack.nombre}
             </button>
           ))}
           {biblioteca.sinTechPack.length > 0 && (

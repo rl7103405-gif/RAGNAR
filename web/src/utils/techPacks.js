@@ -31,6 +31,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -304,6 +305,7 @@ export async function techPacksDeLaOt(ot, esPrueba) {
       return { d, real: r.exists() ? { id: idReal, ...r.data() } : null }
     })
   )
+  const pendientesDeTalla = []
   resueltos.forEach(({ d, real }, i) => {
     const codigo = codigos[i]
     const fuente = real || d
@@ -318,9 +320,44 @@ export async function techPacksDeLaOt(ot, esPrueba) {
         techPack: fuente.techPack
       })
     } else {
-      sinTechPack.push({ codigo, descripcion: renglones[i]?.descripcion || '' })
+      pendientesDeTalla.push(i)
     }
   })
+  // TALLAS: el plan dice "WKD225T401" y la biblioteca guarda una entrada por
+  // talla ("WKD225T401-4-6", "-7-9", "-10-13"), porque cada talla tiene su
+  // propia ficha y su propio tech pack. Si no hubo documento exacto, se buscan
+  // los que empiecen con "CODIGO-" y se ofrecen todos: Lindbergh elige cual.
+  for (const i of pendientesDeTalla) {
+    const codigo = codigos[i]
+    let tallas = []
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, 'techPacks'),
+          where('esPrueba', '==', esPrueba === true),
+          where('codigo', '>=', codigo + '-'),
+          where('codigo', '<', codigo + '.'),
+          limit(12)
+        )
+      )
+      tallas = snap.docs.map((x) => x.data()).filter((x) => !x.apuntaA && x.techPack?.totalChunks)
+    } catch (err) {
+      console.warn('[techPacks] No se pudo buscar tallas de', codigo, err)
+    }
+    if (tallas.length) {
+      tallas.forEach((t) =>
+        conTechPack.push({
+          codigo: t.codigo,
+          folio: null,
+          talla: t.codigo.slice(codigo.length + 1),
+          descripcion: t.descripcion || renglones[i]?.descripcion || '',
+          techPack: t.techPack
+        })
+      )
+    } else {
+      sinTechPack.push({ codigo, descripcion: renglones[i]?.descripcion || '' })
+    }
+  }
   return { codigos, conTechPack, sinTechPack }
 }
 
