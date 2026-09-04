@@ -222,6 +222,11 @@ export async function crearTareaEnsamble({
   renglones,
   notas,
   archivo,
+  // deBiblioteca: { contenido, nombre, formato } ya bajado y validado de la
+  // biblioteca de tech packs (pegado automatico al encargar). Se trata igual
+  // que un archivo elegido a mano: la tarea nace 'preparando' y se publica
+  // cuando termina de subir.
+  deBiblioteca = null,
   usuario,
   onProgreso = () => {}
 }) {
@@ -293,6 +298,22 @@ export async function crearTareaEnsamble({
     }
     if (archivo.size === 0) throw new ErrorTareaEnsamble('El archivo esta vacio.')
     contenido = await archivo.arrayBuffer()
+  }
+  if (!contenido && deBiblioteca) {
+    // Si viene deBiblioteca pero sin contenido utilizable, no se ignora en
+    // silencio (eso creaba la tarea 'abierta' sin archivo como si nunca se
+    // hubiera pedido pegar uno): se avisa.
+    if (!(deBiblioteca.contenido instanceof ArrayBuffer) || deBiblioteca.contenido.byteLength === 0) {
+      throw new ErrorTareaEnsamble('El tech pack de la biblioteca no trajo contenido: vuelve a intentarlo.')
+    }
+    if (!['pdf', 'xlsx'].includes(deBiblioteca.formato)) {
+      throw new ErrorTareaEnsamble('El tech pack de la biblioteca tiene un formato que no se puede pegar.')
+    }
+    if (deBiblioteca.contenido.byteLength > MAX_TECHPACK_BYTES) {
+      throw new ErrorTareaEnsamble('El tech pack de la biblioteca esta vacio o pasa de 15 MB.')
+    }
+    contenido = deBiblioteca.contenido
+    formato = deBiblioteca.formato
   }
 
   // Como esta la orden AHORA MISMO (no como estaba cuando se pinto la
@@ -419,17 +440,58 @@ export async function crearTareaEnsamble({
     await setDoc(ref, base)
   }
 
+  // sinTechPack: si subirTechPack truena DESPUES de que el lote de arriba ya
+  // se cometio (tarea creada, OT apartada), la promesa que rechaza dejaba la
+  // tarea invisible en 'preparando' -- la maquila no la ve, el aviso no la
+  // menciona, y al reintentar el candado dice "ocupada" porque la OT ya es
+  // suya. Por eso aqui NO se deja que el error de la subida tumbe la funcion
+  // entera: se intenta publicar la tarea SIN tech pack (mismo patron de
+  // 'publicadaEn' que usa subirTechPack al cerrar) para que al menos la
+  // maquila la vea y alguien la complete desde el panel.
+  let sinTechPack = false
   if (contenido) {
-    await subirTechPack({
-      maquilaId,
-      tareaId: ref.id,
-      contenido,
-      nombre: archivo.name,
-      formato,
-      onProgreso
-    })
+    try {
+      await subirTechPack({
+        maquilaId,
+        tareaId: ref.id,
+        contenido,
+        nombre: archivo ? archivo.name : deBiblioteca.nombre,
+        formato,
+        onProgreso
+      })
+    } catch (err) {
+      console.error('[TareasEnsamble] Fallo la subida del tech pack; se intenta publicar la tarea sin el:', err)
+      sinTechPack = true
+      try {
+        // Chunks parciales de ESTE intento: sin manifiesto nadie los puede
+        // leer (las reglas exigen techPack != null), pero se quedarian como
+        // basura para siempre si no se barren.
+        const parciales = await getDocs(colChunks(maquilaId, ref.id))
+        for (let i = 0; i < parciales.docs.length; i += 10) {
+          const lote = writeBatch(db)
+          parciales.docs.slice(i, i + 10).forEach((d) => lote.delete(d.ref))
+          await lote.commit()
+        }
+        const actual = await getDoc(ref)
+        const yaPublicada = actual.exists() && actual.data().publicadaEn != null
+        await updateDoc(ref, {
+          estado: 'abierta',
+          techPack: null,
+          ...(yaPublicada ? {} : { publicadaEn: serverTimestamp() })
+        })
+      } catch (errRecuperacion) {
+        console.error('[TareasEnsamble] Tambien fallo la recuperacion sin tech pack:', errRecuperacion)
+        const errorTipado = new ErrorTareaEnsamble(
+          `La tarea de "${tituloLimpio}" quedo creada pero sin tech pack (no se pudo subir ni ` +
+            'publicarla sin el): completala desde el panel.'
+        )
+        errorTipado.tareaId = ref.id
+        errorTipado.tareaCreada = true
+        throw errorTipado
+      }
+    }
   }
-  return ref.id
+  return { id: ref.id, sinTechPack }
 }
 
 /**

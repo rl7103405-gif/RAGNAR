@@ -123,11 +123,15 @@ export default function PanelTareasMaquila() {
         setError(`Ninguno de los ${r.codigos.length} codigos de la OT ${tarea.ot} tiene tech pack en la biblioteca (${r.sinTechPack.map((x) => x.codigo).join(', ')}). Falta que Lety lo suba.`)
         return
       }
-      if (r.conTechPack.length === 1) {
-        await onPegarDeBiblioteca(tarea, r.conTechPack[0])
+      // Mismo criterio de deduplicacion que el flujo automatico: un mismo
+      // codigo repetido en el plan (dos tallas) no debe contarse dos veces
+      // antes de decidir si "hay uno solo".
+      const unicos = [...new Map(r.conTechPack.map((c) => [c.codigo, c])).values()]
+      if (unicos.length === 1) {
+        await onPegarDeBiblioteca(tarea, unicos[0])
         return
       }
-      setBiblioteca({ tareaId: tarea.id, ...r })
+      setBiblioteca({ tareaId: tarea.id, ...r, conTechPack: unicos })
     } catch (err) {
       reportar(err)
     } finally {
@@ -262,6 +266,12 @@ export default function PanelTareasMaquila() {
     // y vuelve a encargarlas todas.
     const hechas = []
     const saltadas = []
+    // Lo que paso con el tech pack de cada OT, para el aviso final. Se llenan
+    // solo DESPUES de confirmar que la tarea de verdad se creo: diagnosticar
+    // "con tech pack" de una OT que crearTareaEnsamble termino saltando (OT
+    // ocupada) mentiria en el aviso.
+    const resultadosTp = { conTp: [], eligeTp: [], sinTp: [], falloTp: [] }
+    const { conTp, eligeTp, sinTp, falloTp } = resultadosTp
     try {
       const ids = (maquilas || []).map((m) => m.id)
       for (const ot of otsElegidas) {
@@ -283,8 +293,53 @@ export default function PanelTareasMaquila() {
           continue
         }
         const destino = delPlan.find((r) => r.destino)?.destino || ''
+        // PEGADO AUTOMATICO: si la biblioteca tiene UN solo tech pack para
+        // esta OT, se baja y valida ANTES de crear la tarea, y la tarea nace
+        // con el (invisible para la maquila hasta que termina de subir). Con
+        // varios (tallas, varios disenos) o ninguno, se crea sin archivo como
+        // siempre y Lindbergh usa "Pegar de la biblioteca". Un fallo aqui NO
+        // impide encargar la orden: se avisa y se pega despues a mano.
+        let deBiblioteca = null
+        // El diagnostico se guarda aparte y NO se agrega a conTp/eligeTp/etc.
+        // todavia: solo cuenta si crearTareaEnsamble de verdad crea la tarea.
+        let diagnostico = null
         try {
-          await crearTareaEnsamble({
+          setProgreso(`OT ${ot}: buscando su tech pack en la biblioteca...`)
+          const r = await techPacksDeLaOt(ot, esPrueba, delPlan)
+          const unicos = [...new Map(r.conTechPack.map((c) => [c.codigo, c])).values()]
+          // Una TALLA suelta (WKD225T401-4-6) nunca se pega sola: el plan da
+          // una OT por talla pero no dice cual, y pegar la 4-6 a la OT de la
+          // 7-9 seria peor que dejarla sin tech pack. Lindbergh elige.
+          const pegable = unicos.length === 1 && !unicos[0].talla
+          if (pegable) {
+            const contenido = await pegarTechPackATarea({
+              soloValidar: true,
+              codigo: unicos[0].codigo,
+              techPack: unicos[0].techPack,
+              onProgreso: setProgreso
+            })
+            deBiblioteca = { contenido, nombre: unicos[0].techPack.nombre, formato: unicos[0].techPack.formato }
+            const faltan = r.sinTechPack.map((x) => x.codigo)
+            diagnostico = {
+              lista: 'conTp',
+              texto: `${ot} (${unicos[0].codigo}${faltan.length ? '; sin tech pack: ' + faltan.join(', ') : ''})`
+            }
+          } else if (unicos.length >= 1) {
+            diagnostico = { lista: 'eligeTp', texto: `${ot} (${unicos.map((c) => c.codigo).join(', ')})` }
+          } else if (r.codigos.length) {
+            diagnostico = { lista: 'sinTp', texto: ot }
+          } else {
+            // El plan trae renglones pero ninguno resolvio a un codigo con
+            // forma valida (codigoComoId los rechazo a todos).
+            diagnostico = { lista: 'sinTp', texto: `${ot} (codigos sin forma valida)` }
+          }
+        } catch (err) {
+          console.warn('[Encargar] No se pudo consultar la biblioteca para la OT', ot, err)
+          diagnostico = { lista: 'falloTp', texto: `${ot} (${err?.message || err})` }
+          deBiblioteca = null
+        }
+        try {
+          const resultado = await crearTareaEnsamble({
             maquilaId: nueva.maquilaId,
             titulo: `OT ${ot}${destino ? ' - ' + destino : ''}`,
             ot,
@@ -301,10 +356,17 @@ export default function PanelTareasMaquila() {
             // el mismo cuatro veces sin que nadie lo pida seria decidir por
             // el. Se agrega despues a la que lo necesite.
             archivo: null,
+            deBiblioteca,
             usuario: usuario(),
             onProgreso: setProgreso
           })
+          // La tarea SI se creo: hasta ahora se confirma el diagnostico.
           hechas.push(ot)
+          if (resultado?.sinTechPack) {
+            falloTp.push(`${ot} (la tarea se creo, pero el tech pack no se pudo subir: subelo a mano)`)
+          } else if (diagnostico) {
+            resultadosTp[diagnostico.lista].push(diagnostico.texto)
+          }
         } catch (err) {
           // Que una orden choque con el candado NO debe tumbar a las demas:
           // se salta esa, se dice por que, y las otras siguen. Cualquier otro
@@ -319,6 +381,13 @@ export default function PanelTareasMaquila() {
             }
             continue
           }
+          // La tarea SI quedo creada (aunque sin tech pack): que no se
+          // pierda de vista ni se cuente como "no se encargo".
+          if (err?.tareaCreada) {
+            hechas.push(ot)
+            falloTp.push(`${ot} (${err.message})`)
+            continue
+          }
           throw err
         }
       }
@@ -331,7 +400,10 @@ export default function PanelTareasMaquila() {
             `(OT ${hechas.join(', ')}).`
           : 'No se encargo ninguna.') +
           (saltadas.length ? ` Se saltaron: ${saltadas.join('; ')}.` : '') +
-          (hechas.length ? ' El tech pack se sube despues, tarea por tarea.' : '')
+          (conTp.length ? ` Con tech pack de la biblioteca: OT ${conTp.join('; ')}.` : '') +
+          (eligeTp.length ? ` Elige el tech pack a mano con "Pegar de la biblioteca" (hay varios): OT ${eligeTp.join('; ')}.` : '') +
+          (sinTp.length ? ` Sin tech pack en la biblioteca (falta que Lety lo suba): OT ${sinTp.join(', ')}.` : '') +
+          (falloTp.length ? ` No se pudo pegar el tech pack, subelo a mano: OT ${falloTp.join('; ')}.` : '')
       )
     } catch (err) {
       reportar(err)
@@ -382,7 +454,7 @@ export default function PanelTareasMaquila() {
       // pelado y, al hacerlo ANTES, dejaba inalcanzable el boton de pedir
       // autorizacion: el mecanismo entero que pidio el papa habria sido codigo
       // muerto.
-      await crearTareaEnsamble({
+      const resultado = await crearTareaEnsamble({
         maquilaId: nueva.maquilaId,
         // El titulo ya no se teclea: era lo mismo que la orden. Roberto,
         // 2026-09-02: "lo del titulo pedido o cliente, al final del dia es lo
@@ -402,9 +474,11 @@ export default function PanelTareasMaquila() {
       setRenglones([{ ...RENGLON_VACIO }])
       setArchivo(null)
       setAviso(
-        archivo
-          ? 'Tarea creada y tech pack subido: la maquila ya la ve en su portal.'
-          : 'Tarea creada: la maquila ya la ve en su portal.'
+        archivo && resultado?.sinTechPack
+          ? 'Tarea creada, pero el tech pack no se pudo subir: subelo desde el panel.'
+          : archivo
+            ? 'Tarea creada y tech pack subido: la maquila ya la ve en su portal.'
+            : 'Tarea creada: la maquila ya la ve en su portal.'
       )
     } catch (err) {
       reportar(err)

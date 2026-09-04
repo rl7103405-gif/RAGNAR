@@ -284,9 +284,21 @@ export function escucharBiblioteca(esPrueba, alRecibir, alFallar) {
  * manifiesto, listos para pegar) y cuales no. Si el plan no conoce la OT,
  * codigos sale vacio y quien llama lo dice en pantalla en vez de adivinar.
  */
-export async function techPacksDeLaOt(ot, esPrueba) {
-  const renglones = await renglonesDeLaOt(ot)
-  const codigos = renglones.map((r) => codigoComoId(r.codigo)).filter(Boolean)
+export async function techPacksDeLaOt(ot, esPrueba, renglonesYaLeidos = null) {
+  const todosLosRenglones = renglonesYaLeidos || (await renglonesDeLaOt(ot))
+  // Deduplicado por codigo (Set), conservando el PRIMER renglon como
+  // descripcion representativa: un mismo codigo en dos tallas del plan no
+  // debe buscarse ni contarse dos veces en la biblioteca.
+  const vistos = new Set()
+  const renglones = []
+  const codigos = []
+  todosLosRenglones.forEach((r) => {
+    const id = codigoComoId(r.codigo)
+    if (!id || vistos.has(id)) return
+    vistos.add(id)
+    codigos.push(id)
+    renglones.push(r)
+  })
   if (!codigos.length) return { codigos: [], conTechPack: [], sinTechPack: [] }
   const lecturas = await Promise.all(codigos.map((c) => getDoc(refDoc(c))))
   // ALIAS: el plan maestro conoce muchos disenos por su FOLIO DE FICHA (1561-I,
@@ -342,7 +354,12 @@ export async function techPacksDeLaOt(ot, esPrueba) {
       )
       tallas = snap.docs.map((x) => x.data()).filter((x) => !x.apuntaA && x.techPack?.totalChunks)
     } catch (err) {
-      console.warn('[techPacks] No se pudo buscar tallas de', codigo, err)
+      // NO se traga: un fallo de red/permisos/indice aqui NO es lo mismo que
+      // "Lety no lo ha subido" (sinTechPack), y tratarlo igual podria llevar
+      // a pegar automaticamente el UNICO tech pack restante con una premisa
+      // falsa. Se relanza con el codigo para que quien llama lo clasifique
+      // como fallo, no como "falta subirlo".
+      throw new ErrorBiblioteca(`No se pudo consultar la biblioteca de tallas de ${codigo}: ${err?.message || err}`)
     }
     if (tallas.length) {
       tallas.forEach((t) =>
