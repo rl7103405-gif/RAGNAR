@@ -273,7 +273,21 @@ export default function PanelTechPacks() {
       .map(([oc, porOt]) => ({
         oc,
         ots: [...porOt.entries()]
-          .map(([ot, disenos]) => ({ ot, disenos: disenos.sort((x, y) => x.codigo.localeCompare(y.codigo)), faltan: faltanDe.get(ot)?.faltan || [], destino: faltanDe.get(ot)?.destino || '' }))
+          .map(([ot, disenos]) => {
+            // Las tallas de un mismo diseno van juntas: un renglon por codigo
+            // base con un boton por talla (el plan da una OT por talla y
+            // Lindbergh elige cual al pegar).
+            const porBase = new Map()
+            disenos.forEach((b) => {
+              const base = codigoBase(b.codigo)
+              if (!porBase.has(base)) porBase.set(base, { base, variantes: [] })
+              porBase.get(base).variantes.push(b)
+            })
+            const grupos = [...porBase.values()]
+              .map((g) => ({ ...g, variantes: g.variantes.sort((x, y) => x.codigo.localeCompare(y.codigo, 'es', { numeric: true })) }))
+              .sort((x, y) => x.base.localeCompare(y.base))
+            return { ot, grupos, faltan: faltanDe.get(ot)?.faltan || [], destino: faltanDe.get(ot)?.destino || '' }
+          })
           .sort((x, y) => x.ot.localeCompare(y.ot, 'es', { numeric: true }))
       }))
       .sort((x, y) => (x.oc === 'SIN OC' ? 1 : y.oc === 'SIN OC' ? -1 : x.oc.localeCompare(y.oc, 'es', { numeric: true })))
@@ -448,7 +462,7 @@ export default function PanelTechPacks() {
               <details key={o.oc} className="tp-oc" open>
                 <summary>
                   <span className="tp-oc-titulo">{o.oc === 'SIN OC' ? 'Ordenes de trabajo sin orden de compra' : `OC ${o.oc}`}</span>
-                  <span className="texto-suave"> · {o.ots.length} {o.ots.length === 1 ? 'orden de trabajo' : 'ordenes de trabajo'} · {o.ots.reduce((n, t) => n + t.disenos.length, 0)} tech packs</span>
+                  <span className="texto-suave"> · {o.ots.length} {o.ots.length === 1 ? 'orden de trabajo' : 'ordenes de trabajo'} · {o.ots.reduce((n, t) => n + t.grupos.length, 0)} {o.ots.reduce((n, t) => n + t.grupos.length, 0) === 1 ? 'diseno' : 'disenos'}</span>
                 </summary>
                 {o.ots.map((t) => (
                   <div key={t.ot} className="tp-ot">
@@ -460,27 +474,41 @@ export default function PanelTechPacks() {
                       )}
                     </div>
                     <div className="tp-disenos">
-                      {t.disenos.map((b) => (
-                        <div key={b.id} className="tp-diseno">
+                      {t.grupos.map((g) => (
+                        <div key={g.base} className="tp-diseno">
                           <div>
-                            <span className="tp-codigo">{b.codigo}</span>
-                            {codigoBase(b.codigo) !== b.codigo ? <span className="tp-pill" style={{ marginLeft: 6 }}>talla {b.codigo.slice(codigoBase(b.codigo).length + 1)}</span> : null}
-                            {(resumen.foliosDe.get(b.codigo) || []).length > 0 && (
-                              <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>folios {(resumen.foliosDe.get(b.codigo) || []).join(', ')}</span>
+                            <span className="tp-codigo">{g.base}</span>
+                            {g.variantes.length > 1 || g.variantes[0].codigo !== g.base ? (
+                              <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>
+                                {g.variantes.length} {g.variantes.length === 1 ? 'talla' : 'tallas'}
+                              </span>
+                            ) : null}
+                            {g.variantes.length === 1 && (resumen.foliosDe.get(g.variantes[0].codigo) || []).length > 0 && (
+                              <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>folios {(resumen.foliosDe.get(g.variantes[0].codigo) || []).join(', ')}</span>
                             )}
                           </div>
                           <div className="tp-fila">
-                            {b.techPack?.totalChunks ? (
-                              <>
-                                <button className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}>Ver tech pack</button>
-                                <span className="texto-suave" style={{ fontSize: 12 }}>v{b.techPack.version || 1} · {b.techPack.formato?.toUpperCase()} · {mb(b.techPack.tamano)}</span>
-                              </>
-                            ) : (
-                              <span className="tp-pill tp-pill-falta">sin tech pack</span>
-                            )}
-                            {b.ftt?.totalChunks ? (
-                              <button className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>Ver FTT</button>
-                            ) : null}
+                            {g.variantes.map((b) => {
+                              const talla = b.codigo !== g.base ? b.codigo.slice(g.base.length + 1) : ''
+                              return b.techPack?.totalChunks ? (
+                                <button
+                                  key={b.id}
+                                  className="btn-secundario tp-btn-chico"
+                                  title={`${b.techPack.formato?.toUpperCase()} · ${mb(b.techPack.tamano)} · v${b.techPack.version || 1}${(resumen.foliosDe.get(b.codigo) || []).length ? ' · folios ' + resumen.foliosDe.get(b.codigo).join(', ') : ''}`}
+                                  onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
+                                >
+                                  {talla ? `Ver talla ${talla}` : 'Ver tech pack'}
+                                </button>
+                              ) : (
+                                <span key={b.id} className="tp-pill tp-pill-falta">{talla ? `talla ${talla} sin tech pack` : 'sin tech pack'}</span>
+                              )
+                            })}
+                            {g.variantes.some((b) => b.ftt?.totalChunks) &&
+                              g.variantes.filter((b) => b.ftt?.totalChunks).map((b) => (
+                                <button key={b.id + '-ftt'} className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
+                                  Ver FTT{b.codigo !== g.base ? ` ${b.codigo.slice(g.base.length + 1)}` : ''}
+                                </button>
+                              ))}
                           </div>
                         </div>
                       ))}
