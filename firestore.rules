@@ -2826,7 +2826,11 @@ service cloud.firestore {
     }
     function techPackDocValido(d) {
       return d.keys().hasAll(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba'])
-        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba'])
+        // 'apuntaA' es OPCIONAL: un documento alias (techPacks/{folio de ficha})
+        // que no trae archivo sino el codigo real al que pertenece. Asi el
+        // pegado por OT encuentra el tech pack por el folio que usa el plan.
+        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA'])
+        && (!d.keys().hasAny(['apuntaA']) || (d.apuntaA is string && d.apuntaA.size() > 0 && d.apuntaA.size() <= 60 && d.apuntaA != d.codigo))
         && d.codigo is string && d.codigo.size() > 0 && d.codigo.size() <= 60
         && d.descripcion is string && d.descripcion.size() <= 200
         // Obligatorio y booleano SIEMPRE (nunca opcional, a diferencia de
@@ -2891,7 +2895,7 @@ service cloud.firestore {
         && campoDeManifiestoOk('techPack')
         && campoDeManifiestoOk('ftt')
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['techPack', 'ftt', 'descripcion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre']);
+             .hasOnly(['techPack', 'ftt', 'descripcion', 'apuntaA', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre']);
       // No se borra el documento: se quitan los manifiestos (update a null).
       // Un codigo que existio deja rastro de quien lo toco y cuando.
       allow delete: if false;

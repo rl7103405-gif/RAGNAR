@@ -288,14 +288,35 @@ export async function techPacksDeLaOt(ot, esPrueba) {
   const codigos = renglones.map((r) => codigoComoId(r.codigo)).filter(Boolean)
   if (!codigos.length) return { codigos: [], conTechPack: [], sinTechPack: [] }
   const lecturas = await Promise.all(codigos.map((c) => getDoc(refDoc(c))))
+  // ALIAS: el plan maestro conoce muchos disenos por su FOLIO DE FICHA (1561-I,
+  // 2711), no por el nombre del tech pack. Un documento techPacks/{folio} con
+  // `apuntaA` dice a que codigo real pertenece; aqui se sigue el puntero UNA
+  // vez (no en cadena) y el archivo se lee del documento real.
   const conTechPack = []
   const sinTechPack = []
-  lecturas.forEach((snap, i) => {
+  const resueltos = await Promise.all(
+    lecturas.map(async (snap) => {
+      const d = snap.exists() ? snap.data() : null
+      if (!d?.apuntaA) return { d, real: null }
+      const idReal = codigoComoId(d.apuntaA)
+      if (!idReal) return { d, real: null }
+      const r = await getDoc(refDoc(idReal))
+      return { d, real: r.exists() ? { id: idReal, ...r.data() } : null }
+    })
+  )
+  resueltos.forEach(({ d, real }, i) => {
     const codigo = codigos[i]
-    const d = snap.exists() ? snap.data() : null
-    const delMundo = d && (d.esPrueba === true) === (esPrueba === true)
-    if (delMundo && d.techPack?.totalChunks) {
-      conTechPack.push({ codigo, descripcion: d.descripcion || renglones[i]?.descripcion || '', techPack: d.techPack })
+    const fuente = real || d
+    const delMundo = fuente && (fuente.esPrueba === true) === (esPrueba === true)
+    if (delMundo && fuente.techPack?.totalChunks) {
+      conTechPack.push({
+        // El codigo que se usa para BAJAR el archivo es el real; el folio se
+        // conserva para decir por que se encontro.
+        codigo: real ? real.id : codigo,
+        folio: real ? codigo : null,
+        descripcion: fuente.descripcion || renglones[i]?.descripcion || '',
+        techPack: fuente.techPack
+      })
     } else {
       sinTechPack.push({ codigo, descripcion: renglones[i]?.descripcion || '' })
     }

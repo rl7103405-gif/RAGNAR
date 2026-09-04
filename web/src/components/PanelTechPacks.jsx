@@ -202,17 +202,24 @@ export default function PanelTechPacks() {
   }
 
   const resumen = useMemo(() => {
-    const total = biblioteca.length
-    const conTp = biblioteca.filter((b) => b.techPack?.totalChunks).length
-    const conFtt = biblioteca.filter((b) => b.ftt?.totalChunks).length
-    const soloFtt = biblioteca.filter((b) => b.ftt?.totalChunks && !b.techPack?.totalChunks).length
-    const fueraDelPlan = enPlan ? biblioteca.filter((b) => !enPlan.get(b.codigo)?.length).length : null
-    return { total, conTp, conFtt, soloFtt, fueraDelPlan }
+    // Los alias (folio -> codigo real) no cuentan como disenos.
+    const reales = biblioteca.filter((b) => !b.apuntaA)
+    const total = reales.length
+    const conTp = reales.filter((b) => b.techPack?.totalChunks).length
+    const conFtt = reales.filter((b) => b.ftt?.totalChunks).length
+    const soloFtt = reales.filter((b) => b.ftt?.totalChunks && !b.techPack?.totalChunks).length
+    // Un diseno esta "en el plan" si su codigo o alguno de sus alias (folios) esta
+    const foliosDe = new Map()
+    biblioteca.forEach((b) => { if (b.apuntaA) { if (!foliosDe.has(b.apuntaA)) foliosDe.set(b.apuntaA, []); foliosDe.get(b.apuntaA).push(b.codigo) } })
+    const fueraDelPlan = enPlan
+      ? reales.filter((b) => !enPlan.get(b.codigo)?.length && !(foliosDe.get(b.codigo) || []).some((f) => enPlan.get(f)?.length)).length
+      : null
+    return { total, conTp, conFtt, soloFtt, fueraDelPlan, foliosDe }
   }, [biblioteca, enPlan])
 
   const visibles = useMemo(() => {
     const f = filtro.trim().toUpperCase()
-    return biblioteca.filter((b) => {
+    return biblioteca.filter((b) => !b.apuntaA).filter((b) => {
       if (soloSin && b.techPack?.totalChunks) return false
       if (!f) return true
       return `${b.codigo} ${b.descripcion || ''}`.toUpperCase().includes(f)
@@ -416,7 +423,11 @@ export default function PanelTechPacks() {
                     </td>
                     <td>{b.descripcion || <span className="texto-suave">sin descripcion</span>}</td>
                     <td style={{ fontSize: 13 }}>
-                      <LigueAlPlan lista={enPlan ? enPlan.get(b.codigo) : undefined} cargando={enPlan === null} />
+                      <LigueAlPlan
+                        lista={enPlan ? [...(enPlan.get(b.codigo) || []), ...(resumen.foliosDe.get(b.codigo) || []).flatMap((f) => enPlan.get(f) || [])] : undefined}
+                        folios={resumen.foliosDe.get(b.codigo) || []}
+                        cargando={enPlan === null}
+                      />
                     </td>
                     <td>
                       <Documento item={b} tipo="tp" onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} />
@@ -516,17 +527,28 @@ function Tile({ titulo, valor, tono = '' }) {
   )
 }
 
-function LigueAlPlan({ lista, cargando }) {
+function LigueAlPlan({ lista, folios = [], cargando }) {
   if (cargando) return <span className="texto-suave">leyendo el plan...</span>
-  if (!lista?.length) return <span className="tp-pill tp-pill-aviso">sin OT en el plan</span>
+  // Una OT puede venir por el codigo y por varios folios: se muestra una vez.
+  const vistas = new Map()
+  ;(lista || []).forEach((x) => { if (!vistas.has(x.ot)) vistas.set(x.ot, x) })
   return (
     <span>
-      {lista.map((x) => (
-        <span key={x.ot} className="tp-pill">
-          {x.ot}
-          {x.oc ? <span className="texto-suave"> · OC {x.oc}</span> : null}
-        </span>
-      ))}
+      {vistas.size === 0 ? (
+        <span className="tp-pill tp-pill-aviso">sin OT en el plan</span>
+      ) : (
+        [...vistas.values()].map((x) => (
+          <span key={x.ot} className="tp-pill">
+            {x.ot}
+            {x.oc ? <span className="texto-suave"> · OC {x.oc}</span> : null}
+          </span>
+        ))
+      )}
+      {folios.length > 0 && (
+        <div className="texto-suave" style={{ fontSize: 12, marginTop: 2 }}>
+          folios: {folios.join(', ')}
+        </div>
+      )}
     </span>
   )
 }

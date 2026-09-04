@@ -29,3 +29,4 @@ datos/
 
 # Capturas y logs del navegador con el que se verifica antes de desplegar.
 .playwright-mcp/
+techpacks-drive/
