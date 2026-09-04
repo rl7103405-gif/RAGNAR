@@ -911,3 +911,42 @@ paso explicito de Lindbergh y queda sellado con nombre.
 Pendiente de decidir: quien puede confirmar (hoy los precios los pone Cielo;
 Roberto dice que Lindbergh los confirme al encargar) y como se extrae la
 familia del modelo (descripcion del catalogo vs. una tabla de familias).
+
+## 💡 Cargador de tech packs: relacionar por PEDIDO cuando el nombre no trae codigo
+
+Roberto (03-09): *"hay que buscar una manera de relacionar los tech packs con
+las OT"*. Hoy el cargador (`scripts/cargar_tech_packs.mjs`) solo entiende
+`TECH PACK <CODIGO>`. Pero en el Drive hay tech packs nombrados por **pedido**
+(`TECH PACK 2408 CABALLERO`, `TECH PACK PO 4504345772`, `4504298831`) y el
+plan maestro ya tiene el diccionario **pedido → OT** (`planMaestroPedidos`) y
+**OT → codigos** (`planMaestroLineas`). Con eso el cargador podria resolver:
+nombre con pedido → OT → codigos, y si la OT lleva un solo codigo, ligarlo
+solo; si lleva varios, preguntar. Tambien podria leer el codigo DENTRO del
+Excel (la hoja del tech pack suele traer "MODELO:" en la cabecera), que es mas
+confiable que el nombre del archivo.
+
+Segunda fuente de relacion: la **carpeta** de Drive. Cada tech pack vive en
+una carpeta por diseno/pedido (`parentId`); el nombre de la carpeta muchas
+veces es el codigo o el cliente. Al bajar el zip, la ruta de la carpeta viaja
+con el archivo: el cargador puede usarla como respaldo del nombre.
+
+No se hizo hoy: primero hay que ver que trae el zip real.
+
+### ⭐ Hallazgo (03-09, tarde): el plan liga por FOLIO DE FICHA, no por nombre de diseno
+
+269 de 344 codigos del plan vigente son folios de ficha (`1561-I`, `6080-K`).
+La carpeta de Drive de cada diseno trae el tech pack junto con
+`FICHA<folios>.xlsx`, y esos folios son los que el plan conoce (1561-I -> OT
+8042). **El cargador tiene que ligar por carpeta → folios de la FICHA → OT**,
+no por el nombre del tech pack. Primera version: un `techPacks/{folio}` por
+folio con el mismo archivo. Mejor version: `codigosLigados: [..]` en el
+documento y que `techPacksDeLaOt` busque tambien por ahi. Detalle en el vault:
+`02-Apps/tech-packs-en-drive.md`.
+
+## 🟢 Tech packs: la tabla dice "sin OT en el plan" para las tallas (04-09)
+
+`WKD225T401-4-6` etc. salen en la tabla como "sin OT en el plan" y cuentan en
+el tile "Sin OT", aunque el pegado por OT SI las encuentra (busca por prefijo
+del codigo base). Falta que `LigueAlPlan` en `PanelTechPacks.jsx` tambien
+mire el codigo base (todo antes del ultimo `-N-N`). Cosmetico; 12 renglones
+hoy.

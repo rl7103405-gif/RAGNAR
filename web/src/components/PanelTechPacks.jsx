@@ -35,6 +35,10 @@ import {
 import VisorTechPack from './VisorTechPack'
 
 const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—')
+// "WKD225T401-4-6" -> "WKD225T401": el plan trae el codigo base y una OT por
+// talla; la biblioteca guarda una entrada por talla. Mismo criterio que el
+// pegado por OT (techPacksDeLaOt).
+const codigoBase = (c) => String(c || '').replace(/-\d{1,2}-\d{1,2}$/, '')
 const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`
 
 export default function PanelTechPacks() {
@@ -212,7 +216,12 @@ export default function PanelTechPacks() {
     const foliosDe = new Map()
     biblioteca.forEach((b) => { if (b.apuntaA) { if (!foliosDe.has(b.apuntaA)) foliosDe.set(b.apuntaA, []); foliosDe.get(b.apuntaA).push(b.codigo) } })
     const fueraDelPlan = enPlan
-      ? reales.filter((b) => !enPlan.get(b.codigo)?.length && !(foliosDe.get(b.codigo) || []).some((f) => enPlan.get(f)?.length)).length
+      ? reales.filter(
+          (b) =>
+            !enPlan.get(b.codigo)?.length &&
+            !enPlan.get(codigoBase(b.codigo))?.length &&
+            !(foliosDe.get(b.codigo) || []).some((f) => enPlan.get(f)?.length)
+        ).length
       : null
     return { total, conTp, conFtt, soloFtt, fueraDelPlan, foliosDe }
   }, [biblioteca, enPlan])
@@ -424,7 +433,16 @@ export default function PanelTechPacks() {
                     <td>{b.descripcion || <span className="texto-suave">sin descripcion</span>}</td>
                     <td style={{ fontSize: 13 }}>
                       <LigueAlPlan
-                        lista={enPlan ? [...(enPlan.get(b.codigo) || []), ...(resumen.foliosDe.get(b.codigo) || []).flatMap((f) => enPlan.get(f) || [])] : undefined}
+                        lista={
+                          enPlan
+                            ? [
+                                ...(enPlan.get(b.codigo) || []),
+                                ...(codigoBase(b.codigo) !== b.codigo ? enPlan.get(codigoBase(b.codigo)) || [] : []),
+                                ...(resumen.foliosDe.get(b.codigo) || []).flatMap((f) => enPlan.get(f) || [])
+                              ]
+                            : undefined
+                        }
+                        porTalla={codigoBase(b.codigo) !== b.codigo && !enPlan?.get(b.codigo)?.length && Boolean(enPlan?.get(codigoBase(b.codigo))?.length)}
                         folios={resumen.foliosDe.get(b.codigo) || []}
                         cargando={enPlan === null}
                       />
@@ -527,7 +545,7 @@ function Tile({ titulo, valor, tono = '' }) {
   )
 }
 
-function LigueAlPlan({ lista, folios = [], cargando }) {
+function LigueAlPlan({ lista, folios = [], cargando, porTalla = false }) {
   if (cargando) return <span className="texto-suave">leyendo el plan...</span>
   // Una OT puede venir por el codigo y por varios folios: se muestra una vez.
   const vistas = new Map()
@@ -543,6 +561,11 @@ function LigueAlPlan({ lista, folios = [], cargando }) {
             {x.oc ? <span className="texto-suave"> · OC {x.oc}</span> : null}
           </span>
         ))
+      )}
+      {porTalla && (
+        <div className="texto-suave" style={{ fontSize: 12, marginTop: 2 }}>
+          por el codigo base (el plan lleva una OT por talla; Lindbergh elige al pegar)
+        </div>
       )}
       {folios.length > 0 && (
         <div className="texto-suave" style={{ fontSize: 12, marginTop: 2 }}>
