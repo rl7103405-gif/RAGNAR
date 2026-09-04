@@ -668,3 +668,15 @@ table th, table td {
 }
 .tp-lista > summary { list-style: none; }
 .tp-lista > summary::-webkit-details-marker { display: none; }
+
+/* Visor de tech pack (Excel): hoja compacta, combinadas respetadas */
+.tp-hoja-envoltura { overflow-x: auto; }
+.tp-hoja { border-collapse: collapse; font-size: 11.5px; line-height: 1.25; min-width: 100%; }
+.tp-hoja td { border: 1px solid #e3e6ea; padding: 3px 7px; vertical-align: top; white-space: pre-wrap; }
+.tp-hoja td:not([colspan]) { max-width: 260px; }
+.tp-hoja td:empty { background: #fafbfc; }
+.tp-hoja tr:nth-child(even) td { background: #fcfcfd; }
+.tp-hoja tr:nth-child(even) td:empty { background: #f7f8fa; }
+.tp-hoja-negrita { font-weight: 600; }
+.tp-hoja-centro { text-align: center; }
+.tp-hoja-titulo td { background: #eef2f7 !important; font-weight: 600; letter-spacing: .01em; }

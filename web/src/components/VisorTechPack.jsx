@@ -122,17 +122,94 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
       for (const hoja of libro.worksheets) {
         const filas = []
         let recortada = false
+        const columnasRecortadas = (hoja.columnCount || 0) > MAX_COLS
+        // "A16:I18" -> A16 llega hasta la fila 18. Solo interesan las que
+        // bajan de fila; las horizontales ya se resuelven celda por celda.
+        const rangos = new Map()
+        for (const r of hoja.model?.merges || []) {
+          const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(String(r))
+          if (m && Number(m[4]) > Number(m[2])) rangos.set(m[1] + m[2], Number(m[4]))
+        }
         hoja.eachRow({ includeEmpty: false }, (fila, n) => {
           if (n > MAX_FILAS_POR_HOJA) {
             recortada = true
             return
           }
+          // Celdas combinadas: en Excel "RECIBE Y AUTORIZA:" es UNA celda que
+          // abarca nueve columnas; ExcelJS devuelve el mismo valor en las
+          // nueve. Se emite una sola con su ancho (span) y las demas se
+          // saltan. Una combinacion vertical (la esclava esta en otra fila)
+          // se deja como celda vacia para no correr las columnas.
           const celdas = []
           for (let c = 1; c <= Math.min(hoja.columnCount || 1, MAX_COLS); c++) {
-            celdas.push(celdaATexto(fila.getCell(c).value))
+            const celda = fila.getCell(c)
+            const master = celda.isMerged ? celda.master : null
+            if (master && master.address !== celda.address) {
+              if (master.row === n && celdas.length > 0) celdas[celdas.length - 1].span += 1
+              // Esclava de una combinacion VERTICAL: se recuerda de quien es,
+              // para quitarla si el master se pinta con rowSpan (abajo).
+              else celdas.push({ texto: '', span: 1, esclavaDe: master.address })
+              continue
+            }
+            celdas.push({
+              texto: celdaATexto(celda.value),
+              span: 1,
+              negrita: Boolean(celda.font?.bold),
+              centrada: celda.alignment?.horizontal === 'center',
+              direccion: celda.address,
+              hastaFila: rangos.get(celda.address) || n
+            })
           }
           // Las filas totalmente vacias no aportan nada en pantalla.
-          if (celdas.some((x) => x !== '')) filas.push({ n, celdas })
+          if (celdas.some((x) => x.texto.trim() !== '')) filas.push({ n, celdas })
+        })
+        // Columnas vacias a la derecha: se recortan para que la tabla no se
+        // estire con celdas en blanco.
+        let anchoUtil = 0
+        filas.forEach((f) => {
+          let pos = 0
+          f.celdas.forEach((c) => {
+            pos += c.span
+            if (c.texto.trim() !== '') anchoUtil = Math.max(anchoUtil, pos)
+          })
+        })
+        filas.forEach((f) => {
+          let pos = 0
+          f.celdas = f.celdas.filter((c) => {
+            pos += c.span
+            return pos - c.span < anchoUtil
+          })
+          const ultima = f.celdas[f.celdas.length - 1]
+          if (ultima) {
+            const inicio = f.celdas.slice(0, -1).reduce((t, c) => t + c.span, 0)
+            ultima.span = Math.max(1, Math.min(ultima.span, anchoUtil - inicio))
+          }
+          // Una fila con un solo texto (titulo de seccion, "RECIBE Y
+          // AUTORIZA:", notas) se pinta a todo lo ancho, como en la hoja.
+          const conTexto = f.celdas.filter((c) => c.texto.trim() !== '')
+          const unica = conTexto[0]
+          const empiezaAlInicio = unica && f.celdas.indexOf(unica) === 0
+          f.titulo = conTexto.length === 1 && unica.span > 1 && (empiezaAlInicio || unica.span * 2 >= anchoUtil)
+        })
+        // Combinaciones verticales ("IMAGEN DE REFERENCIA" de J5 a K6, el
+        // cuadro de firmas A16:I18): el master se pinta con rowSpan sobre las
+        // filas que SI se muestran y sus esclavas se quitan. Si el master no
+        // se muestra (combinacion vacia), las esclavas quedan como celdas
+        // vacias para no correr las columnas.
+        const masters = new Map()
+        filas.forEach((f) => {
+          f.celdas.forEach((c) => {
+            if (c.direccion && c.hastaFila > f.n) {
+              const cubre = filas.filter((g) => g.n > f.n && g.n <= c.hastaFila).length
+              if (cubre > 0) {
+                c.rowSpan = cubre + 1
+                masters.set(c.direccion, true)
+              }
+            }
+          })
+        })
+        filas.forEach((f) => {
+          f.celdas = f.celdas.filter((c) => !(c.esclavaDe && masters.has(c.esclavaDe)))
         })
         // Las fotos de la hoja (acomodo, empaque...): se listan debajo de la
         // tabla con la fila aproximada donde estaban ancladas.
@@ -150,7 +227,7 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
           console.warn('[VisorTechPack] No se pudieron extraer imagenes de', hoja.name, e)
         }
         if (filas.length > 0 || imagenes.length > 0) {
-          resultado.push({ nombre: hoja.name, filas, imagenes, recortada })
+          resultado.push({ nombre: hoja.name, filas, imagenes, recortada, columnasRecortadas })
         }
       }
       setHojas(resultado)
@@ -259,17 +336,31 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
               {hoja && (
                 <>
                   {hoja.filas.length > 0 && (
-                    <table className="tabla-datos" style={{ fontSize: 12 }}>
-                      <tbody>
-                        {hoja.filas.map((f) => (
-                          <tr key={f.n}>
-                            {f.celdas.map((c, i) => (
-                              <td key={i} style={{ whiteSpace: 'pre-wrap' }}>{c}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <div className="tp-hoja-envoltura">
+                      <table className="tp-hoja">
+                        <tbody>
+                          {hoja.filas.map((f) => (
+                            <tr key={f.n} className={f.titulo ? 'tp-hoja-titulo' : undefined}>
+                              {f.celdas.map((c, i) => (
+                                <td
+                                  key={i}
+                                  colSpan={c.span > 1 ? c.span : undefined}
+                                  rowSpan={c.rowSpan > 1 ? c.rowSpan : undefined}
+                                  className={[c.negrita ? 'tp-hoja-negrita' : '', c.centrada || (c.span > 1 && f.titulo) ? 'tp-hoja-centro' : ''].join(' ').trim() || undefined}
+                                >
+                                  {c.texto}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {hoja.columnasRecortadas && (
+                    <p className="texto-suave" style={{ fontSize: 12 }}>
+                      La hoja tiene mas de {MAX_COLS} columnas; solo se muestran las primeras {MAX_COLS}.
+                    </p>
                   )}
                   {hoja.recortada && (
                     <p className="texto-suave" style={{ fontSize: 12 }}>
