@@ -236,6 +236,49 @@ export default function PanelTechPacks() {
   }, [biblioteca, filtro, soloSin])
 
   const otsConFaltantes = Array.isArray(cruce) ? cruce.filter((o) => o.faltan.length) : []
+
+  // EL ARBOL: orden de compra -> orden de trabajo -> disenos con tech pack.
+  // Es la misma forma que el arbol de Ordenes de compra (Roberto, 04-09:
+  // "necesito que las ordenes igual, como el arbol"). Un diseno cuelga de una
+  // OT si el plan lo dice por su codigo, por su codigo base (tallas) o por
+  // alguno de sus folios de ficha. Los que no cuelgan de ninguna OT van al
+  // apartado "todavia sin orden": son fichas de desarrollos que aun no son
+  // pedido, y eso es normal, no un error.
+  const arbol = useMemo(() => {
+    const reales = biblioteca.filter((b) => !b.apuntaA)
+    if (!enPlan) return { ocs: [], sinOrden: reales, totalConOrden: 0 }
+    const porOc = new Map() // oc -> Map(ot -> [disenos])
+    const sinOrden = []
+    let totalConOrden = 0
+    for (const b of reales) {
+      const ots = new Map()
+      const agrega = (lista) => (lista || []).forEach((x) => { if (!ots.has(x.ot)) ots.set(x.ot, x.oc || '') })
+      agrega(enPlan.get(b.codigo))
+      if (codigoBase(b.codigo) !== b.codigo) agrega(enPlan.get(codigoBase(b.codigo)))
+      ;(resumen.foliosDe.get(b.codigo) || []).forEach((f) => agrega(enPlan.get(f)))
+      if (!ots.size) { sinOrden.push(b); continue }
+      totalConOrden++
+      for (const [ot, oc] of ots) {
+        const llaveOc = oc || 'SIN OC'
+        if (!porOc.has(llaveOc)) porOc.set(llaveOc, new Map())
+        const porOt = porOc.get(llaveOc)
+        if (!porOt.has(ot)) porOt.set(ot, [])
+        porOt.get(ot).push(b)
+      }
+    }
+    // Lo que le FALTA a cada OT (si ya se cruzo con el plan)
+    const faltanDe = new Map()
+    if (Array.isArray(cruce)) cruce.forEach((o) => faltanDe.set(o.ot, o))
+    const ocs = [...porOc.entries()]
+      .map(([oc, porOt]) => ({
+        oc,
+        ots: [...porOt.entries()]
+          .map(([ot, disenos]) => ({ ot, disenos: disenos.sort((x, y) => x.codigo.localeCompare(y.codigo)), faltan: faltanDe.get(ot)?.faltan || [], destino: faltanDe.get(ot)?.destino || '' }))
+          .sort((x, y) => x.ot.localeCompare(y.ot, 'es', { numeric: true }))
+      }))
+      .sort((x, y) => (x.oc === 'SIN OC' ? 1 : y.oc === 'SIN OC' ? -1 : x.oc.localeCompare(y.oc, 'es', { numeric: true })))
+    return { ocs, sinOrden: sinOrden.sort((x, y) => x.codigo.localeCompare(y.codigo)), totalConOrden }
+  }, [biblioteca, enPlan, resumen.foliosDe, cruce])
   const codigoListo = Boolean(codigoComoId(codigo))
   const ligueDelElegido = codigoListo && enPlan ? enPlan.get(codigoComoId(codigo)) : null
 
@@ -377,10 +420,114 @@ export default function PanelTechPacks() {
         </div>
       )}
 
-      {/* ------------------------------------------------ la biblioteca */}
+      {/* ------------------------------------------------ el arbol */}
       <div className="tarjeta">
         <div className="tp-fila" style={{ justifyContent: 'space-between' }}>
-          <h3 style={{ margin: 0 }}>Biblioteca</h3>
+          <div>
+            <h3 style={{ margin: 0 }}>Por orden de compra y orden de trabajo</h3>
+            <p className="texto-suave" style={{ margin: '4px 0 0', fontSize: 13 }}>
+              Cada tech pack cuelga de la orden de trabajo que el plan le da, por su codigo o por sus folios de ficha.
+              {Array.isArray(cruce) ? ' Con el cruce hecho, cada OT dice tambien que codigos le faltan.' : ' Pulsa "Cruzar con el plan maestro" para ver ademas lo que le falta a cada OT.'}
+            </p>
+          </div>
+          <div className="tp-fila">
+            <span className="tp-pill">{arbol.totalConOrden} con orden</span>
+            <span className={`tp-pill ${arbol.sinOrden.length ? 'tp-pill-aviso' : ''}`}>{arbol.sinOrden.length} todavia sin orden</span>
+          </div>
+        </div>
+
+        {enPlan === null ? (
+          <p className="texto-suave" style={{ marginTop: 12 }}>Leyendo el plan maestro...</p>
+        ) : arbol.ocs.length === 0 && arbol.sinOrden.length === 0 ? (
+          <div className="tp-vacio">
+            <div className="tp-vacio-titulo">Todavia no hay nada en la biblioteca</div>
+          </div>
+        ) : (
+          <div className="tp-arbol">
+            {arbol.ocs.map((o) => (
+              <details key={o.oc} className="tp-oc" open>
+                <summary>
+                  <span className="tp-oc-titulo">{o.oc === 'SIN OC' ? 'Ordenes de trabajo sin orden de compra' : `OC ${o.oc}`}</span>
+                  <span className="texto-suave"> · {o.ots.length} {o.ots.length === 1 ? 'orden de trabajo' : 'ordenes de trabajo'} · {o.ots.reduce((n, t) => n + t.disenos.length, 0)} tech packs</span>
+                </summary>
+                {o.ots.map((t) => (
+                  <div key={t.ot} className="tp-ot">
+                    <div className="tp-ot-cab">
+                      <span className="tp-ot-num">OT {t.ot}</span>
+                      {t.destino ? <span className="texto-suave"> · {t.destino}</span> : null}
+                      {t.faltan.length > 0 && (
+                        <span className="tp-pill tp-pill-falta" style={{ marginLeft: 8 }}>faltan {t.faltan.length}: {t.faltan.join(', ')}</span>
+                      )}
+                    </div>
+                    <div className="tp-disenos">
+                      {t.disenos.map((b) => (
+                        <div key={b.id} className="tp-diseno">
+                          <div>
+                            <span className="tp-codigo">{b.codigo}</span>
+                            {codigoBase(b.codigo) !== b.codigo ? <span className="tp-pill" style={{ marginLeft: 6 }}>talla {b.codigo.slice(codigoBase(b.codigo).length + 1)}</span> : null}
+                            {(resumen.foliosDe.get(b.codigo) || []).length > 0 && (
+                              <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>folios {(resumen.foliosDe.get(b.codigo) || []).join(', ')}</span>
+                            )}
+                          </div>
+                          <div className="tp-fila">
+                            {b.techPack?.totalChunks ? (
+                              <>
+                                <button className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}>Ver tech pack</button>
+                                <span className="texto-suave" style={{ fontSize: 12 }}>v{b.techPack.version || 1} · {b.techPack.formato?.toUpperCase()} · {mb(b.techPack.tamano)}</span>
+                              </>
+                            ) : (
+                              <span className="tp-pill tp-pill-falta">sin tech pack</span>
+                            )}
+                            {b.ftt?.totalChunks ? (
+                              <button className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>Ver FTT</button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </details>
+            ))}
+
+            <details className="tp-oc tp-oc-sin" open={arbol.ocs.length === 0}>
+              <summary>
+                <span className="tp-oc-titulo">Todavia sin orden de trabajo</span>
+                <span className="texto-suave"> · {arbol.sinOrden.length} · desarrollos que aun no son pedido, o que Adrian no ha subido al plan</span>
+              </summary>
+              {arbol.sinOrden.length === 0 ? (
+                <p className="texto-suave" style={{ margin: '8px 0 0 12px' }}>Ninguno: todos los tech packs cuelgan de una OT.</p>
+              ) : (
+                <div className="tp-disenos">
+                  {arbol.sinOrden.map((b) => (
+                    <div key={b.id} className="tp-diseno">
+                      <div>
+                        <span className="tp-codigo">{b.codigo}</span>
+                        {b.descripcion ? <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>{b.descripcion}</span> : null}
+                      </div>
+                      <div className="tp-fila">
+                        {b.techPack?.totalChunks ? (
+                          <button className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}>Ver tech pack</button>
+                        ) : (
+                          <span className="tp-pill tp-pill-falta">sin tech pack</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </details>
+          </div>
+        )}
+      </div>
+
+      {/* ------------------------------------------------ la lista completa (plegada) */}
+      <details className="tarjeta tp-lista">
+        <summary className="tp-fila" style={{ justifyContent: 'space-between', cursor: 'pointer' }}>
+          <h3 style={{ margin: 0 }}>Lista completa, codigo por codigo</h3>
+          <span className="texto-suave" style={{ fontSize: 13 }}>{biblioteca.filter((b) => !b.apuntaA).length} codigos · abrir</span>
+        </summary>
+        <div className="tp-fila" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
           <div className="tp-fila">
             <input
               className="tp-input"
@@ -463,7 +610,7 @@ export default function PanelTechPacks() {
             </table>
           </div>
         )}
-      </div>
+      </details>
 
       {/* ------------------------------------------------ cruce con el plan */}
       <div className="tarjeta">

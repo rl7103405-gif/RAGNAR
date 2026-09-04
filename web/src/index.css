@@ -648,3 +648,23 @@ table th, table td {
 }
 .tp-quitar:hover { text-decoration: underline; }
 .tp-quitar:disabled { opacity: 0.5; cursor: default; }
+
+/* Tech packs: el arbol OC -> OT -> diseno */
+.tp-arbol { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.tp-oc { border: 1px solid var(--borde); border-radius: 10px; background: var(--fondo); padding: 6px 12px; }
+.tp-oc > summary { cursor: pointer; padding: 6px 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.tp-oc > summary::-webkit-details-marker { display: none; }
+.tp-oc > summary::before { content: '▸'; color: var(--azul); margin-right: 6px; font-size: 0.9rem; }
+.tp-oc[open] > summary::before { content: '▾'; }
+.tp-oc-titulo { font-weight: 800; color: var(--texto); }
+.tp-oc-sin { background: #fffbeb; border-color: #fde68a; }
+.tp-ot { margin: 6px 0 10px 18px; padding-left: 12px; border-left: 3px solid #bfdbfe; }
+.tp-ot-cab { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 4px; }
+.tp-ot-num { font-weight: 700; color: #1e40af; }
+.tp-disenos { display: flex; flex-direction: column; gap: 4px; }
+.tp-diseno {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px;
+  background: var(--superficie); border: 1px solid var(--borde); border-radius: 8px; padding: 6px 10px;
+}
+.tp-lista > summary { list-style: none; }
+.tp-lista > summary::-webkit-details-marker { display: none; }
