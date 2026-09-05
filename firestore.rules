@@ -310,7 +310,12 @@ service cloud.firestore {
         && d.operadorNombre.size() <= 120
         && d.actualizadoEn == request.time
         && d.cruce in ['completo', 'sin_ruteo', 'sin_catalogo']
-        && (d.catalogoVersion == null || (d.catalogoVersion is string && d.catalogoVersion.size() <= 40))
+        // ⚠️ 120 y no 40: el buzon del catalogo (functions/productos.js) nombra
+        // las versiones 'atalanta_<uuid>' = 45 caracteres. Con el tope en 40,
+        // el 2026-09-04 a las 14:09 se activo la primera version de Atalanta y
+        // NINGUNA captura paso hasta el 05-09 ("Missing or insufficient
+        // permissions" en la estacion). El tope va igual al del generador.
+        && (d.catalogoVersion == null || (d.catalogoVersion is string && d.catalogoVersion.size() <= 120))
         && (d.producto == null || (d.producto is map && productoValido(d.producto)))
         && cruceCoherente(d);
     }
@@ -346,7 +351,7 @@ service cloud.firestore {
         // Nunca borrar un cruce ya resuelto.
         && resource.data.cruce != 'completo'
         && (d.producto == null || (d.producto is map && productoValido(d.producto)))
-        && (d.catalogoVersion == null || (d.catalogoVersion is string && d.catalogoVersion.size() <= 40))
+        && (d.catalogoVersion == null || (d.catalogoVersion is string && d.catalogoVersion.size() <= 120))
         && cruceCoherente(d)
         && resource.data.get('pdfGeneradoEn', null) == null;
     }
