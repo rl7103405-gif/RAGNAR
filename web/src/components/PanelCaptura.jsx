@@ -678,6 +678,14 @@ export default function PanelCaptura() {
         setGuardando(false)
         return
       }
+      // Sin nombreCompleto la regla del servidor (operadorNombre ==
+      // perfil().nombreCompleto) rechazaria la escritura con un
+      // permission-denied que no explica nada.
+      if (!perfil.nombreCompleto) {
+        setError('Tu cuenta no tiene nombre configurado: avisale a Roberto.')
+        setGuardando(false)
+        return
+      }
       // El prefijo va en mayusculas: la regla del servidor distingue, y
       // "zztest001" pasaria el aviso de abajo para morir con un
       // permission-denied que no explica nada.
@@ -749,7 +757,7 @@ export default function PanelCaptura() {
           folio: folioNormalizado,
           pesoGramos,
           operadorUid: authUser.uid,
-          operadorNombre: perfil?.nombreCompleto || 'Estacion',
+          operadorNombre: perfil.nombreCompleto,
           producto,
           cruce,
           catalogoVersion,
@@ -964,6 +972,12 @@ export default function PanelCaptura() {
     setError('')
     setAviso('')
     try {
+      // Sin nombreCompleto la regla del servidor (operadorNombre ==
+      // perfil().nombreCompleto) rechazaria la escritura con un
+      // permission-denied que no explica nada.
+      if (!perfil?.nombreCompleto) {
+        throw new Error('Tu cuenta no tiene nombre configurado: avisale a Roberto.')
+      }
       const pesoGramos = validarPesoGramos(Math.round(Number(nuevoPesoKg) * 1000))
       const permiso = await verificarPermisoCorreccion(editando, 'editar_peso')
       if (!permiso.puede) {
@@ -992,7 +1006,7 @@ export default function PanelCaptura() {
           ...datosPrevios,
           pesoGramos,
           operadorUid: authUser.uid,
-          operadorNombre: perfil?.nombreCompleto || 'Estacion',
+          operadorNombre: perfil.nombreCompleto,
           actualizadoEn: serverTimestamp()
         })
       })

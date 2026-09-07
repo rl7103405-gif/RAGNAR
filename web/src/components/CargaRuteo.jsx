@@ -77,6 +77,13 @@ export default function CargaRuteo() {
 
   const onCargar = async () => {
     if (!analisis) return
+    // Sin nombreCompleto la regla del servidor (subioNombre ==
+    // perfil().nombreCompleto) rechazaria el registro de la subida con un
+    // permission-denied que no explica nada.
+    if (!perfil?.nombreCompleto) {
+      setError('Tu cuenta no tiene nombre configurado: avisale a Roberto.')
+      return
+    }
     setEstado('cargando')
     setError('')
     setProgreso(0)
@@ -97,7 +104,7 @@ export default function CargaRuteo() {
         omitidos: 0,
         errores: 0,
         completa: false,
-        subioNombre: perfil?.nombreCompleto || 'Estacion',
+        subioNombre: perfil.nombreCompleto,
         subioUid: authUser.uid,
         creadoEn: serverTimestamp()
       })

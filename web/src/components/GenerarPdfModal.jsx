@@ -164,6 +164,15 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
       setError('Escribe el nombre de quien genera el PDF.')
       return
     }
+    // pdfsGenerados.generadoPor lo exige la regla == perfil().nombreCompleto
+    // (es el nombre que va impreso en el papel de la maquila): el campo de
+    // texto libre de arriba puede seguir usandose para el nombre IMPRESO en
+    // el PDF (nombreGenerador), pero lo que se guarda en el historial tiene
+    // que salir del perfil, nunca de lo que alguien haya tecleado.
+    if (!perfil?.nombreCompleto) {
+      setError('Tu cuenta no tiene nombre configurado: avisale a Roberto.')
+      return
+    }
     // Folio interno: si nunca se ha generado uno, hay que teclear el de
     // arranque; si ya hay historia, la app propone el siguiente y solo se
     // acepta un valor manual valido.
@@ -383,7 +392,9 @@ export default function GenerarPdfModal({ folios, operador, onCerrar, onListo, o
         const refRegistro = doc(collection(db, 'pdfsGenerados'))
         const lote = writeBatch(db)
         lote.set(refRegistro, {
-          generadoPor: nombreGenerador,
+          // Solo el nombre del perfil, nunca el texto libre: ver el guard de
+          // mas arriba.
+          generadoPor: perfil.nombreCompleto,
           maquila: { id: maquila.id, nombre: maquila.nombre },
           folios: frescos.map((c) => c.folio),
           totalFolios: frescos.length,

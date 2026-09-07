@@ -188,7 +188,10 @@ export async function reemitirPdf({ registro, solicitud, maquila, folios, usuari
   try {
     const lote = writeBatch(db)
     lote.set(refNuevo, {
-      generadoPor: usuario.nombre || 'Estacion',
+      // Sin fallback: la regla exige generadoPor == perfil().nombreCompleto,
+      // y el llamador (CorregirPdfModal) ya garantiza que usuario.nombre
+      // venga del perfil antes de llegar aqui.
+      generadoPor: usuario.nombre,
       maquila: { id: maquila.id, nombre: maquila.nombre },
       folios: frescos.map((c) => c.folio),
       totalFolios: frescos.length,

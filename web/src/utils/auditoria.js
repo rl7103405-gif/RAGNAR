@@ -32,6 +32,12 @@ export async function registrarCambio({
   usuario // { uid, nombre }
 }) {
   try {
+    // Sin nombre la regla del servidor (hechoPorNombre == perfil().nombreCompleto)
+    // rechazaria el registro de todos modos; se avisa claro aqui en vez de
+    // tragarselo como un permission-denied mudo.
+    if (!usuario?.nombre) {
+      throw new Error('Tu cuenta no tiene nombre configurado: avisale a Roberto.')
+    }
     await addDoc(collection(db, 'cambiosCaptura'), {
       folio,
       accion,
@@ -40,7 +46,7 @@ export async function registrarCambio({
       motivo: motivo || null,
       autorizacionId: autorizacionId || null,
       hechoPorUid: usuario.uid,
-      hechoPorNombre: usuario.nombre || 'Estacion',
+      hechoPorNombre: usuario.nombre,
       creadoEn: serverTimestamp()
     })
     return true

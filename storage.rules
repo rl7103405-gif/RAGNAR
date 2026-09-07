@@ -1,0 +1,23 @@
+// OJO: este archivo NO esta declarado en firebase.json a proposito.
+// Firebase Storage no esta habilitado en el proyecto quini-ragnar, y declararlo
+// hace fallar CUALQUIER 'firebase deploy' con "Storage has not been set up".
+// El dia que alguien habilite Storage desde la consola: agregar
+//   "storage": { "rules": "storage.rules" }
+// a firebase.json y desplegar, para que el candado quede versionado y no
+// dependa de lo que ponga la consola por defecto.
+rules_version = '2';
+
+// La app NO usa Firebase Storage: los tech packs y todo lo demas viajan
+// troceados dentro de Firestore (ver web/src/utils/tareasEnsamble.js). Este
+// archivo existe solo para que, si algun dia alguien habilita Storage desde
+// la consola de Firebase, el repo lo cierre por completo en el siguiente
+// deploy en vez de dejar las reglas abiertas que puso la consola por
+// default. Sin este archivo, `firebase deploy` nunca toca Storage y una
+// activacion accidental se queda con reglas permisivas indefinidamente.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

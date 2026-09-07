@@ -75,6 +75,16 @@ service cloud.firestore {
       return esInterno() && !(rol() in ['captura', 'produccion']);
     }
 
+    // Quien puede ver LO QUE SE LE PAGA a cada maquila (el tarifario de
+    // ensamble). Es una lista blanca, no "todos menos X": captura (Angel,
+    // Juan pesan), produccion (Adrian sube el plan) y almacen (Alvaro,
+    // avios) no participan del pago y no tienen por que ver cuanto se le
+    // paga a nadie. Antes esto era "esInterno() && rol() != 'desarrollo'",
+    // que si dejaba pasar a los tres.
+    function puedeVerPreciosEnsamble() {
+      return esInterno() && rol() in ['admin', 'consulta', 'completo', 'pt'];
+    }
+
     function esAdmin() {
       // esInterno() y no solo el rol: hay ramas que usan esAdmin() DIRECTO
       // (autorizaciones, saldo inicial de inventario, saldos), y sin esto un
@@ -308,6 +318,9 @@ service cloud.firestore {
         && d.operadorUid == request.auth.uid
         && d.operadorNombre is string
         && d.operadorNombre.size() <= 120
+        // El nombre lo fija el perfil, no el cliente: sin esto un pesador
+        // podia capturar con el nombre de otra persona.
+        && d.operadorNombre == perfil().get('nombreCompleto', '')
         && d.actualizadoEn == request.time
         && d.cruce in ['completo', 'sin_ruteo', 'sin_catalogo']
         // ⚠️ 120 y no 40: el buzon del catalogo (functions/productos.js) nombra
@@ -498,7 +511,21 @@ service cloud.firestore {
              && (resource.data.get('pdfGeneradoEn', null) == null
                  || esAdmin()
                  || tieneAutorizacion(resource.data.folio, 'editar_peso')))
-            || marcadoPdfValido()
+            // puedeEmbarcar() y no solo puedeOperar(): sin esto un pesador
+            // (captura) podia estampar el marcador de "ya salio en un PDF"
+            // en bultos ajenos con un folio interno inventado, y el bulto
+            // desaparecia de la pantalla de emision hasta que un admin lo
+            // revirtiera. Quien marca hoy ya es quien tiene el boton
+            // "Generar PDF de salida" (PanelCaptura.jsx), asi que esto no
+            // le quita nada a nadie que ya lo estuviera usando.
+            // Mejora pendiente (no implementada aqui): anclar el marcador
+            // al registro con
+            // get(pdfsGenerados/$(pdfRegistroId)).data.folios.hasAny([...]).
+            // Queda pendiente porque una remision marca decenas de bultos en
+            // un solo batch y hay que medir antes el presupuesto de accesos
+            // a documentos de las reglas (cada bulto marcado sumaria un
+            // get() mas al mismo batch).
+            || (puedeEmbarcar() && marcadoPdfValido())
             || recruceValido()
             // El registro anulado viaja en el campo que se esta limpiando:
             // se toma del propio marcador previo del bulto.
@@ -658,6 +685,10 @@ service cloud.firestore {
         && request.resource.data.hechoPorUid == request.auth.uid
         && request.resource.data.hechoPorNombre is string
         && request.resource.data.hechoPorNombre.size() <= 120
+        // El nombre lo fija el perfil, no el cliente: la bitacora de
+        // correcciones es inmutable, asi que una firma falsa se quedaria
+        // ahi para siempre.
+        && request.resource.data.hechoPorNombre == perfil().get('nombreCompleto', '')
         && request.resource.data.creadoEn == request.time;
       allow update, delete: if false;
     }
@@ -1224,6 +1255,9 @@ service cloud.firestore {
         && request.resource.data.generadoPor is string
         && request.resource.data.generadoPor.size() > 0
         && request.resource.data.generadoPor.size() <= 80
+        // El nombre lo fija el perfil, no el cliente: este es el que va
+        // impreso en el papel que se le entrega a la maquila.
+        && request.resource.data.generadoPor == perfil().get('nombreCompleto', '')
         && request.resource.data.maquila is map
         && request.resource.data.maquila.keys().hasOnly(['id', 'nombre'])
         && request.resource.data.maquila.id is string
@@ -1432,6 +1466,8 @@ service cloud.firestore {
         && request.resource.data.errores is int
         && request.resource.data.subioNombre is string
         && request.resource.data.subioNombre.size() <= 120
+        // El nombre lo fija el perfil, no el cliente.
+        && request.resource.data.subioNombre == perfil().get('nombreCompleto', '')
         && request.resource.data.subioUid == request.auth.uid
         && request.resource.data.creadoEn == request.time;
       // Unico update permitido: CERRAR el registro con el resultado real al
@@ -1556,7 +1592,10 @@ service cloud.firestore {
     // no podrian pedir lo que les falta. No revela nada del negocio de otras
     // maquilas: es una lista de materiales, no de movimientos.
     match /avios/{avioId} {
-      allow read: if esInterno() || rol() == 'maquila';
+      // esMaquilaDe(maquilaDelPerfil()) y no "rol() == 'maquila'" pelado:
+      // ese ultimo no comprueba que la maquila siga activa, asi que una
+      // maquila dada de baja (activo=false) seguia leyendo el catalogo.
+      allow read: if esInterno() || esMaquilaDe(maquilaDelPerfil());
       // El catalogo de avios son las 158 claves reales de Microsip, y los
       // inventarios de las maquilas cuelgan de ellas: no hay "avio de prueba"
       // que no ensucie el catalogo de verdad. Las cuentas de prueba lo leen,
@@ -2363,7 +2402,7 @@ service cloud.firestore {
     // el mismo precio, y el sexto se iba a quedar sin poner.
     match /portalMaquila/{maquilaId}/preciosEnsamble/{modelo} {
       // desarrollo (Lety) no ve esto: sube tech packs, no opera; trae lo que se le paga a la maquila.
-      allow read: if (esInterno() && rol() != 'desarrollo') || esMaquilaDe(maquilaId);
+      allow read: if puedeVerPreciosEnsamble() || esMaquilaDe(maquilaId);
       // mismoMundoMaquila y NO soloCuentaReal: una cuenta de prueba SI debe
       // poder ponerle precios a la maquila ficticia (es su corral), y una
       // cuenta real NO debe tocarla. soloCuentaReal bloqueaba la prueba

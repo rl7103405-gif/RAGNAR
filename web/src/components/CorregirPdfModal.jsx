@@ -71,9 +71,12 @@ export default function CorregirPdfModal({ registro, onCerrar, onListo }) {
 
   // esPrueba viaja con el usuario: reemitirPdf lo cruza contra el registro que
   // se corrige para no mezclar los dos consecutivos de folio interno.
+  // Sin fallback a 'Estacion': el nombre lo fija el perfil (las reglas exigen
+  // pedidoPorNombre/generadoPor == perfil().nombreCompleto), asi que un
+  // fallback aqui solo produciria un permission-denied mudo mas adelante.
   const usuario = {
     uid: authUser?.uid,
-    nombre: perfil?.nombreCompleto || 'Estacion',
+    nombre: perfil?.nombreCompleto || '',
     esPrueba: perfil?.esPrueba === true
   }
 
@@ -87,6 +90,7 @@ export default function CorregirPdfModal({ registro, onCerrar, onListo }) {
 
   const onPedirPermiso = async () => {
     setError('')
+    if (!usuario.nombre) return setError('Tu cuenta no tiene nombre configurado: avisale a Roberto.')
     const maquila = activas.find((m) => m.id === maquilaId)
     if (!maquila) return setError('Elige la maquila a la que debe ir la remision corregida.')
     if (!motivo.trim()) return setError('Escribe por que hay que corregirla (queda en la bitacora).')
@@ -120,6 +124,7 @@ export default function CorregirPdfModal({ registro, onCerrar, onListo }) {
 
   const onAplicar = async () => {
     setError('')
+    if (!usuario.nombre) return setError('Tu cuenta no tiene nombre configurado: avisale a Roberto.')
     // Se aplica EXACTAMENTE lo aprobado por Roberto (o lo que el propio admin
     // arme, si es el quien corrige directo).
     const propuesta = solicitudAprobada?.propuesta
