@@ -402,8 +402,8 @@ export default function PanelTareasMaquila() {
           (saltadas.length ? ` Se saltaron: ${saltadas.join('; ')}.` : '') +
           (conTp.length ? ` Con tech pack de la biblioteca: OT ${conTp.join('; ')}.` : '') +
           (eligeTp.length ? ` Elige el tech pack a mano con "Pegar de la biblioteca" (hay varios): OT ${eligeTp.join('; ')}.` : '') +
-          (sinTp.length ? ` Sin tech pack en la biblioteca (falta que Lety lo suba): OT ${sinTp.join(', ')}.` : '') +
-          (falloTp.length ? ` No se pudo pegar el tech pack, subelo a mano: OT ${falloTp.join('; ')}.` : '')
+          (sinTp.length ? ` Sin tech pack en la biblioteca: OT ${sinTp.join(', ')} -- subelo tu en la tarea (boton "Subir el tech pack"), o pidele a Lety que lo suba a la biblioteca.` : '') +
+          (falloTp.length ? ` No se pudo pegar el tech pack (la tarea SI se encargo): OT ${falloTp.join('; ')} -- subelo tu en la tarea.` : '')
       )
     } catch (err) {
       reportar(err)
