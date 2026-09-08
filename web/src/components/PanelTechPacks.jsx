@@ -226,6 +226,63 @@ export default function PanelTechPacks() {
     return { total, conTp, conFtt, soloFtt, fueraDelPlan, foliosDe }
   }, [biblioteca, enPlan])
 
+  // DESCARGAR LA BIBLIOTECA A EXCEL (Lety, 8-sep): "que lo pueda descargar y
+  // trabajarlo como lo tenemos". Sale lo que se ve en la tabla, con el ligue a
+  // OT/OC del plan, para que se pueda seguir usando fuera de la app.
+  const descargarExcel = async () => {
+    try {
+      const { cargarWorkbook } = await import('../utils/excelJs.js')
+      const Workbook = await cargarWorkbook()
+      const libro = new Workbook()
+      const hoja = libro.addWorksheet('Tech packs')
+      hoja.columns = [
+        { header: 'Codigo', key: 'codigo', width: 20 },
+        { header: 'Modelo', key: 'modelo', width: 18 },
+        { header: 'Descripcion', key: 'descripcion', width: 42 },
+        { header: 'Talla', key: 'talla', width: 16 },
+        { header: 'Color', key: 'color', width: 30 },
+        { header: 'Tech pack', key: 'tp', width: 12 },
+        { header: 'FTT', key: 'ftt', width: 10 },
+        { header: 'Archivo', key: 'archivo', width: 40 },
+        { header: 'Ordenes de trabajo', key: 'ots', width: 26 },
+        { header: 'Folios de ficha', key: 'folios', width: 26 },
+        { header: 'Lo subio', key: 'quien', width: 18 },
+        { header: 'Cuando', key: 'cuando', width: 14 }
+      ]
+      hoja.getRow(1).font = { bold: true }
+      const lista = biblioteca.filter((b) => !b.apuntaA)
+      lista.forEach((b) => {
+        const ots = enPlan
+          ? [...new Set([...(enPlan.get(b.codigo) || []), ...(enPlan.get(codigoBase(b.codigo)) || [])].map((x) => x.ot))]
+          : []
+        hoja.addRow({
+          codigo: b.codigo,
+          modelo: b.modelo || '',
+          descripcion: b.descripcion || '',
+          talla: b.talla || '',
+          color: b.color || '',
+          tp: b.techPack?.totalChunks ? 'SI' : 'NO',
+          ftt: b.ftt?.totalChunks ? 'SI' : 'NO',
+          archivo: b.techPack?.nombre || '',
+          ots: ots.join(', '),
+          folios: (resumen.foliosDe.get(b.codigo) || []).join(', '),
+          quien: b.actualizadoPorNombre || b.creadoPorNombre || '',
+          cuando: fecha(b.actualizadoEn || b.creadoEn)
+        })
+      })
+      const buf = await libro.xlsx.writeBuffer()
+      const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Tech packs ${new Date().toISOString().slice(0, 10)}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('[TechPacks] No se pudo generar el Excel:', err)
+      setError('No se pudo generar el Excel: ' + (err?.message || err))
+    }
+  }
+
   const visibles = useMemo(() => {
     const f = filtro.trim().toUpperCase()
     return biblioteca.filter((b) => !b.apuntaA).filter((b) => {
@@ -554,28 +611,93 @@ export default function PanelTechPacks() {
         )}
       </div>
 
+      {/* ----------------------------------------- BUSCAR (al frente, 8-sep) */}
+      {/* Estaba metido dentro de la lista plegada y no se encontraba. */}
+      <div className="tarjeta tp-buscador">
+        <div className="tp-fila" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <div className="tp-fila" style={{ gap: 10, flex: 1, minWidth: 280 }}>
+            <strong style={{ whiteSpace: 'nowrap' }}>Buscar un tech pack</strong>
+            <input
+              className="tp-input"
+              placeholder="Codigo, modelo, color o descripcion — por ejemplo SHASA, RAYAS o QUI-CSHA20X"
+              value={filtro}
+              onChange={(e) => setFiltro(e.target.value)}
+              style={{ flex: 1, minWidth: 240 }}
+            />
+            {filtro && (
+              <button className="btn-secundario tp-btn-chico" onClick={() => setFiltro('')}>Limpiar</button>
+            )}
+          </div>
+          <div className="tp-fila" style={{ gap: 10 }}>
+            <label className="tp-check">
+              <input type="checkbox" checked={soloSin} onChange={(e) => setSoloSin(e.target.checked)} />
+              Solo los que no tienen tech pack
+            </label>
+            <button className="btn-secundario tp-btn-chico" onClick={descargarExcel} disabled={!biblioteca.length}>
+              Descargar Excel
+            </button>
+          </div>
+        </div>
+        {filtro && (
+          <div style={{ marginTop: 12 }}>
+            <div className="texto-suave" style={{ fontSize: 13, marginBottom: 6 }}>
+              {visibles.length === 0
+                ? 'Nada con esa busqueda.'
+                : `${visibles.length} ${visibles.length === 1 ? 'resultado' : 'resultados'}`}
+            </div>
+            <div className="tp-resultados">
+              {visibles.slice(0, 30).map((b) => (
+                <div key={b.id} className="tp-diseno">
+                  <div>
+                    <span className="tp-codigo">{b.codigo}</span>
+                    {b.modelo && b.modelo !== b.codigo ? (
+                      <span className="tp-pill" style={{ marginLeft: 6 }}>{b.modelo}</span>
+                    ) : null}
+                    {b.color ? (
+                      <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>{b.color}</span>
+                    ) : null}
+                    {b.descripcion ? (
+                      <div className="texto-suave" style={{ fontSize: 12 }}>{b.descripcion}</div>
+                    ) : null}
+                  </div>
+                  <div className="tp-fila">
+                    {b.techPack?.totalChunks ? (
+                      <button
+                        className="btn-secundario tp-btn-chico"
+                        onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
+                      >
+                        Ver tech pack
+                      </button>
+                    ) : (
+                      <span className="tp-pill tp-pill-falta">sin tech pack</span>
+                    )}
+                    {b.ftt?.totalChunks ? (
+                      <button
+                        className="btn-secundario tp-btn-chico"
+                        onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}
+                      >
+                        Ver FTT
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+              {visibles.length > 30 && (
+                <div className="texto-suave" style={{ fontSize: 12 }}>
+                  ...y {visibles.length - 30} mas. Afina la busqueda o abre la lista completa.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ------------------------------------------------ la lista completa (plegada) */}
       <details className="tarjeta tp-lista">
         <summary className="tp-fila" style={{ justifyContent: 'space-between', cursor: 'pointer' }}>
           <h3 style={{ margin: 0 }}>Lista completa, codigo por codigo</h3>
           <span className="texto-suave" style={{ fontSize: 13 }}>{biblioteca.filter((b) => !b.apuntaA).length} codigos · abrir</span>
         </summary>
-        <div className="tp-fila" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
-          <div className="tp-fila">
-            <input
-              className="tp-input"
-              placeholder="Buscar por codigo, modelo, color o descripcion"
-              value={filtro}
-              onChange={(e) => setFiltro(e.target.value)}
-              style={{ width: 260 }}
-            />
-            <label className="tp-check">
-              <input type="checkbox" checked={soloSin} onChange={(e) => setSoloSin(e.target.checked)} />
-              Solo los que no tienen tech pack
-            </label>
-            <span className="texto-suave" style={{ fontSize: 13 }}>{visibles.length} de {biblioteca.length}</span>
-          </div>
-        </div>
         {visibles.length === 0 ? (
           <div className="tp-vacio">
             {biblioteca.length === 0 ? (

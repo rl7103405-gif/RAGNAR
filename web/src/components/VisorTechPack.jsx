@@ -339,20 +339,46 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
                     <div className="tp-hoja-envoltura">
                       <table className="tp-hoja">
                         <tbody>
-                          {hoja.filas.map((f) => (
-                            <tr key={f.n} className={f.titulo ? 'tp-hoja-titulo' : undefined}>
-                              {f.celdas.map((c, i) => (
-                                <td
-                                  key={i}
-                                  colSpan={c.span > 1 ? c.span : undefined}
-                                  rowSpan={c.rowSpan > 1 ? c.rowSpan : undefined}
-                                  className={[c.negrita ? 'tp-hoja-negrita' : '', c.centrada || (c.span > 1 && f.titulo) ? 'tp-hoja-centro' : ''].join(' ').trim() || undefined}
-                                >
-                                  {c.texto}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
+                          {(() => {
+                            // Las fotos van DONDE ESTAN en el Excel, no todas al
+                            // final: antes de pintar cada renglon se sueltan las
+                            // imagenes ancladas hasta esa fila. Asi la foto de
+                            // "plastiflecha" sale junto a plastiflecha.
+                            const pendientes = [...(hoja.imagenes || [])].sort((a, b) => a.fila - b.fila)
+                            const anchoTabla = Math.max(1, ...hoja.filas.map((f) => f.celdas.reduce((t, c) => t + c.span, 0)))
+                            const salida = []
+                            const soltarHasta = (hastaFila) => {
+                              while (pendientes.length && pendientes[0].fila <= hastaFila) {
+                                const img = pendientes.shift()
+                                salida.push(
+                                  <tr key={`img-${img.url}`} className="tp-hoja-foto">
+                                    <td colSpan={anchoTabla}>
+                                      <img src={img.url} alt="Foto del tech pack" draggable={false} />
+                                    </td>
+                                  </tr>
+                                )
+                              }
+                            }
+                            hoja.filas.forEach((f) => {
+                              soltarHasta(f.n)
+                              salida.push(
+                                <tr key={f.n} className={f.titulo ? 'tp-hoja-titulo' : undefined}>
+                                  {f.celdas.map((c, i) => (
+                                    <td
+                                      key={i}
+                                      colSpan={c.span > 1 ? c.span : undefined}
+                                      rowSpan={c.rowSpan > 1 ? c.rowSpan : undefined}
+                                      className={[c.negrita ? 'tp-hoja-negrita' : '', c.centrada || (c.span > 1 && f.titulo) ? 'tp-hoja-centro' : ''].join(' ').trim() || undefined}
+                                    >
+                                      {c.texto}
+                                    </td>
+                                  ))}
+                                </tr>
+                              )
+                            })
+                            soltarHasta(Infinity)   // las que quedaron mas abajo del ultimo renglon
+                            return salida
+                          })()}
                         </tbody>
                       </table>
                     </div>
@@ -366,26 +392,6 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
                     <p className="texto-suave" style={{ fontSize: 12 }}>
                       La hoja sigue, pero solo se muestran las primeras {MAX_FILAS_POR_HOJA} filas.
                     </p>
-                  )}
-                  {hoja.imagenes.length > 0 && (
-                    <div style={{ marginTop: 12 }}>
-                      <strong style={{ fontSize: 13 }}>Fotos de esta hoja</strong>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
-                        {hoja.imagenes.map((img, i) => (
-                          <figure key={i} style={{ margin: 0, maxWidth: 420 }}>
-                            <img
-                              src={img.url}
-                              alt={`Foto cerca de la fila ${img.fila}`}
-                              style={{ maxWidth: '100%', border: '1px solid #e2e8f0', borderRadius: 6 }}
-                              draggable={false}
-                            />
-                            <figcaption className="texto-suave" style={{ fontSize: 11 }}>
-                              cerca de la fila {img.fila}
-                            </figcaption>
-                          </figure>
-                        ))}
-                      </div>
-                    </div>
                   )}
                 </>
               )}
