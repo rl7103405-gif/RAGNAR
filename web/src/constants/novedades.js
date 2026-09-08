@@ -36,6 +36,43 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-08-07',
+    fecha: '2026-09-08',
+    tipo: 'nuevo',
+    titulo: 'Tech packs: ya se pueden editar, y queda registrado quien los toco',
+    detalle:
+      'Cada tech pack tiene ahora un boton Editar. Adentro se escribe el NOMBRE DEL MODELO como se '
+      + 'llama de verdad (COMBO BEIGE, RAYAS...), la talla, el color y las notas que haya que dejarle '
+      + 'a la maquila. El catalogo trae nombres genericos y hay un mismo codigo que es dos modelos '
+      + 'distintos, asi que este nombre manda sobre el del catalogo y es el que ve todo el mundo, '
+      + 'tambien al buscar y en el Excel. Abajo del todo esta "Quien lo ha modificado": quien edito, '
+      + 'que dia y que cambio. Eso ya no se puede borrar ni cambiar despues.'
+  },
+
+  {
+    id: '2026-09-08-06',
+    fecha: '2026-09-08',
+    tipo: 'nuevo',
+    titulo: 'Tech packs: cuanto le falta a cada uno',
+    detalle:
+      'Dentro de Editar hay una lista con los siete puntos que lleva un tech pack completo: '
+      + 'informacion del pedido, codigos y ruta de proceso, etiquetas y avios, empaque individual, '
+      + 'empaque de packs en bolsa, empaque de caja y fotos. Marcas cada uno como "ya esta", "falta" '
+      + 'o "no aplica" y arriba sale el porcentaje. Lo que se marca "no aplica" no cuenta en contra, '
+      + 'para que un modelo que no lleva caja no salga incompleto para siempre.'
+  },
+
+  {
+    id: '2026-09-08-05',
+    fecha: '2026-09-08',
+    tipo: 'corregido',
+    titulo: 'El buscador de tech packs, ahora si hasta arriba',
+    detalle:
+      'Estaba arriba de la lista pero abajo del arbol, o sea a media pagina, y habia que bajar mucho '
+      + 'para encontrarlo. Ahora es lo primero que se ve al entrar a la pestana.'
+  },
+
+  {
     id: '2026-09-08-04',
     fecha: '2026-09-08',
     tipo: 'mejorado',
