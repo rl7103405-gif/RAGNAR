@@ -23,15 +23,19 @@ import { normalizarOt } from '../utils/planMaestroNucleo'
 import { formatoDeArchivo, MAX_TECHPACK_BYTES } from '../utils/tareasEnsamble'
 import {
   codigoComoId,
+  datosDelTechPack,
   descargarDeBiblioteca,
+  editarDatosTechPack,
   ErrorBiblioteca,
   escucharBiblioteca,
   guardarEnBiblioteca,
+  historialDelTechPack,
   otsPorCodigo,
   otsSinTechPack,
   quitarDeBiblioteca,
   TIPOS
 } from '../utils/techPacks'
+import { RUBROS_TECH_PACK } from '../utils/completadoTechPack'
 import VisorTechPack from './VisorTechPack'
 
 const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—')
@@ -48,6 +52,8 @@ export default function PanelTechPacks() {
   const [aviso, setAviso] = useState('')
   const [progreso, setProgreso] = useState('')
   const [trabajando, setTrabajando] = useState(false)
+  // El tech pack que se esta editando (null = el modal cerrado).
+  const [editando, setEditando] = useState(null)
   const [codigo, setCodigo] = useState('')
   const [filtro, setFiltro] = useState('')
   const [soloSin, setSoloSin] = useState(false)
@@ -247,7 +253,8 @@ export default function PanelTechPacks() {
         { header: 'Ordenes de trabajo', key: 'ots', width: 26 },
         { header: 'Folios de ficha', key: 'folios', width: 26 },
         { header: 'Lo subio', key: 'quien', width: 18 },
-        { header: 'Cuando', key: 'cuando', width: 14 }
+        { header: 'Cuando', key: 'cuando', width: 14 },
+        { header: 'Nombre puesto por', key: 'nombrePuestoPor', width: 16 }
       ]
       hoja.getRow(1).font = { bold: true }
       const lista = biblioteca.filter((b) => !b.apuntaA)
@@ -255,19 +262,21 @@ export default function PanelTechPacks() {
         const ots = enPlan
           ? [...new Set([...(enPlan.get(b.codigo) || []), ...(enPlan.get(codigoBase(b.codigo)) || [])].map((x) => x.ot))]
           : []
+        const datos = datosDelTechPack(b)
         hoja.addRow({
           codigo: b.codigo,
-          modelo: b.modelo || '',
+          modelo: datos.modelo || '',
           descripcion: b.descripcion || '',
-          talla: b.talla || '',
-          color: b.color || '',
+          talla: datos.talla || '',
+          color: datos.color || '',
           tp: b.techPack?.totalChunks ? 'SI' : 'NO',
           ftt: b.ftt?.totalChunks ? 'SI' : 'NO',
           archivo: b.techPack?.nombre || '',
           ots: ots.join(', '),
           folios: (resumen.foliosDe.get(b.codigo) || []).join(', '),
           quien: b.actualizadoPorNombre || b.creadoPorNombre || '',
-          cuando: fecha(b.actualizadoEn || b.creadoEn)
+          cuando: fecha(b.actualizadoEn || b.creadoEn),
+          nombrePuestoPor: b.datosEditables?.modelo ? 'Lety' : 'catalogo'
         })
       })
       const buf = await libro.xlsx.writeBuffer()
@@ -291,7 +300,8 @@ export default function PanelTechPacks() {
       // Se busca tambien por MODELO, TALLA y COLOR (Lety, 2026-09-08): el
       // mismo modelo cae en OT distintas, y hay modelos que solo se
       // distinguen por color ("combo blanco" vs "combo beige").
-      return `${b.codigo} ${b.descripcion || ''} ${b.modelo || ''} ${b.talla || ''} ${b.color || ''}`
+      const datos = datosDelTechPack(b)
+      return `${b.codigo} ${b.descripcion || ''} ${datos.modelo || ''} ${datos.talla || ''} ${datos.color || ''}`
         .toUpperCase()
         .includes(f)
     })
@@ -383,6 +393,90 @@ export default function PanelTechPacks() {
 
       {error && <div className="alerta-error">{error}</div>}
       {aviso && <div className="alerta-exito">{aviso}</div>}
+
+      {/* ------------------------------------------------ BUSCAR: lo PRIMERO */}
+      {/* Dos correcciones seguidas: primero estaba dentro de la lista plegada
+          y no se encontraba; luego quedo arriba de la lista pero abajo del
+          arbol, o sea a media pagina. Va aqui, pegado a la cabecera, porque
+          buscar un tech pack es lo que mas se hace en esta pantalla. */}
+      <div className="tarjeta tp-buscador">
+        <div className="tp-fila" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <div className="tp-fila" style={{ gap: 10, flex: 1, minWidth: 280 }}>
+            <strong style={{ whiteSpace: 'nowrap' }}>Buscar un tech pack</strong>
+            <input
+              className="tp-input"
+              placeholder="Codigo, modelo, color o descripcion — por ejemplo SHASA, RAYAS o QUI-CSHA20X"
+              value={filtro}
+              onChange={(e) => setFiltro(e.target.value)}
+              style={{ flex: 1, minWidth: 240 }}
+            />
+            {filtro && (
+              <button className="btn-secundario tp-btn-chico" onClick={() => setFiltro('')}>Limpiar</button>
+            )}
+          </div>
+          <div className="tp-fila" style={{ gap: 10 }}>
+            <label className="tp-check">
+              <input type="checkbox" checked={soloSin} onChange={(e) => setSoloSin(e.target.checked)} />
+              Solo los que no tienen tech pack
+            </label>
+            <button className="btn-secundario tp-btn-chico" onClick={descargarExcel} disabled={!biblioteca.length}>
+              Descargar Excel
+            </button>
+          </div>
+        </div>
+        {filtro && (
+          <div style={{ marginTop: 12 }}>
+            <div className="texto-suave" style={{ fontSize: 13, marginBottom: 6 }}>
+              {visibles.length === 0
+                ? 'Nada con esa busqueda.'
+                : `${visibles.length} ${visibles.length === 1 ? 'resultado' : 'resultados'}`}
+            </div>
+            <div className="tp-resultados">
+              {visibles.slice(0, 30).map((b) => (
+                <div key={b.id} className="tp-diseno">
+                  <div>
+                    <span className="tp-codigo">{b.codigo}</span>
+                    <span style={{ marginLeft: 6 }}><NombreDelModelo item={b} corto /></span>
+                    {b.descripcion ? (
+                      <div className="texto-suave" style={{ fontSize: 12 }}>{b.descripcion}</div>
+                    ) : null}
+                  </div>
+                  <div className="tp-fila">
+                    {b.techPack?.totalChunks ? (
+                      <button
+                        className="btn-secundario tp-btn-chico"
+                        onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
+                      >
+                        Ver tech pack
+                      </button>
+                    ) : (
+                      <span className="tp-pill tp-pill-falta">sin tech pack</span>
+                    )}
+                    {b.ftt?.totalChunks ? (
+                      <button
+                        className="btn-secundario tp-btn-chico"
+                        onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}
+                      >
+                        Ver FTT
+                      </button>
+                    ) : null}
+                    {puedeSubirTechPacks && !b.apuntaA && (
+                      <button className="btn-secundario tp-btn-chico" onClick={() => setEditando(b)}>
+                        Editar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {visibles.length > 30 && (
+                <div className="texto-suave" style={{ fontSize: 12 }}>
+                  ...y {visibles.length - 30} mas. Afina la busqueda o abre la lista completa.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ------------------------------------------------ subir, en dos pasos */}
       {puedeSubirTechPacks && (
@@ -611,87 +705,6 @@ export default function PanelTechPacks() {
         )}
       </div>
 
-      {/* ----------------------------------------- BUSCAR (al frente, 8-sep) */}
-      {/* Estaba metido dentro de la lista plegada y no se encontraba. */}
-      <div className="tarjeta tp-buscador">
-        <div className="tp-fila" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-          <div className="tp-fila" style={{ gap: 10, flex: 1, minWidth: 280 }}>
-            <strong style={{ whiteSpace: 'nowrap' }}>Buscar un tech pack</strong>
-            <input
-              className="tp-input"
-              placeholder="Codigo, modelo, color o descripcion — por ejemplo SHASA, RAYAS o QUI-CSHA20X"
-              value={filtro}
-              onChange={(e) => setFiltro(e.target.value)}
-              style={{ flex: 1, minWidth: 240 }}
-            />
-            {filtro && (
-              <button className="btn-secundario tp-btn-chico" onClick={() => setFiltro('')}>Limpiar</button>
-            )}
-          </div>
-          <div className="tp-fila" style={{ gap: 10 }}>
-            <label className="tp-check">
-              <input type="checkbox" checked={soloSin} onChange={(e) => setSoloSin(e.target.checked)} />
-              Solo los que no tienen tech pack
-            </label>
-            <button className="btn-secundario tp-btn-chico" onClick={descargarExcel} disabled={!biblioteca.length}>
-              Descargar Excel
-            </button>
-          </div>
-        </div>
-        {filtro && (
-          <div style={{ marginTop: 12 }}>
-            <div className="texto-suave" style={{ fontSize: 13, marginBottom: 6 }}>
-              {visibles.length === 0
-                ? 'Nada con esa busqueda.'
-                : `${visibles.length} ${visibles.length === 1 ? 'resultado' : 'resultados'}`}
-            </div>
-            <div className="tp-resultados">
-              {visibles.slice(0, 30).map((b) => (
-                <div key={b.id} className="tp-diseno">
-                  <div>
-                    <span className="tp-codigo">{b.codigo}</span>
-                    {b.modelo && b.modelo !== b.codigo ? (
-                      <span className="tp-pill" style={{ marginLeft: 6 }}>{b.modelo}</span>
-                    ) : null}
-                    {b.color ? (
-                      <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>{b.color}</span>
-                    ) : null}
-                    {b.descripcion ? (
-                      <div className="texto-suave" style={{ fontSize: 12 }}>{b.descripcion}</div>
-                    ) : null}
-                  </div>
-                  <div className="tp-fila">
-                    {b.techPack?.totalChunks ? (
-                      <button
-                        className="btn-secundario tp-btn-chico"
-                        onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
-                      >
-                        Ver tech pack
-                      </button>
-                    ) : (
-                      <span className="tp-pill tp-pill-falta">sin tech pack</span>
-                    )}
-                    {b.ftt?.totalChunks ? (
-                      <button
-                        className="btn-secundario tp-btn-chico"
-                        onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}
-                      >
-                        Ver FTT
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-              {visibles.length > 30 && (
-                <div className="texto-suave" style={{ fontSize: 12 }}>
-                  ...y {visibles.length - 30} mas. Afina la busqueda o abre la lista completa.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* ------------------------------------------------ la lista completa (plegada) */}
       <details className="tarjeta tp-lista">
         <summary className="tp-fila" style={{ justifyContent: 'space-between', cursor: 'pointer' }}>
@@ -719,11 +732,13 @@ export default function PanelTechPacks() {
               <thead>
                 <tr>
                   <th>Codigo</th>
+                  <th>Modelo</th>
                   <th>Descripcion</th>
                   <th>OT / OC (segun el plan)</th>
                   <th>Tech pack de empaque</th>
                   <th>FTT</th>
                   <th>Ultimo cambio</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -731,6 +746,9 @@ export default function PanelTechPacks() {
                   <tr key={b.id}>
                     <td>
                       <span className="tp-codigo">{b.codigo}</span>
+                    </td>
+                    <td style={{ fontSize: 13 }}>
+                      <NombreDelModelo item={b} />
                     </td>
                     <td>{b.descripcion || <span className="texto-suave">sin descripcion</span>}</td>
                     <td style={{ fontSize: 13 }}>
@@ -758,6 +776,13 @@ export default function PanelTechPacks() {
                     <td className="texto-suave" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
                       {fecha(b.actualizadoEn)}
                       {b.actualizadoPorNombre ? ` · ${b.actualizadoPorNombre}` : ''}
+                    </td>
+                    <td>
+                      {puedeSubirTechPacks && !b.apuntaA && (
+                        <button className="btn-secundario tp-btn-chico" onClick={() => setEditando(b)}>
+                          Editar
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -827,6 +852,24 @@ export default function PanelTechPacks() {
           ))}
       </div>
 
+      {editando && (
+
+        <ModalEditarTechPack
+
+          key={editando.codigo}
+
+          item={editando}
+
+          usuario={{ uid: authUser?.uid || '', nombre: perfil?.nombreCompleto || '' }}
+
+          onCerrar={() => setEditando(null)}
+
+          onGuardado={(msg) => { setEditando(null); setAviso(msg) }}
+
+        />
+
+      )}
+
       {visor && (
         <VisorTechPack
           techPack={visor.manifiesto}
@@ -836,6 +879,202 @@ export default function PanelTechPacks() {
       )}
     </div>
   )
+}
+
+// El nombre del modelo, con el de Lety por encima del del catalogo. Cuando el
+// catalogo solo repite el codigo (pasa en 22 de los 38) no se pinta nada: es
+// ruido, y peor, hace creer que el dato esta puesto.
+function NombreDelModelo({ item, corto = false }) {
+  const d = datosDelTechPack(item)
+  const propio = Boolean(item?.datosEditables?.modelo)
+  if (!d.modelo || (!propio && d.modelo === item?.codigo)) {
+    return corto ? null : <span className="texto-suave">sin nombre</span>
+  }
+  return (
+    <>
+      <span className="tp-pill">{d.modelo}</span>
+      {d.color ? <span className="texto-suave" style={{ fontSize: 12, marginLeft: 6 }}>{d.color}</span> : null}
+    </>
+  )
+}
+
+// EDITAR UN TECH PACK. Todo lo que Lety pidio teclear, en una sola pantalla, y
+// el historial de quien lo toco debajo.
+function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
+  const inicial = datosDelTechPack(item)
+  const [modelo, setModelo] = useState(inicial.modelo)
+  const [talla, setTalla] = useState(inicial.talla)
+  const [color, setColor] = useState(inicial.color)
+  const [notas, setNotas] = useState(inicial.notas)
+  const [checklist, setChecklist] = useState(inicial.checklist || {})
+  const [historial, setHistorial] = useState(null)
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let vivo = true
+    historialDelTechPack(item.codigo)
+      .then((h) => vivo && setHistorial(h))
+      .catch(() => vivo && setHistorial([]))
+    return () => { vivo = false }
+  }, [item.codigo])
+
+  // El porcentaje se CALCULA, no se guarda: un numero guardado se queda viejo
+  // en cuanto cambia el checklist. 'no aplica' no cuenta ni a favor ni en
+  // contra, para que un modelo sin caja no salga eternamente incompleto.
+  const cuentan = RUBROS_TECH_PACK.filter((r) => checklist[r.id] !== 'no_aplica')
+  const completos = cuentan.filter((r) => checklist[r.id] === 'completo').length
+  const porcentaje = cuentan.length ? Math.round((completos / cuentan.length) * 100) : 0
+  const evaluado = RUBROS_TECH_PACK.some((r) => checklist[r.id])
+
+  const guardar = async () => {
+    setGuardando(true)
+    setError('')
+    try {
+      const r = await editarDatosTechPack({
+        codigo: item.codigo,
+        actual: item,
+        datos: { modelo, talla, color, notas, checklist },
+        usuario
+      })
+      onGuardado(r.sinCambios ? 'No habia nada que cambiar.' : `Guardado: ${item.codigo}.`)
+    } catch (e) {
+      console.error('[TechPacks] No se pudo guardar la edicion:', e)
+      setError(e?.message || String(e))
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <div className="modal-fondo" onClick={onCerrar}>
+      <div className="modal tp-modal-editar" onClick={(e) => e.stopPropagation()}>
+        <div className="tp-fila" style={{ justifyContent: 'space-between' }}>
+          <h3 style={{ margin: 0 }}>Editar <span className="tp-codigo">{item.codigo}</span></h3>
+          <button className="btn-secundario tp-btn-chico" onClick={onCerrar}>Cerrar</button>
+        </div>
+
+        <label className="tp-campo">
+          <span>Nombre del modelo</span>
+          <input
+            className="tp-input"
+            value={modelo}
+            maxLength={160}
+            placeholder="Como se llama en el Drive: COMBO BEIGE, RAYAS..."
+            onChange={(e) => setModelo(e.target.value)}
+          />
+          <small className="texto-suave">
+            El catalogo trae un nombre generico y el mismo codigo puede ser dos modelos distintos.
+            Este es el nombre que ve todo el mundo.
+          </small>
+        </label>
+
+        <div className="tp-fila" style={{ gap: 10 }}>
+          <label className="tp-campo" style={{ flex: 1 }}>
+            <span>Talla</span>
+            <input className="tp-input" value={talla} maxLength={60} onChange={(e) => setTalla(e.target.value)} />
+          </label>
+          <label className="tp-campo" style={{ flex: 2 }}>
+            <span>Color</span>
+            <input className="tp-input" value={color} maxLength={200} onChange={(e) => setColor(e.target.value)} />
+          </label>
+        </div>
+
+        <div className="tp-campo">
+          <span>
+            Que le falta a este tech pack
+            {evaluado ? (
+              <strong style={{ marginLeft: 8 }}>{porcentaje}% completo</strong>
+            ) : (
+              <span className="texto-suave" style={{ marginLeft: 8 }}>sin revisar</span>
+            )}
+          </span>
+          <small className="texto-suave">
+            Los siete puntos del tech pack que quedo como estandar (QUI-CSHA20X).
+          </small>
+          <div className="tp-checklist">
+            {RUBROS_TECH_PACK.map((r) => (
+              <div key={r.id} className="tp-checklist-fila">
+                <div>
+                  <strong>{r.titulo}</strong>
+                  <div className="texto-suave" style={{ fontSize: 12 }}>{r.ayuda}</div>
+                </div>
+                <select
+                  className="tp-input"
+                  style={{ width: 130 }}
+                  value={checklist[r.id] || ''}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setChecklist((prev) => {
+                      const next = { ...prev }
+                      if (v) next[r.id] = v
+                      else delete next[r.id] // "sin revisar" BORRA la llave: mandar undefined truena la escritura
+                      return next
+                    })
+                  }}
+                >
+                  <option value="">sin revisar</option>
+                  <option value="completo">ya esta</option>
+                  <option value="pendiente">falta</option>
+                  <option value="no_aplica">no aplica</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <label className="tp-campo">
+          <span>Notas</span>
+          <textarea
+            className="tp-input"
+            rows={3}
+            maxLength={2000}
+            value={notas}
+            placeholder="Cuanta plastiflecha lleva, como va la bolsa, lo que haya que decirle a la maquila..."
+            onChange={(e) => setNotas(e.target.value)}
+          />
+        </label>
+
+        {error && <p className="alerta-error">{error}</p>}
+
+        <div className="tp-fila" style={{ justifyContent: 'flex-end', gap: 10 }}>
+          <button className="btn-secundario" onClick={onCerrar} disabled={guardando}>Cancelar</button>
+          <button className="btn-primario" onClick={guardar} disabled={guardando}>
+            {guardando ? 'Guardando...' : 'Guardar'}
+          </button>
+        </div>
+
+        <details className="tp-historial">
+          <summary>Quien lo ha modificado</summary>
+          {historial === null ? (
+            <p className="texto-suave">Leyendo...</p>
+          ) : historial.length === 0 ? (
+            <p className="texto-suave">Todavia nadie lo ha editado desde la app.</p>
+          ) : (
+            <ul>
+              {historial.map((h) => (
+                <li key={h.id}>
+                  <strong>{h.quienNombre || 'alguien'}</strong>
+                  <span className="texto-suave"> · {fecha(h.cuando)} · cambio {resumirCambio(h)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </details>
+      </div>
+    </div>
+  )
+}
+
+// El renglon de historial guarda el estado completo antes y despues (asi la
+// regla puede comprobar que no miente); el resumen legible se saca aqui.
+function resumirCambio(h) {
+  const antes = h?.antes || {}
+  const despues = h?.despues || {}
+  const nombres = { modelo: 'el modelo', talla: 'la talla', color: 'el color', notas: 'las notas', checklist: 'el checklist' }
+  const cambiados = Object.keys(nombres).filter(
+    (k) => JSON.stringify(antes[k] ?? null) !== JSON.stringify(despues[k] ?? null)
+  )
+  return cambiados.length ? cambiados.map((k) => nombres[k]).join(', ') : 'nada visible'
 }
 
 function Tile({ titulo, valor, tono = '' }) {

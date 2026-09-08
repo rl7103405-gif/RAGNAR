@@ -2868,6 +2868,43 @@ service cloud.firestore {
         && m.subidoPorUid is string && m.subidoPorUid.size() > 0
         && m.subidoPorNombre is string && m.subidoPorNombre.size() <= 120;
     }
+    // LO QUE LETY PUEDE TECLEAR. Todo lo demas del tech pack (el archivo, el
+    // codigo, las marcas de quien y cuando) NO se teclea.
+    //
+    // 'modelo' esta aqui y no como campo suelto porque es el caso que ella
+    // enseno en la junta: el catalogo trae un nombre generico y en su Drive el
+    // mismo codigo QUI-CSHA20X existe como COMBO BEIGE y como RAYAS. Se probo
+    // sacarlo automatico del nombre del archivo y NO se puede (lo que queda al
+    // quitar el codigo son numeros de ficha), asi que lo escribe ella.
+    function datosEditablesValidos(e) {
+      return e is map
+        && e.keys().hasOnly(['modelo', 'talla', 'color', 'notas', 'checklist', 'checklistVersion'])
+        && (!e.keys().hasAny(['modelo']) || (e.modelo is string && e.modelo.size() <= 160))
+        && (!e.keys().hasAny(['talla']) || (e.talla is string && e.talla.size() <= 60))
+        && (!e.keys().hasAny(['color']) || (e.color is string && e.color.size() <= 200))
+        && (!e.keys().hasAny(['notas']) || (e.notas is string && e.notas.size() <= 2000))
+        && (!e.keys().hasAny(['checklistVersion']) || (e.checklistVersion is string && e.checklistVersion.size() <= 20))
+        && (!e.keys().hasAny(['checklist']) || checklistTechPackValido(e.checklist));
+    }
+    // El checklist de completado. Los rubros NO son inventados: son las siete
+    // hojas del tech pack que Lety mando el 2026-09-08 como su estandar al 100%
+    // (TECH PACK 4504298831 QUI-CSHA20X). Catalogo CERRADO a proposito: sin
+    // esto se pueden colar etiquetas inventadas y el porcentaje deja de
+    // significar algo. 'no_aplica' existe porque no todo modelo lleva caja.
+    function checklistTechPackValido(c) {
+      return c is map
+        && c.keys().hasOnly(['pedido', 'ruta', 'etiquetas', 'individual', 'bolsa', 'caja', 'fotos'])
+        && c.values().hasOnly(['pendiente', 'completo', 'no_aplica']);
+    }
+    // Las marcas de QUIEN y CUANDO, ancladas al servidor y al perfil. Sin esto
+    // se puede firmar una edicion con el nombre de otra persona o con una fecha
+    // inventada, y el historial deja de servir para lo que Roberto lo quiere:
+    // saber quien se equivoco.
+    function sellosDeEdicionOk() {
+      return request.resource.data.actualizadoEn == request.time
+        && request.resource.data.actualizadoPorUid == request.auth.uid
+        && request.resource.data.actualizadoPorNombre == perfil().get('nombreCompleto', '');
+    }
     function techPackDocValido(d) {
       return d.keys().hasAll(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba'])
         // 'apuntaA' es OPCIONAL: un documento alias (techPacks/{folio de ficha})
@@ -2880,7 +2917,16 @@ service cloud.firestore {
         // lo que le falta al tech pack (fotos, virtual, cadena...), para el
         // porcentaje de avance. Los CUATRO son opcionales: los documentos que
         // ya estaban cargados no los traen y siguen siendo validos.
-        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes'])
+        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes', 'datosEditables', 'revision', 'ultimaEdicionId'])
+        // Lo que Lety TECLEA vive junto, en 'datosEditables', separado de los
+        // manifiestos y de lo inmutable. Asi el historial guarda un snapshot
+        // exacto de ese mapa y la regla puede compararlo entero, en vez de
+        // confiar en una lista de cambios que redacta el cliente.
+        && (!d.keys().hasAny(['datosEditables']) || datosEditablesValidos(d.datosEditables))
+        // 'revision' avanza de uno en uno con cada edicion: es la precondicion
+        // que hace que dos personas editando a la vez no se pisen en silencio.
+        && (!d.keys().hasAny(['revision']) || (d.revision is int && d.revision >= 1))
+        && (!d.keys().hasAny(['ultimaEdicionId']) || (d.ultimaEdicionId is string && d.ultimaEdicionId.size() > 0 && d.ultimaEdicionId.size() <= 40))
         && (!d.keys().hasAny(['modelo']) || (d.modelo is string && d.modelo.size() <= 200))
         && (!d.keys().hasAny(['talla']) || (d.talla is string && d.talla.size() <= 200))
         && (!d.keys().hasAny(['color']) || (d.color is string && d.color.size() <= 200))
@@ -2921,6 +2967,40 @@ service cloud.firestore {
         || request.resource.data[campo] == null
         || request.resource.data[campo].subidoPorUid == request.auth.uid;
     }
+    // RAMA 1: subir o quitar el archivo. Es lo que ya se podia hacer.
+    function updateDeArchivoTechPack() {
+      return campoDeManifiestoOk('techPack')
+        && campoDeManifiestoOk('ftt')
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['techPack', 'ftt', 'descripcion', 'apuntaA', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre']);
+    }
+    // RAMA 2: editar los datos. SIEMPRE deja historial: la regla exige que en
+    // el MISMO batch nazca el renglon de historial y que su contenido cuadre
+    // exactamente con el antes y el despues reales. No hay forma de editar sin
+    // dejar rastro, ni de escribir un rastro que mienta.
+    function updateDeDatosTechPack(codigo) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['datosEditables', 'revision', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && sellosDeEdicionOk()
+        // Un ALIAS no tiene datos propios: apunta a otro codigo y hereda los
+        // suyos. Si se le dejaran datos, divergirian del documento real.
+        && !resource.data.keys().hasAny(['apuntaA'])
+        && request.resource.data.datosEditables is map
+        // De uno en uno. Si alguien edito mientras el modal estaba abierto, la
+        // revision ya no coincide y la escritura se rechaza en vez de pisar.
+        && request.resource.data.revision == resource.data.get('revision', 0) + 1
+        && historialDeEdicionCuadra(codigo);
+    }
+    // El amarre con getAfter(): mira como va a quedar el renglon de historial
+    // DESPUES de este batch y exige que diga la verdad sobre este cambio.
+    function historialDeEdicionCuadra(codigo) {
+      let h = getAfter(/databases/$(database)/documents/techPacks/$(codigo)/historial/$(request.resource.data.ultimaEdicionId)).data;
+      return h.revision == request.resource.data.revision
+        && h.antes == resource.data.get('datosEditables', {})
+        && h.despues == request.resource.data.datosEditables
+        && h.quienUid == request.auth.uid
+        && h.cuando == request.time;
+    }
     match /techPacks/{codigo} {
       // En un GET de un documento que no existe, 'resource' es null (no hay
       // dato que leer): sin ese caso aparte, desreferenciar resource.data
@@ -2942,6 +3022,10 @@ service cloud.firestore {
         && codigoTechPackDelMundoOk(codigo);
       // Al actualizar solo se mueven los manifiestos y el sello de quien lo
       // hizo. codigo, creadoEn y la marca de prueba quedan como nacieron.
+      // DOS operaciones distintas, cada una con su propia lista cerrada. No se
+      // juntan en un solo hasOnly gigante a proposito: asi la edicion de datos
+      // puede EXIGIR historial sin que una subida de archivo tenga que
+      // arrastrarlo, y una sola escritura no puede mezclar las dos cosas.
       allow update: if puedeSubirTechPacks()
         && resource.data.esPrueba == esCuentaDePrueba()
         && techPackDocValido(request.resource.data)
@@ -2949,13 +3033,39 @@ service cloud.firestore {
         && request.resource.data.creadoEn == resource.data.creadoEn
         && request.resource.data.creadoPorUid == resource.data.creadoPorUid
         && request.resource.data.esPrueba == resource.data.esPrueba
-        && campoDeManifiestoOk('techPack')
-        && campoDeManifiestoOk('ftt')
-        && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['techPack', 'ftt', 'descripcion', 'apuntaA', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre']);
+        && (updateDeArchivoTechPack() || updateDeDatosTechPack(codigo));
       // No se borra el documento: se quitan los manifiestos (update a null).
       // Un codigo que existio deja rastro de quien lo toco y cuando.
       allow delete: if false;
+    }
+    // EL HISTORIAL DE EDICIONES. Lety, en la junta: "que quede registrado quien
+    // lo esta modificando, que no se pierdan datos... aqui esta su informe de
+    // cuando lo hizo, para tener esa trazabilidad".
+    //
+    // Nace solo, nunca se toca y nunca se borra. Guarda el ESTADO COMPLETO
+    // antes y despues, no una lista de cambios: un snapshot se puede comparar
+    // entero contra el documento real, una lista redactada por el cliente no.
+    match /techPacks/{codigo}/historial/{edicionId} {
+      allow read: if puedeVerTechPacks()
+        && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;
+      allow create: if puedeSubirTechPacks()
+        && request.resource.data.keys().hasOnly(['revision', 'antes', 'despues', 'cuando', 'quienUid', 'quienNombre'])
+        && request.resource.data.revision is int
+        && request.resource.data.revision >= 1
+        && request.resource.data.antes is map
+        && request.resource.data.despues is map
+        && datosEditablesValidos(request.resource.data.despues)
+        && request.resource.data.cuando == request.time
+        && request.resource.data.quienUid == request.auth.uid
+        && request.resource.data.quienNombre == perfil().get('nombreCompleto', '')
+        // Y al reves que en el padre: el documento TIENE que cambiar en este
+        // mismo batch y apuntar a ESTE renglon. Sin esto se podrian sembrar
+        // renglones de historial de ediciones que nunca ocurrieron.
+        && getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data.ultimaEdicionId == edicionId
+        && getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data.revision == request.resource.data.revision
+        && getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data.datosEditables == request.resource.data.despues;
+      // Un renglon de historial no se corrige ni se borra: para eso es historial.
+      allow update, delete: if false;
     }
     match /techPacks/{codigo}/chunks/{chunkId} {
       // El get() del padre ya garantiza que exista: si no existe, se deniega

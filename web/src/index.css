@@ -688,3 +688,13 @@ table th, table td {
 /* La foto va en su renglon, donde el Excel la tiene anclada (8-sep) */
 .tp-hoja-foto td { background: #fbfcfe; text-align: center; padding: 10px; }
 .tp-hoja-foto img { max-width: min(100%, 520px); border: 1px solid #e2e8f0; border-radius: 6px; }
+
+/* Editar un tech pack: el modal de Lety (8-sep) */
+.tp-modal-editar { max-width: 720px; width: 94vw; max-height: 88vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.tp-campo { display: flex; flex-direction: column; gap: 4px; }
+.tp-campo > span { font-weight: 600; font-size: 14px; }
+.tp-checklist { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.tp-checklist-fila { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fbfcfe; }
+.tp-historial { border-top: 1px solid #e2e8f0; padding-top: 10px; }
+.tp-historial summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.tp-historial ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }

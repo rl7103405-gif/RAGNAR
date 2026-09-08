@@ -236,6 +236,115 @@ export async function quitarDeBiblioteca({ codigo, tipo, usuario, onProgreso = (
   }
 }
 
+// LOS DATOS QUE SE EDITAN A MANO, y su version de checklist.
+// 'datosEditables' es lo que Lety teclea; los campos sueltos modelo/talla/color
+// que traen los documentos viejos son lo que dijo el CATALOGO y quedan
+// congelados. Cuando los dos existen, MANDA el de Lety: ella ve el Drive.
+export const CHECKLIST_VERSION = '2026-09-v1'
+
+export function datosDelTechPack(b) {
+  const e = b?.datosEditables || {}
+  return {
+    modelo: e.modelo ?? b?.modelo ?? '',
+    talla: e.talla ?? b?.talla ?? '',
+    color: e.color ?? b?.color ?? '',
+    notas: e.notas ?? '',
+    checklist: e.checklist || null,
+    checklistVersion: e.checklistVersion || ''
+  }
+}
+
+/**
+ * Guarda los datos que Lety escribio Y su renglon de historial, en un solo
+ * batch. La regla de Firestore exige las dos escrituras amarradas: no se puede
+ * editar sin dejar rastro, ni sembrar un rastro de una edicion que no ocurrio.
+ *
+ * @param {object} p
+ * @param {string} p.codigo
+ * @param {object} p.actual        el documento como esta HOY (trae revision)
+ * @param {object} p.datos         {modelo, talla, color, notas, checklist}
+ * @param {{uid: string, nombre: string}} p.usuario
+ */
+export async function editarDatosTechPack({ codigo, actual, datos, usuario }) {
+  const id = codigoComoId(codigo)
+  if (!id) throw new ErrorBiblioteca('Codigo invalido.')
+  if (actual?.apuntaA) {
+    // Un alias no tiene datos propios: hereda los del codigo real. Editarlo
+    // haria que las dos copias divergieran. La regla tambien lo rechaza.
+    throw new ErrorBiblioteca(
+      `${codigo} es un atajo hacia ${actual.apuntaA}. Edita ${actual.apuntaA}, que es el que tiene el archivo.`
+    )
+  }
+  if (!usuario?.uid) throw new ErrorBiblioteca('No se pudo saber quien esta editando.')
+  if (!usuario?.nombre) {
+    // El nombre va anclado al perfil en la regla: sin el, la escritura se
+    // rechaza. Mas vale decirlo aqui que dejar un permission-denied a secas.
+    throw new ErrorBiblioteca('Tu perfil no tiene nombre completo. Pideselo a Roberto antes de editar.')
+  }
+
+  // Se manda SOLO lo que trae contenido: un campo vacio no se guarda como ''
+  // para que el snapshot de antes y despues no se llene de basura.
+  const limpio = {}
+  const texto = (v, max) => String(v ?? '').trim().slice(0, max)
+  if (texto(datos.modelo, 160)) limpio.modelo = texto(datos.modelo, 160)
+  if (texto(datos.talla, 60)) limpio.talla = texto(datos.talla, 60)
+  if (texto(datos.color, 200)) limpio.color = texto(datos.color, 200)
+  if (texto(datos.notas, 2000)) limpio.notas = texto(datos.notas, 2000)
+  if (datos.checklist && Object.keys(datos.checklist).length) {
+    limpio.checklist = datos.checklist
+    limpio.checklistVersion = CHECKLIST_VERSION
+  }
+
+  const antes = actual?.datosEditables || {}
+  // Nada que guardar: se sale sin quemar una revision ni un renglon de
+  // historial que diga que no cambio nada.
+  if (JSON.stringify(antes) === JSON.stringify(limpio)) return { sinCambios: true }
+
+  const revision = Number(actual?.revision || 0) + 1
+  const refHistorial = doc(collection(db, 'techPacks', id, 'historial'))
+  const lote = writeBatch(db)
+  lote.update(refDoc(id), {
+    datosEditables: limpio,
+    revision,
+    ultimaEdicionId: refHistorial.id,
+    actualizadoEn: serverTimestamp(),
+    actualizadoPorUid: usuario.uid,
+    actualizadoPorNombre: usuario.nombre
+  })
+  lote.set(refHistorial, {
+    revision,
+    antes,
+    despues: limpio,
+    cuando: serverTimestamp(),
+    quienUid: usuario.uid,
+    quienNombre: usuario.nombre
+  })
+  try {
+    await lote.commit()
+  } catch (e) {
+    if (e?.code === 'permission-denied') {
+      // La causa mas probable no es un permiso: es que alguien mas edito
+      // mientras el modal estaba abierto y la revision ya no cuadra. Decirlo
+      // asi evita que Lety crea que perdio el acceso.
+      throw new ErrorBiblioteca(
+        'No se guardo. Es probable que alguien mas haya editado este tech pack mientras lo tenias abierto: cierra y vuelve a abrirlo para ver como quedo.'
+      )
+    }
+    throw e
+  }
+  return { revision }
+}
+
+/** El historial de ediciones, lo mas nuevo primero. */
+export async function historialDelTechPack(codigo, cuantos = 30) {
+  const id = codigoComoId(codigo)
+  if (!id) return []
+  const snap = await getDocs(
+    query(collection(db, 'techPacks', id, 'historial'), orderBy('cuando', 'desc'), limit(cuantos))
+  )
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
 /**
  * Baja un documento de la biblioteca, valida continuidad y sha256 y devuelve
  * el ArrayBuffer. NUNCA entrega un archivo a medias como si estuviera entero.
