@@ -2873,7 +2873,20 @@ service cloud.firestore {
         // 'apuntaA' es OPCIONAL: un documento alias (techPacks/{folio de ficha})
         // que no trae archivo sino el codigo real al que pertenece. Asi el
         // pegado por OT encuentra el tech pack por el folio que usa el plan.
-        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA'])
+        // 'modelo', 'talla' y 'color' se copian del CATALOGO al subir (no los
+        // teclea nadie) para poder BUSCAR POR MODELO, que es lo que pidio Lety
+        // el 2026-09-08: el mismo modelo cae en muchas OT distintas y sin esto
+        // hay que rehacer el tech pack cada vez. 'faltantes' es el checklist de
+        // lo que le falta al tech pack (fotos, virtual, cadena...), para el
+        // porcentaje de avance. Los CUATRO son opcionales: los documentos que
+        // ya estaban cargados no los traen y siguen siendo validos.
+        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes'])
+        && (!d.keys().hasAny(['modelo']) || (d.modelo is string && d.modelo.size() <= 200))
+        && (!d.keys().hasAny(['talla']) || (d.talla is string && d.talla.size() <= 200))
+        && (!d.keys().hasAny(['color']) || (d.color is string && d.color.size() <= 200))
+        // faltantes: lista corta de etiquetas de lo que le falta a este tech
+        // pack. Se acota para que nadie meta un texto gigante por ahi.
+        && (!d.keys().hasAny(['faltantes']) || (d.faltantes is list && d.faltantes.size() <= 12))
         && (!d.keys().hasAny(['apuntaA']) || (d.apuntaA is string && d.apuntaA.size() > 0 && d.apuntaA.size() <= 60 && d.apuntaA != d.codigo))
         && d.codigo is string && d.codigo.size() > 0 && d.codigo.size() <= 60
         && d.descripcion is string && d.descripcion.size() <= 200

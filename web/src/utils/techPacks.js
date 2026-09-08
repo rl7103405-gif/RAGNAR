@@ -134,15 +134,28 @@ export async function guardarEnBiblioteca({
   const actual = await getDoc(refDoc(id))
   if (!actual.exists()) {
     let descripcion = ''
+    let modelo = ''
+    let talla = ''
+    let color = ''
     try {
       const datos = await datosDeCodigos([id])
-      descripcion = String(datos.get(id)?.descripcion || '').slice(0, 200)
+      const d = datos.get(id)
+      descripcion = String(d?.descripcion || '').slice(0, 200)
+      // MODELO, TALLA y COLOR se copian del catalogo, no los teclea nadie: son
+      // lo que permite BUSCAR POR MODELO (Lety, 2026-09-08). Si el codigo no
+      // esta en el catalogo quedan vacios y no pasa nada.
+      modelo = String(d?.modelo || '').slice(0, 200)
+      talla = String(d?.talla || '').slice(0, 200)
+      color = String(d?.color || '').slice(0, 200)
     } catch {
       /* un adorno del tablero no puede impedir subir */
     }
     await setDoc(refDoc(id), {
       codigo: id,
       descripcion,
+      modelo,
+      talla,
+      color,
       techPack: null,
       ftt: null,
       creadoEn: serverTimestamp(),

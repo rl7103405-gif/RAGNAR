@@ -39,6 +39,10 @@ const EJECUTAR = process.env.EJECUTAR === '1'
 const OPERADOR = process.env.OPERADOR || 'lindbergh'
 const COLUMNA_PESO = (process.env.COLUMNA_PESO || 'peso').toLowerCase()
 const SOLO_HOJA = process.env.HOJA || null
+// EXCLUIR: folios que NO se cargan aunque vengan en el Excel, separados por
+// coma. Sirve para dejar fuera un renglon cuyo peso no cuadra con sus docenas
+// (el peso alimenta mermas y FTT: mejor falta un bulto que uno mal pesado).
+const EXCLUIDOS = new Set((process.env.EXCLUIR || '').split(',').map((x) => x.trim()).filter(Boolean))
 const MAX_GRAMOS = 100000
 
 initializeApp({ credential: cert(JSON.parse(readFileSync(path.join(__dirname, '..', 'serviceAccountKey.json'), 'utf8'))) })
@@ -174,6 +178,10 @@ for (const hoja of libro.worksheets) {
     if (n <= encabezado) return
     const folio = texto(fila.getCell(colFolio).value)
     if (!/^\d{5,7}$/.test(folio)) return // filas de resumen, pivotes, firmas
+    if (EXCLUIDOS.has(folio)) {
+      console.log(`   ${folio}: EXCLUIDO a proposito (EXCLUIR), no se carga`)
+      return
+    }
     filas.push({
       n,
       folio,

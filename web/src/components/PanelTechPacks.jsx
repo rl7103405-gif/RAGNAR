@@ -231,7 +231,12 @@ export default function PanelTechPacks() {
     return biblioteca.filter((b) => !b.apuntaA).filter((b) => {
       if (soloSin && b.techPack?.totalChunks) return false
       if (!f) return true
-      return `${b.codigo} ${b.descripcion || ''}`.toUpperCase().includes(f)
+      // Se busca tambien por MODELO, TALLA y COLOR (Lety, 2026-09-08): el
+      // mismo modelo cae en OT distintas, y hay modelos que solo se
+      // distinguen por color ("combo blanco" vs "combo beige").
+      return `${b.codigo} ${b.descripcion || ''} ${b.modelo || ''} ${b.talla || ''} ${b.color || ''}`
+        .toUpperCase()
+        .includes(f)
     })
   }, [biblioteca, filtro, soloSin])
 
@@ -559,7 +564,7 @@ export default function PanelTechPacks() {
           <div className="tp-fila">
             <input
               className="tp-input"
-              placeholder="Buscar por codigo o descripcion"
+              placeholder="Buscar por codigo, modelo, color o descripcion"
               value={filtro}
               onChange={(e) => setFiltro(e.target.value)}
               style={{ width: 260 }}
