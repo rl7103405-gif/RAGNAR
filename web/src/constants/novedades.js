@@ -36,6 +36,101 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-08-04',
+    fecha: '2026-09-08',
+    tipo: 'mejorado',
+    titulo: 'Tech packs: las fotos salen donde van, no todas hasta abajo',
+    detalle:
+      'Al abrir un tech pack de Excel, las fotos se amontonaban todas al final de cada hoja y habia '
+      + 'que adivinar a que parte correspondia cada una. Ahora cada foto aparece en el lugar donde '
+      + 'esta en el archivo original: la de plastiflecha sale junto a plastiflecha, la de empaque '
+      + 'junto a empaque.'
+  },
+
+  {
+    id: '2026-09-08-03',
+    fecha: '2026-09-08',
+    tipo: 'nuevo',
+    titulo: 'Tech packs: buscador arriba y descarga a Excel',
+    detalle:
+      'El buscador estaba escondido dentro de la lista de abajo y no se encontraba. Ahora esta hasta '
+      + 'arriba, y busca por codigo, modelo, color o descripcion: escribe "SHASA" o "RAYAS" y te salen '
+      + 'los que coinciden, con su boton para verlos. Al lado hay un boton para descargar toda la '
+      + 'biblioteca a Excel, con sus ordenes de trabajo, quien subio cada uno y cuando.'
+  },
+
+  {
+    id: '2026-09-08-02',
+    fecha: '2026-09-08',
+    tipo: 'nuevo',
+    titulo: 'Tech packs: se pueden buscar por modelo y por color',
+    detalle:
+      'Antes solo se buscaba por codigo. Ahora cada tech pack guarda tambien su modelo, su talla y sus '
+      + 'colores, tomados del catalogo. Sirve para lo que pidio Lety: el mismo modelo cae en muchas '
+      + 'ordenes distintas, y hay modelos que solo se distinguen por el color.'
+  },
+
+  {
+    id: '2026-09-07-03',
+    fecha: '2026-09-07',
+    tipo: 'corregido',
+    titulo: 'Los papeles se firman con tu nombre, ya no con "Estacion"',
+    detalle:
+      'Cuando el perfil no traia nombre, el bulto y el PDF se firmaban como "Estacion" y no se sabia '
+      + 'quien lo habia hecho. Ahora siempre se estampa el nombre completo de quien esta dentro; si tu '
+      + 'perfil no tiene nombre, la app te avisa en vez de firmar en generico. Tambien se apreto quien '
+      + 'puede marcar un PDF como entregado (solo quien embarca) y quien ve los precios de ensamble.'
+  },
+
+  {
+    id: '2026-09-07-02',
+    fecha: '2026-09-07',
+    tipo: 'nuevo',
+    titulo: 'Al encargar una orden, el tech pack se pega solo',
+    detalle:
+      'Cuando encargas una orden de trabajo a una maquila y esa orden tiene un solo tech pack en la '
+      + 'biblioteca, la tarea nace ya con el archivo pegado: la maquila lo ve sin que nadie lo suba. '
+      + 'Si hay varios (por ejemplo una talla por orden) o todavia no hay ninguno, el aviso del final '
+      + 'te dice de cual orden falta y lo subes tu como siempre.'
+  },
+
+  {
+    id: '2026-09-07-01',
+    fecha: '2026-09-07',
+    tipo: 'corregido',
+    titulo: 'Ya se puede capturar de nuevo: se arreglo el error de permisos',
+    detalle:
+      'Del 4 al 7 de septiembre, al pesar un bulto salia en rojo "Missing or insufficient permissions" '
+      + 'y no se guardaba nada. Fue por el nombre de la version nueva del catalogo, que era mas largo '
+      + 'de lo que el sistema aceptaba. Ya quedo, y los bultos de esos dias se cargaron con los pesos '
+      + 'que mando America.'
+  },
+
+  {
+    id: '2026-09-04-02',
+    fecha: '2026-09-04',
+    tipo: 'nuevo',
+    titulo: 'Tech packs: el arbol por orden de compra',
+    detalle:
+      'La pestana abre con el arbol de orden de compra, orden de trabajo y diseno, igual que el de '
+      + 'ordenes: se ve de un vistazo que tech pack cuelga de cada orden. Abajo hay dos apartados, uno '
+      + 'para las ordenes que todavia no tienen orden de compra y otro para las fichas que aun no son '
+      + 'pedido.'
+  },
+
+  {
+    id: '2026-09-04-01',
+    fecha: '2026-09-04',
+    tipo: 'corregido',
+    titulo: 'El visor de Excel ya se lee ordenado',
+    detalle:
+      'Los tech packs de Excel se veian con los titulos repetidos nueve veces y las columnas '
+      + 'corridas. Ahora respeta las celdas combinadas del archivo, quita los renglones vacios y '
+      + 'conserva las negritas, asi que se lee como la hoja original. Tambien se arreglo el aviso de '
+      + '"la app se actualizo" que impedia abrir el lector.'
+  },
+
+  {
     id: '2026-09-03-03',
     fecha: '2026-09-03',
     tipo: 'nuevo',
@@ -294,7 +389,7 @@ export const NOVEDADES = [
       'Las OT sin orden de compra en el plan que ya salieron completas en su PDF se pasan a "Ordenes terminadas", con su propio subtitulo. Eran 133 OT y 1,101 folios tapando lo que si falta. No se esconde ninguna: cambian de tarjeta.'
   },
   {
-    id: '2026-08-28-16',
+    id: '2026-08-28-15b',
     fecha: '2026-08-28',
     tipo: 'mejorado',
     titulo: 'Los pendientes, en arbol: orden de compra, OT y folios',
