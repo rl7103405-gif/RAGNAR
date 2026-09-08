@@ -2843,8 +2843,8 @@ service cloud.firestore {
       return esInterno() && rol() in ['admin', 'desarrollo'];
     }
     // Quien VE la biblioteca: el que sube, el que encarga tareas (Lindbergh)
-    // y direccion/embarques ('completo': el papa). Cielo (consulta) tambien,
-    // por seguimiento. Los pesadores, Adrian y Valeria (pt) no la necesitan:
+    // y direccion/embarques ('completo': el papa). Cielo (consulta) NO ve la
+    // biblioteca. Los pesadores, Adrian y Valeria (pt) tampoco la necesitan:
     // la lista es la MISMA que las pestanas de Estacion.jsx, a proposito.
     function puedeVerTechPacks() {
       return esInterno() && (puedeSubirTechPacks() || puedeCrearTareas()
@@ -2934,6 +2934,11 @@ service cloud.firestore {
         // pack. Se acota para que nadie meta un texto gigante por ahi.
         && (!d.keys().hasAny(['faltantes']) || (d.faltantes is list && d.faltantes.size() <= 12))
         && (!d.keys().hasAny(['apuntaA']) || (d.apuntaA is string && d.apuntaA.size() > 0 && d.apuntaA.size() <= 60 && d.apuntaA != d.codigo))
+        // Exclusion mutua: un alias no tiene archivo ni datos propios. Sin
+        // esto, 'apuntaA' se podia inyectar en un tech pack real (con
+        // archivo) y volverlo invisible para la biblioteca (filtrada por
+        // !apuntaA en el cliente).
+        && (!d.keys().hasAny(['apuntaA']) || (d.techPack == null && d.ftt == null && !d.keys().hasAny(['datosEditables'])))
         && d.codigo is string && d.codigo.size() > 0 && d.codigo.size() <= 60
         && d.descripcion is string && d.descripcion.size() <= 200
         // Obligatorio y booleano SIEMPRE (nunca opcional, a diferencia de
@@ -2965,14 +2970,25 @@ service cloud.firestore {
     function campoDeManifiestoOk(campo) {
       return request.resource.data[campo] == resource.data[campo]
         || request.resource.data[campo] == null
-        || request.resource.data[campo].subidoPorUid == request.auth.uid;
+        || (request.resource.data[campo].subidoPorUid == request.auth.uid
+            // Ancla QUIEN y CUANDO del manifiesto nuevo al servidor y al
+            // perfil, y hace avanzar su version: sin esto se podia escribir
+            // 'actualizadoPorNombre: Roberto Linares' con fecha de 2019, que
+            // es exactamente la columna "Ultimo cambio" que Roberto mira.
+            && request.resource.data[campo].subidoEn == request.time
+            && request.resource.data[campo].subidoPorNombre == perfil().get('nombreCompleto', '')
+            && request.resource.data[campo].version == (resource.data[campo] == null ? 1 : resource.data[campo].version + 1));
     }
     // RAMA 1: subir o quitar el archivo. Es lo que ya se podia hacer.
     function updateDeArchivoTechPack() {
       return campoDeManifiestoOk('techPack')
         && campoDeManifiestoOk('ftt')
+        // 'apuntaA' NO se toca por esta rama: los alias los crea un script con
+        // Admin SDK (que salta las reglas), y ningun flujo de cliente lo
+        // escribe en un update. Dejarlo aqui permitia inyectarlo en un tech
+        // pack real y volverlo invisible para la biblioteca.
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['techPack', 'ftt', 'descripcion', 'apuntaA', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre']);
+             .hasOnly(['techPack', 'ftt', 'descripcion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre']);
     }
     // RAMA 2: editar los datos. SIEMPRE deja historial: la regla exige que en
     // el MISMO batch nazca el renglon de historial y que su contenido cuadre
@@ -2981,15 +2997,36 @@ service cloud.firestore {
     function updateDeDatosTechPack(codigo) {
       return request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['datosEditables', 'revision', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
-        && sellosDeEdicionOk()
         // Un ALIAS no tiene datos propios: apunta a otro codigo y hereda los
         // suyos. Si se le dejaran datos, divergirian del documento real.
         && !resource.data.keys().hasAny(['apuntaA'])
         && request.resource.data.datosEditables is map
+        // Tiene que cambiar algo de verdad: sin esto se puede quemar una
+        // revision y sembrar un renglon de historial que diga "cambio nada".
+        // El cliente ya lo evita (devuelve sinCambios), pero el candado real
+        // va en el servidor.
+        && request.resource.data.datosEditables != resource.data.get('datosEditables', {})
         // De uno en uno. Si alguien edito mientras el modal estaba abierto, la
         // revision ya no coincide y la escritura se rechaza en vez de pisar.
         && request.resource.data.revision == resource.data.get('revision', 0) + 1
         && historialDeEdicionCuadra(codigo);
+    }
+    // El amarre del lado del historial: compara el padre ANTES (get) contra
+    // el padre DESPUES (getAfter) de este mismo batch y exige que el padre
+    // este cambiando de verdad en esta solicitud, que 'antes' sea su estado
+    // real previo y que el corral de prueba del padre cuadre. Sin esto se
+    // podia crear un renglon de historial en una solicitud SEPARADA del
+    // update del padre (el candado del padre no alcanza a un create suelto
+    // en la subcoleccion).
+    function altaHistorialCuadra(codigo, edicionId) {
+      let antesPadre = get(/databases/$(database)/documents/techPacks/$(codigo)).data;
+      let despuesPadre = getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data;
+      return despuesPadre.ultimaEdicionId == edicionId
+        && despuesPadre.revision == antesPadre.get('revision', 0) + 1
+        && antesPadre.get('datosEditables', {}) == request.resource.data.antes
+        && despuesPadre.datosEditables == request.resource.data.despues
+        && despuesPadre.datosEditables != antesPadre.get('datosEditables', {})
+        && despuesPadre.esPrueba == esCuentaDePrueba();
     }
     // El amarre con getAfter(): mira como va a quedar el renglon de historial
     // DESPUES de este batch y exige que diga la verdad sobre este cambio.
@@ -3019,7 +3056,12 @@ service cloud.firestore {
         && request.resource.data.creadoEn is timestamp
         && request.resource.data.creadoPorUid == request.auth.uid
         && request.resource.data.esPrueba == esCuentaDePrueba()
-        && codigoTechPackDelMundoOk(codigo);
+        && codigoTechPackDelMundoOk(codigo)
+        // Lo que Lety teclea SOLO puede entrar por el update con historial:
+        // un documento no puede nacer ya con revision 99 y sin rastro.
+        && !request.resource.data.keys().hasAny(['datosEditables', 'revision', 'ultimaEdicionId'])
+        && request.resource.data.creadoEn == request.time
+        && sellosDeEdicionOk();
       // Al actualizar solo se mueven los manifiestos y el sello de quien lo
       // hizo. codigo, creadoEn y la marca de prueba quedan como nacieron.
       // DOS operaciones distintas, cada una con su propia lista cerrada. No se
@@ -3033,6 +3075,9 @@ service cloud.firestore {
         && request.resource.data.creadoEn == resource.data.creadoEn
         && request.resource.data.creadoPorUid == resource.data.creadoPorUid
         && request.resource.data.esPrueba == resource.data.esPrueba
+        // Las marcas de quien y cuando se exigen en las DOS ramas (archivo y
+        // datos): las dos tocan actualizadoEn/actualizadoPorUid/Nombre.
+        && sellosDeEdicionOk()
         && (updateDeArchivoTechPack() || updateDeDatosTechPack(codigo));
       // No se borra el documento: se quitan los manifiestos (update a null).
       // Un codigo que existio deja rastro de quien lo toco y cuando.
@@ -3054,16 +3099,18 @@ service cloud.firestore {
         && request.resource.data.revision >= 1
         && request.resource.data.antes is map
         && request.resource.data.despues is map
+        && datosEditablesValidos(request.resource.data.antes)
         && datosEditablesValidos(request.resource.data.despues)
         && request.resource.data.cuando == request.time
         && request.resource.data.quienUid == request.auth.uid
         && request.resource.data.quienNombre == perfil().get('nombreCompleto', '')
         // Y al reves que en el padre: el documento TIENE que cambiar en este
-        // mismo batch y apuntar a ESTE renglon. Sin esto se podrian sembrar
-        // renglones de historial de ediciones que nunca ocurrieron.
-        && getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data.ultimaEdicionId == edicionId
-        && getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data.revision == request.resource.data.revision
-        && getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data.datosEditables == request.resource.data.despues;
+        // mismo batch y apuntar a ESTE renglon, 'antes' tiene que ser el
+        // estado real previo del padre, y el corral de prueba del padre tiene
+        // que cuadrar. Sin esto se podrian sembrar renglones de historial de
+        // ediciones que nunca ocurrieron, o crear el historial en una
+        // solicitud separada de la del padre.
+        && altaHistorialCuadra(codigo, edicionId);
       // Un renglon de historial no se corrige ni se borra: para eso es historial.
       allow update, delete: if false;
     }

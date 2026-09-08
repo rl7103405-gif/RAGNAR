@@ -30,6 +30,7 @@ import {
   escucharBiblioteca,
   guardarEnBiblioteca,
   historialDelTechPack,
+  mismosDatos,
   otsPorCodigo,
   otsSinTechPack,
   quitarDeBiblioteca,
@@ -924,10 +925,24 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
   // contra, para que un modelo sin caja no salga eternamente incompleto.
   const cuentan = RUBROS_TECH_PACK.filter((r) => checklist[r.id] !== 'no_aplica')
   const completos = cuentan.filter((r) => checklist[r.id] === 'completo').length
+  const faltan = cuentan.filter((r) => checklist[r.id] === 'pendiente').length
+  const noAplican = RUBROS_TECH_PACK.length - cuentan.length
+  // Con los siete en "no aplica" sale 0% (decision de Roberto, 8-sep), y el
+  // desglose de al lado es lo que dice como leerlo: el numero solo engana
+  // (seis "no aplica" y uno "ya esta" tambien darian 100%).
   const porcentaje = cuentan.length ? Math.round((completos / cuentan.length) * 100) : 0
   const evaluado = RUBROS_TECH_PACK.some((r) => checklist[r.id])
+  const desglose = `${completos} ya ${completos === 1 ? 'esta' : 'estan'} · ${faltan} ${faltan === 1 ? 'falta' : 'faltan'} · ${noAplican} no ${noAplican === 1 ? 'aplica' : 'aplican'}`
+
+  // Roberto, 8-sep: "no puede simplemente borrarlo... no le debe dejar guardar
+  // ese movimiento". Un tech pack sin nombre no le sirve a nadie.
+  const sinNombre = !String(modelo || '').trim()
 
   const guardar = async () => {
+    if (sinNombre) {
+      setError('El nombre del modelo no puede quedar vacio. Escribe como se llama (COMBO BEIGE, RAYAS...) o cancela.')
+      return
+    }
     setGuardando(true)
     setError('')
     try {
@@ -983,7 +998,10 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
           <span>
             Que le falta a este tech pack
             {evaluado ? (
-              <strong style={{ marginLeft: 8 }}>{porcentaje}% completo</strong>
+              <>
+                <strong style={{ marginLeft: 8 }}>{porcentaje}% completo</strong>
+                <span className="texto-suave" style={{ marginLeft: 8, fontSize: 12 }}>({desglose})</span>
+              </>
             ) : (
               <span className="texto-suave" style={{ marginLeft: 8 }}>sin revisar</span>
             )}
@@ -1038,7 +1056,7 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
 
         <div className="tp-fila" style={{ justifyContent: 'flex-end', gap: 10 }}>
           <button className="btn-secundario" onClick={onCerrar} disabled={guardando}>Cancelar</button>
-          <button className="btn-primario" onClick={guardar} disabled={guardando}>
+          <button className="btn-primario" onClick={guardar} disabled={guardando || sinNombre} title={sinNombre ? 'Falta el nombre del modelo' : undefined}>
             {guardando ? 'Guardando...' : 'Guardar'}
           </button>
         </div>
@@ -1072,7 +1090,7 @@ function resumirCambio(h) {
   const despues = h?.despues || {}
   const nombres = { modelo: 'el modelo', talla: 'la talla', color: 'el color', notas: 'las notas', checklist: 'el checklist' }
   const cambiados = Object.keys(nombres).filter(
-    (k) => JSON.stringify(antes[k] ?? null) !== JSON.stringify(despues[k] ?? null)
+    (k) => !mismosDatos(antes[k] ?? null, despues[k] ?? null)
   )
   return cambiados.length ? cambiados.map((k) => nombres[k]).join(', ') : 'nada visible'
 }

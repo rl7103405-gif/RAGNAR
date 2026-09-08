@@ -242,6 +242,24 @@ export async function quitarDeBiblioteca({ codigo, tipo, usuario, onProgreso = (
 // congelados. Cuando los dos existen, MANDA el de Lety: ella ve el Drive.
 export const CHECKLIST_VERSION = '2026-09-v1'
 
+// Compara dos mapas por CONTENIDO, sin importar el ORDEN de llaves. La regla
+// de Firestore ('datosEditables != resource.data...') compara mapas por
+// contenido (asi es Firestore); JSON.stringify normal compara por el orden en
+// que las llaves se insertaron, y eso desincroniza al cliente: si Lety quita
+// una respuesta del checklist y la vuelve a poner igual, la llave se
+// reinserta al final, JSON.stringify ya no coincide, el cliente cree que
+// cambio y manda el batch, pero la regla ve el mismo contenido y lo rechaza.
+function serializarOrdenado(v) {
+  if (Array.isArray(v)) return '[' + v.map(serializarOrdenado).join(',') + ']'
+  if (v && typeof v === 'object') {
+    return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + serializarOrdenado(v[k])).join(',') + '}'
+  }
+  return JSON.stringify(v)
+}
+export function mismosDatos(a, b) {
+  return serializarOrdenado(a ?? {}) === serializarOrdenado(b ?? {})
+}
+
 export function datosDelTechPack(b) {
   const e = b?.datosEditables || {}
   return {
@@ -298,7 +316,7 @@ export async function editarDatosTechPack({ codigo, actual, datos, usuario }) {
   const antes = actual?.datosEditables || {}
   // Nada que guardar: se sale sin quemar una revision ni un renglon de
   // historial que diga que no cambio nada.
-  if (JSON.stringify(antes) === JSON.stringify(limpio)) return { sinCambios: true }
+  if (mismosDatos(antes, limpio)) return { sinCambios: true }
 
   const revision = Number(actual?.revision || 0) + 1
   const refHistorial = doc(collection(db, 'techPacks', id, 'historial'))

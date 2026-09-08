@@ -36,6 +36,19 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-08-08',
+    fecha: '2026-09-08',
+    tipo: 'corregido',
+    titulo: 'Tech packs: la fecha y el nombre de quien subio un archivo ya no se pueden poner a mano',
+    detalle:
+      'Al subir o quitar un archivo, "Ultimo cambio" se firmaba con lo que mandara la pantalla. Ahora la '
+      + 'fecha la pone el servidor y el nombre es el del perfil de quien esta dentro, igual que al editar. '
+      + 'Tambien: un tech pack no puede nacer ya editado sin historial, y dentro de Editar el nombre del '
+      + 'modelo no puede quedar vacio. Junto al porcentaje de completado ahora sale el desglose: cuantos '
+      + 'puntos ya estan, cuantos faltan y cuantos no aplican.'
+  },
+
+  {
     id: '2026-09-08-07',
     fecha: '2026-09-08',
     tipo: 'nuevo',
