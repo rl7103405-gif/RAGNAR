@@ -36,6 +36,20 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-09-01',
+    fecha: '2026-09-09',
+    tipo: 'nuevo',
+    titulo: 'Tareas de diseno: la orden de compra se encarga, se reparte y se ve cuanto lleva',
+    detalle:
+      'Pestana nueva para el equipo de Lety. Roberto le encarga una orden de compra completa a Lety; '
+      + 'Lety reparte cada orden de trabajo entre Monica y Maria Fernanda; y cada quien ve lo suyo. '
+      + 'El avance no se captura: una orden de trabajo se pone lista sola cuando todos sus codigos '
+      + 'tienen tech pack con el checklist completo en la pestana Tech packs. Arriba salen los '
+      + 'indicadores del equipo (OT listas, sin asignar, codigos sin tech pack, avance promedio) y en '
+      + 'cada orden se ve a quien se le asigno y quien la ha trabajado de verdad.'
+  },
+
+  {
     id: '2026-09-08-08',
     fecha: '2026-09-08',
     tipo: 'corregido',

@@ -240,7 +240,11 @@ service cloud.firestore {
       //
       // Las MAQUILAS (externas, con maquilaId) NO entran: esInterno() las
       // excluye, y no tienen por que ver la plantilla de la fabrica.
-      allow read: if request.auth.uid == uid || puedeVerElEquipo();
+      allow read: if request.auth.uid == uid || puedeVerElEquipo()
+        // La jefa de diseno (Lety) ve SOLO a quienes le reportan, para
+        // repartirles trabajo. La consulta del cliente lleva el mismo
+        // where(supervisorDisenoUid == yo), asi que Firestore la acepta.
+        || (puedeAsignarDiseno() && resource.data.get('supervisorDisenoUid', '') == request.auth.uid);
       allow write: if false;
     }
 
@@ -2979,6 +2983,225 @@ service cloud.firestore {
             && request.resource.data[campo].subidoPorNombre == perfil().get('nombreCompleto', '')
             && request.resource.data[campo].version == (resource.data[campo] == null ? 1 : resource.data[campo].version + 1));
     }
+    // ===================================================================
+    // TAREAS DE DISENO: la lupa sobre el equipo de Lety (2026-09-09)
+    // ===================================================================
+    // Roberto: "lo mas importante es trackear cuanto lleva el equipo de
+    // diseno, tener a Lety bajo lupa siempre". Dos niveles, dos colecciones:
+    //   encargosDiseno      -> el admin le encarga una ORDEN DE COMPRA a Lety
+    //   asignacionesDiseno  -> Lety reparte cada ORDEN DE TRABAJO a su equipo
+    // El avance NO se guarda: se deriva de la biblioteca de tech packs.
+    //
+    // La jerarquia vive en los PERFILES (web/scripts/equipo_diseno.mjs):
+    //   Lety              puedeAsignarDiseno: true
+    //   Monica, MaFer     supervisorDisenoUid: <uid de Lety>
+    // Sin eso las tres tienen el mismo rol y cualquiera podria asignarse
+    // trabajo sola (lo levanto Codex en el debate de diseno).
+    //
+    // El alcance se CONGELA al crear (version del plan + lista de OT +
+    // codigos): si Adrian sube un plan nuevo, el porcentaje historico no se
+    // mueve solo.
+    function puedeAsignarDiseno() {
+      return esInterno() && rol() == 'desarrollo' && perfil().get('puedeAsignarDiseno', false) == true;
+    }
+    function perfilDe(uid) {
+      return get(/databases/$(database)/documents/usuarios/$(uid)).data;
+    }
+    function sellosDeAltaOk(d) {
+      return d.creadoPorUid == request.auth.uid
+        && d.creadoPorNombre == perfil().get('nombreCompleto', '')
+        && d.creadoEn == request.time;
+    }
+    function encargoDisenoValido(d) {
+      return d.keys().hasAll(['oc', 'planVersionId', 'ots', 'totalOts', 'responsableUid', 'responsableNombre', 'estado', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'esPrueba'])
+        && d.keys().hasOnly(['oc', 'planVersionId', 'ots', 'totalOts', 'responsableUid', 'responsableNombre', 'estado', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'esPrueba', 'notas', 'fechaObjetivo', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && d.oc is string && d.oc.size() > 0 && d.oc.size() <= 40
+        && d.planVersionId is string && d.planVersionId.size() > 0 && d.planVersionId.size() <= 60
+        && d.ots is list && d.ots.size() >= 1 && d.ots.size() <= 200
+        && d.totalOts == d.ots.size()
+        && d.responsableUid is string && d.responsableUid.size() > 0 && d.responsableUid.size() <= 128
+        && d.responsableNombre is string && d.responsableNombre.size() <= 120
+        && d.estado in ['abierto', 'cerrado', 'cancelado']
+        && d.esPrueba is bool
+        && (d.get('notas', null) == null || (d.notas is string && d.notas.size() <= 300))
+        && (d.get('fechaObjetivo', null) == null || d.fechaObjetivo is timestamp);
+    }
+    // A quien se le encarga: una jefa de diseno real, del mismo mundo, y con
+    // el nombre tomado de SU perfil (no del cliente).
+    function responsableDeDisenoOk(d) {
+      let p = perfilDe(d.responsableUid);
+      return p.get('rol', '') == 'desarrollo'
+        && p.get('activo', false) == true
+        && p.get('puedeAsignarDiseno', false) == true
+        && p.get('esPrueba', false) == esCuentaDePrueba()
+        // Nombre nunca vacio de ningun lado: ni el que manda el cliente ni el
+        // que trae el perfil (un perfil a medio llenar no puede validar).
+        && d.responsableNombre.size() > 0
+        && p.get('nombreCompleto', '').size() > 0
+        && d.responsableNombre == p.get('nombreCompleto', '');
+    }
+    match /encargosDiseno/{encargoId} {
+      // Corral de prueba, patron de la casa (igual que techPacks:
+      // resource.data.esPrueba == esCuentaDePrueba()): una cuenta real nunca
+      // lee ni toca un encargo de prueba, y viceversa.
+      allow read: if esInterno() && (esAdmin() || resource.data.responsableUid == request.auth.uid)
+        && resource.data.get('esPrueba', false) == esCuentaDePrueba();
+      allow create: if esAdmin()
+        && encargoDisenoValido(request.resource.data)
+        && sellosDeAltaOk(request.resource.data)
+        && request.resource.data.estado == 'abierto'
+        && !request.resource.data.keys().hasAny(['actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && request.resource.data.esPrueba == esCuentaDePrueba()
+        && responsableDeDisenoOk(request.resource.data);
+      // Solo cerrar/cancelar, cambiar la fecha o las notas. El alcance (oc,
+      // ots, planVersionId) y la responsable quedan como nacieron.
+      allow update: if esAdmin()
+        && resource.data.get('esPrueba', false) == esCuentaDePrueba()
+        && encargoDisenoValido(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['estado', 'notas', 'fechaObjetivo', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && sellosDeEdicionOk();
+      allow delete: if false;
+    }
+
+    function asignacionDisenoValida(d) {
+      return d.keys().hasAll(['encargoId', 'oc', 'ot', 'planVersionId', 'codigos', 'jefeUid', 'asignadoAUid', 'asignadoANombre', 'asignadoPorUid', 'asignadoPorNombre', 'estado', 'revision', 'creadoEn', 'esPrueba'])
+        && d.keys().hasOnly(['encargoId', 'oc', 'ot', 'planVersionId', 'codigos', 'jefeUid', 'asignadoAUid', 'asignadoANombre', 'asignadoPorUid', 'asignadoPorNombre', 'estado', 'revision', 'creadoEn', 'esPrueba', 'notas', 'fechaObjetivo', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && d.encargoId is string && d.encargoId.size() > 0 && d.encargoId.size() <= 60
+        && d.oc is string && d.oc.size() > 0 && d.oc.size() <= 40
+        && d.ot is string && d.ot.size() > 0 && d.ot.size() <= 40
+        && d.planVersionId is string && d.planVersionId.size() > 0 && d.planVersionId.size() <= 60
+        // Rules no puede iterar listas (no hay forma de exigir "cada
+        // elemento es string y no vacio" sin un bucle que este lenguaje no
+        // tiene). Solo se valida tipo y tamano de la lista aqui; que el
+        // CONTENIDO cuadre contra el plan de Adrian se hace en el cliente
+        // (avanceDeEncargo compara contra lineasPorOt y marca
+        // alcanceAlterado si no coincide).
+        && d.codigos is list && d.codigos.size() >= 1 && d.codigos.size() <= 120
+        && d.jefeUid is string && d.jefeUid.size() > 0 && d.jefeUid.size() <= 128
+        && d.asignadoAUid is string && d.asignadoAUid.size() > 0 && d.asignadoAUid.size() <= 128
+        && d.asignadoANombre is string && d.asignadoANombre.size() <= 120
+        && d.asignadoPorUid is string && d.asignadoPorUid.size() > 0 && d.asignadoPorUid.size() <= 128
+        && d.asignadoPorNombre is string && d.asignadoPorNombre.size() <= 120
+        && d.estado in ['abierta', 'cerrada', 'cancelada']
+        && d.revision is int && d.revision >= 1
+        && d.esPrueba is bool
+        && (d.get('notas', null) == null || (d.notas is string && d.notas.size() <= 300))
+        && (d.get('fechaObjetivo', null) == null || d.fechaObjetivo is timestamp)
+        && (!d.keys().hasAny(['ultimaEdicionId']) || (d.ultimaEdicionId is string && d.ultimaEdicionId.size() > 0 && d.ultimaEdicionId.size() <= 40));
+    }
+    // A quien se le asigna: alguien del equipo de ESA jefa (su perfil dice
+    // supervisorDisenoUid == jefeUid), activa, del mismo mundo, y con el
+    // nombre tomado de su perfil.
+    function destinatariaDeDisenoOk(d) {
+      let p = perfilDe(d.asignadoAUid);
+      return p.get('rol', '') == 'desarrollo'
+        && p.get('activo', false) == true
+        && p.get('supervisorDisenoUid', '') == d.jefeUid
+        && p.get('esPrueba', false) == esCuentaDePrueba()
+        && d.asignadoANombre.size() > 0
+        && p.get('nombreCompleto', '').size() > 0
+        && d.asignadoANombre == p.get('nombreCompleto', '');
+    }
+    // La asignacion tiene que colgar de un encargo abierto de esa OC, que
+    // incluya esa OT, de la misma version del plan, y cuya responsable sea
+    // quien reparte (o el admin).
+    function encargoDeLaAsignacionOk(d) {
+      // getAfter, no get: lee el encargo tal como queda DESPUES del batch.
+      // Con get() a secas, un batch que cierra el encargo y en la misma
+      // escritura le crea una asignacion pasaba (leia el "abierto" de antes).
+      let e = getAfter(/databases/$(database)/documents/encargosDiseno/$(d.encargoId)).data;
+      return e.estado == 'abierto'
+        && e.oc == d.oc
+        && d.ot in e.ots
+        && e.planVersionId == d.planVersionId
+        && e.esPrueba == esCuentaDePrueba()
+        && d.jefeUid == e.responsableUid
+        && (esAdmin() || e.responsableUid == request.auth.uid);
+    }
+    // Lo que el historial compara: a quien y en que estado.
+    // OJO: esta forma esta DUPLICADA en web/src/utils/tareasDiseno.js
+    // (fotoDeAsignacion). Si agregas un campo aqui, agregalo alla.
+    function fotoDeAsignacion(d) {
+      return {'asignadoAUid': d.asignadoAUid, 'asignadoANombre': d.asignadoANombre, 'estado': d.estado};
+    }
+    function historialDeAsignacionCuadra(asignacionId) {
+      let h = getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)/historial/$(request.resource.data.ultimaEdicionId)).data;
+      return h.revision == request.resource.data.revision
+        && h.antes == fotoDeAsignacion(resource.data)
+        && h.despues == fotoDeAsignacion(request.resource.data)
+        && h.quienUid == request.auth.uid
+        && h.cuando == request.time;
+    }
+    match /asignacionesDiseno/{asignacionId} {
+      // Corral de prueba, patron de la casa (igual que techPacks).
+      allow read: if esInterno()
+        && (esAdmin() || resource.data.jefeUid == request.auth.uid || resource.data.asignadoAUid == request.auth.uid)
+        && resource.data.get('esPrueba', false) == esCuentaDePrueba();
+      allow create: if (esAdmin() || puedeAsignarDiseno())
+        && asignacionDisenoValida(request.resource.data)
+        && request.resource.data.estado == 'abierta'
+        && request.resource.data.revision == 1
+        && !request.resource.data.keys().hasAny(['ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && request.resource.data.asignadoPorUid == request.auth.uid
+        && request.resource.data.asignadoPorNombre == perfil().get('nombreCompleto', '')
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.esPrueba == esCuentaDePrueba()
+        // Id determinista: una OT de un encargo solo puede tener UNA
+        // asignacion viva. El segundo intento sobre la misma OT cae aqui (no
+        // hay create posible) y tiene que pasar por el update, que exige
+        // historial -- asi no se puede duplicar el reparto sin dejar rastro.
+        && asignacionId == request.resource.data.encargoId + '__' + request.resource.data.ot
+        && encargoDeLaAsignacionOk(request.resource.data)
+        && destinatariaDeDisenoOk(request.resource.data);
+      // Reasignar o cerrar: solo la jefa que la reparte (o el admin), SIEMPRE
+      // con historial en el mismo batch. La destinataria no puede tocarla.
+      allow update: if (esAdmin() || resource.data.jefeUid == request.auth.uid)
+        && resource.data.get('esPrueba', false) == esCuentaDePrueba()
+        && asignacionDisenoValida(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['asignadoAUid', 'asignadoANombre', 'estado', 'notas', 'fechaObjetivo', 'revision', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && sellosDeEdicionOk()
+        && request.resource.data.revision == resource.data.revision + 1
+        // El nombre SIEMPRE se ancla al perfil del uid vigente, cambie o no
+        // el destinatario: asi no se puede dejar el uid quieto y solo
+        // renombrar la asignacion para que parezca de otra persona.
+        && request.resource.data.asignadoANombre == perfilDe(request.resource.data.asignadoAUid).get('nombreCompleto', '')
+        && (request.resource.data.asignadoAUid == resource.data.asignadoAUid
+            || destinatariaDeDisenoOk(request.resource.data))
+        && fotoDeAsignacion(request.resource.data) != fotoDeAsignacion(resource.data)
+        && historialDeAsignacionCuadra(asignacionId);
+      allow delete: if false;
+    }
+    match /asignacionesDiseno/{asignacionId}/historial/{edicionId} {
+      allow read: if esInterno()
+        && (esAdmin()
+            || get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.jefeUid == request.auth.uid
+            || get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.asignadoAUid == request.auth.uid)
+        // Corral de prueba: el historial hereda el mundo del padre.
+        && get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.get('esPrueba', false) == esCuentaDePrueba();
+      allow create: if (esAdmin() || puedeAsignarDiseno())
+        && request.resource.data.keys().hasAll(['revision', 'antes', 'despues', 'cuando', 'quienUid', 'quienNombre'])
+        && request.resource.data.keys().hasOnly(['revision', 'antes', 'despues', 'motivo', 'cuando', 'quienUid', 'quienNombre'])
+        && request.resource.data.revision is int && request.resource.data.revision >= 2
+        && request.resource.data.antes is map
+        && request.resource.data.despues is map
+        && (request.resource.data.get('motivo', null) == null || (request.resource.data.motivo is string && request.resource.data.motivo.size() <= 300))
+        && request.resource.data.cuando == request.time
+        && request.resource.data.quienUid == request.auth.uid
+        && request.resource.data.quienNombre == perfil().get('nombreCompleto', '')
+        // Y al reves: la asignacion TIENE que cambiar en este mismo batch,
+        // apuntar a este renglon, y decir la verdad sobre el antes y el despues.
+        && getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.ultimaEdicionId == edicionId
+        && getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.revision == request.resource.data.revision
+        // Corral de prueba: el padre posterior (getAfter) tiene que seguir
+        // en el mismo mundo que quien escribe.
+        && getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.get('esPrueba', false) == esCuentaDePrueba()
+        && fotoDeAsignacion(getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data) == request.resource.data.despues
+        && fotoDeAsignacion(get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data) == request.resource.data.antes;
+      allow update, delete: if false;
+    }
+
     // RAMA 1: subir o quitar el archivo. Es lo que ya se podia hacer.
     function updateDeArchivoTechPack() {
       return campoDeManifiestoOk('techPack')

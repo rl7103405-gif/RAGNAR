@@ -145,6 +145,13 @@ export function AuthProvider({ children }) {
     // No captura, no embarca, no encarga tareas. El admin tambien sube.
     soloDesarrollo: esInterno && rol === 'desarrollo',
     puedeSubirTechPacks: esInterno && (rol === 'admin' || rol === 'desarrollo'),
+    // EL EQUIPO DE DISENO (2026-09-09). La jerarquia vive en el perfil, igual
+    // que en las reglas: Lety trae puedeAsignarDiseno y reparte; Monica y
+    // Maria Fernanda traen supervisorDisenoUid y solo ven lo suyo. Sin esto
+    // las tres tienen el mismo rol y nada las distingue.
+    puedeAsignarDiseno: esInterno && rol === 'desarrollo' && perfil?.puedeAsignarDiseno === true,
+    esEquipoDiseno: esInterno && rol === 'desarrollo' && Boolean(perfil?.supervisorDisenoUid),
+    supervisorDisenoUid: perfil?.supervisorDisenoUid || '',
     cargando,
     iniciarSesion,
     cerrarSesion

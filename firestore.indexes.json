@@ -83,6 +83,48 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "encargosDiseno",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "esPrueba",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "responsableUid",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "asignacionesDiseno",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "esPrueba",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "jefeUid",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "asignacionesDiseno",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "esPrueba",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "asignadoAUid",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

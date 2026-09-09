@@ -698,3 +698,17 @@ table th, table td {
 .tp-historial { border-top: 1px solid #e2e8f0; padding-top: 10px; }
 .tp-historial summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 .tp-historial ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+
+/* Tareas de diseno (9-sep): la lupa sobre el equipo de Lety */
+.td-encargo summary::-webkit-details-marker { display: none; }
+.td-cerrado { opacity: 0.7; }
+.td-lista { background: #f0fdf4; }
+.td-barra { display: inline-block; width: 140px; height: 10px; border-radius: 6px; background: #e2e8f0; overflow: hidden; vertical-align: middle; }
+.td-barra-chica { width: 80px; height: 8px; }
+.td-barra-lleno { display: block; height: 100%; background: #f59e0b; transition: width .2s; }
+.td-barra-ok { background: #16a34a; }
+.td-codigo { display: inline-block; margin: 2px 4px 2px 0; padding: 1px 7px; border-radius: 10px; font-size: 12px; font-family: ui-monospace, monospace; border: 1px solid #e2e8f0; background: #f8fafc; }
+.td-listo { background: #dcfce7; border-color: #bbf7d0; color: #15803d; }
+.td-a-medias { background: #fef3c7; border-color: #fde68a; color: #b45309; }
+.td-sin-tech-pack { background: #fee2e2; border-color: #fecaca; color: #b91c1c; }
+.td-sin-revisar { background: #f1f5f9; color: #475569; }

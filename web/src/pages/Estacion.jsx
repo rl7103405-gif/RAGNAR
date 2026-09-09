@@ -32,6 +32,7 @@ import PanelOrdenesYPlan from '../components/PanelOrdenesYPlan'
 import PanelMiEquipo from '../components/PanelMiEquipo'
 import PanelMiPerfil from '../components/PanelMiPerfil'
 import PanelTechPacks from '../components/PanelTechPacks'
+import PanelTareasDiseno from '../components/PanelTareasDiseno'
 import { useAuth } from '../context/AuthContext'
 
 const TABS = [
@@ -64,6 +65,7 @@ const TABS = [
   // La biblioteca de Lety y el tablero de que OT siguen sin tech pack
   // (Roberto, 2026-09-03: 'que vivan en RAGNAR').
   { id: 'techpacks', label: 'Tech packs' },
+  { id: 'diseno', label: 'Tareas de diseno' },
   { id: 'registros', label: 'Registros' },
   // Copiadas de captura-mecanicos, que ya las tenia (Roberto, 19-08). Van al
   // final: se consultan de vez en cuando, no son trabajo diario.
@@ -112,8 +114,9 @@ const TABS_PT = ['porllegar', 'embarcar', 'inventariopt', 'maquilas', 'reportes'
 // mismo lugar que quedo bien amarrado.
 const TABS_PRODUCCION = ['ordenes']
 
-// Lety (rol 'desarrollo'): sube tech packs y ve que falta. Nada mas.
-const TABS_DESARROLLO = ['techpacks']
+// Lety y su equipo (rol 'desarrollo'): entran por SUS tareas de diseno
+// (la lupa de Roberto, 9-sep) y tienen Tech packs como herramienta. Nada mas.
+const TABS_DESARROLLO = ['diseno', 'techpacks']
 
 // 'Mi equipo' (la plantilla) es para direccion y embarques. 'Mi perfil' lo ve
 // TODO el mundo — Roberto fue explicito el 19-08: "Juan, Angel, todos, todos
@@ -281,6 +284,7 @@ export default function Estacion() {
       {tabActiva === 'miperfil' && <PanelMiPerfil />}
       {tabActiva === 'registros' && <PanelAutorizaciones />}
       {tabActiva === 'techpacks' && <PanelTechPacks />}
+      {tabActiva === 'diseno' && <PanelTareasDiseno />}
     </Layout>
   )
 }

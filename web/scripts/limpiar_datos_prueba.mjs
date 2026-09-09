@@ -64,7 +64,19 @@ const maquilasPrueba = await db.collection('maquilas').where('esPrueba', '==', t
 // en el prefijo ZZTEST del id. Se busca por CAMPO, no por uid de quien subio:
 // lo que importa para el corral es el mundo del documento, no quien lo toco.
 const techPacksPrueba = await db.collection('techPacks').where('esPrueba', '==', true).get()
-if (perfilesPrueba.empty && maquilasPrueba.empty && techPacksPrueba.empty) {
+// encargosDiseno/asignacionesDiseno (2026-09-09): mismo corral por CAMPO
+// esPrueba (booleano obligatorio, ver firestore.rules, encargoDisenoValido y
+// asignacionDisenoValida). Igual que techPacks: se busca por el campo del
+// documento, no por uid de quien lo creo.
+const encargosDisenoPrueba = await db.collection('encargosDiseno').where('esPrueba', '==', true).get()
+const asignacionesDisenoPrueba = await db.collection('asignacionesDiseno').where('esPrueba', '==', true).get()
+if (
+  perfilesPrueba.empty &&
+  maquilasPrueba.empty &&
+  techPacksPrueba.empty &&
+  encargosDisenoPrueba.empty &&
+  asignacionesDisenoPrueba.empty
+) {
   console.log('No hay ninguna cuenta ni maquila marcada como de prueba (esPrueba:true). Nada que limpiar.')
   process.exit(0)
 }
@@ -366,7 +378,8 @@ let total =
   cambiosCaptura.borrables.length +
   solicitudesCorreccion.borrables.length +
   autorizaciones.borrables.length +
-  tareasBorrables.length
+  tareasBorrables.length +
+  encargosDisenoPrueba.size
 console.log(`  ${String(bultosBorrables.length).padStart(5)}  bultos con folio ${PREFIJO_PRUEBA}* (bultos)`)
 console.log(`  ${String(cambiosCaptura.borrables.length).padStart(5)}  renglones de bitacora con folio ${PREFIJO_PRUEBA}* (cambiosCaptura)`)
 console.log(`  ${String(solicitudesCorreccion.borrables.length).padStart(5)}  solicitudes de correccion de prueba (solicitudesCorreccion)`)
@@ -387,6 +400,15 @@ if (rutasPortal.length) {
 if (techPacksPrueba.size) {
   console.log(
     `      1+  tech pack(s) de prueba con sus chunks: ${techPacksPrueba.docs.map((d) => d.id).join(', ')}` +
+      '  (cantidad no contada en el total)'
+  )
+}
+if (encargosDisenoPrueba.size) {
+  console.log(`  ${String(encargosDisenoPrueba.size).padStart(5)}  encargo(s) de diseno de prueba (encargosDiseno)`)
+}
+if (asignacionesDisenoPrueba.size) {
+  console.log(
+    `      1+  asignacion(es) de diseno de prueba con su historial: ${asignacionesDisenoPrueba.docs.map((d) => d.id).join(', ')}` +
       '  (cantidad no contada en el total)'
   )
 }
@@ -520,6 +542,9 @@ if (!ejecutar) {
   if (techPacksPrueba.size) {
     console.log(`   (+ ${techPacksPrueba.size} tech pack(s) de prueba con sus chunks: cantidad no contada arriba)`)
   }
+  if (asignacionesDisenoPrueba.size) {
+    console.log(`   (+ ${asignacionesDisenoPrueba.size} asignacion(es) de diseno de prueba con su historial: cantidad no contada arriba)`)
+  }
   console.log('Para aplicarlo:  EJECUTAR=1 node scripts/limpiar_datos_prueba.mjs')
   if (remisionesPurasDePrueba.length) {
     console.log(`Para borrar tambien las ${remisionesPurasDePrueba.length} remision(es) de puros folios de prueba: agrega BORRAR_PDFS=1`)
@@ -577,6 +602,17 @@ for (const d of techPacksPrueba.docs) {
   await db.recursiveDelete(d.ref)
   console.log(`  tech pack de prueba borrado (con sus chunks): ${d.id}`)
 }
+
+// asignacionesDiseno de prueba: recursiveDelete se lleva tambien su
+// subcoleccion historial (igual que techPacks con chunks). Van ANTES que
+// encargosDiseno: son las hijas.
+for (const d of asignacionesDisenoPrueba.docs) {
+  await db.recursiveDelete(d.ref)
+  console.log(`  asignacion de diseno de prueba borrada (con su historial): ${d.id}`)
+}
+
+// encargosDiseno de prueba: sin subcoleccion propia, se van en lote.
+await borrar(encargosDisenoPrueba.docs, 'encargo(s) de diseno de prueba (encargosDiseno)')
 
 // Los apartados de prueba. Van DESPUES del portal: si se borraran antes, las
 // tareas de prueba todavia vivas quedarian un instante sin su apartado.
