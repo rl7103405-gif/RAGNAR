@@ -2964,9 +2964,6 @@ service cloud.firestore {
         && d.actualizadoPorNombre is string && d.actualizadoPorNombre.size() <= 120
         && d.actualizadoPorNombre == nombre;
     }
-    function sellosDeEdicionOk() {
-      return sellosDeEdicionSegun(request.resource.data, perfil().get('nombreCompleto', ''));
-    }
     function techPackDocValido(d) {
       return d.keys().hasAll(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba'])
         // 'apuntaA' es OPCIONAL: un documento alias (techPacks/{folio de ficha})
@@ -3188,7 +3185,9 @@ service cloud.firestore {
         && sellosDeEdicionSegun(despues, yo.nombre);
     }
     match /encargosDiseno/{encargoId} {
-      allow read: if puedeLeerEncargo(resource.data);
+      // resource == null: un getDoc de un id que no existe debe decir "no
+      // existe", no permission-denied (mismo patron que techPacks).
+      allow read: if resource == null || puedeLeerEncargo(resource.data);
       allow create: if puedeCrearEncargo(request.resource.data);
       allow update: if puedeEditarEncargo(resource.data, request.resource.data);
       allow delete: if false;
@@ -3219,7 +3218,7 @@ service cloud.firestore {
         && d.asignadoAUid is string && d.asignadoAUid.size() > 0 && d.asignadoAUid.size() <= 128
         && d.asignadoANombre is string && d.asignadoANombre.size() <= 120
         && d.asignadoPorUid is string && d.asignadoPorUid.size() > 0 && d.asignadoPorUid.size() <= 128
-        && d.asignadoPorNombre is string && d.asignadoPorNombre.size() <= 120
+        && d.asignadoPorNombre is string && d.asignadoPorNombre.size() > 0 && d.asignadoPorNombre.size() <= 120
         && d.estado in ['abierta', 'cerrada', 'cancelada']
         && d.revision is int && d.revision >= 1
         && d.esPrueba is bool
@@ -3324,7 +3323,7 @@ service cloud.firestore {
         && historialDeAsignacionCuadra(asignacionId, antes, despues);
     }
     match /asignacionesDiseno/{asignacionId} {
-      allow read: if puedeLeerAsignacion(resource.data);
+      allow read: if resource == null || puedeLeerAsignacion(resource.data);
       allow create: if puedeCrearAsignacion(request.resource.data, asignacionId);
       allow update: if puedeEditarAsignacion(resource.data, request.resource.data, asignacionId);
       allow delete: if false;
