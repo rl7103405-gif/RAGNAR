@@ -2961,6 +2961,7 @@ service cloud.firestore {
     function sellosDeEdicionSegun(d, nombre) {
       return d.actualizadoEn == request.time
         && d.actualizadoPorUid == request.auth.uid
+        && d.actualizadoPorNombre is string && d.actualizadoPorNombre.size() <= 120
         && d.actualizadoPorNombre == nombre;
     }
     function sellosDeEdicionOk() {
@@ -3002,6 +3003,7 @@ service cloud.firestore {
         && (!d.keys().hasAny(['apuntaA']) || (d.techPack == null && d.ftt == null && !d.keys().hasAny(['datosEditables'])))
         && d.codigo is string && d.codigo.size() > 0 && d.codigo.size() <= 60
         && d.descripcion is string && d.descripcion.size() <= 200
+        && d.creadoPorNombre is string && d.creadoPorNombre.size() <= 120
         // Obligatorio y booleano SIEMPRE (nunca opcional, a diferencia de
         // otras colecciones que usan marcaDePruebaCoherente): asi el where()
         // de la biblioteca (escucharBiblioteca) puede filtrar por esPrueba en
@@ -3016,12 +3018,8 @@ service cloud.firestore {
     // El corral tambien va en el ID del documento, no solo en el campo
     // esPrueba (como los folios internos ZZTEST): sin esto, una cuenta de
     // prueba con rol admin podia crear techPacks/WKD225T401 con esPrueba:true
-    // y dejar ese codigo real INUTILIZABLE para Lety (update/read/chunks le
-    // fallan por mundo distinto, y el documento no se puede borrar desde el
-    // cliente -- delete es siempre false).
-    function codigoTechPackDelMundoOk(codigo) {
-      return esCuentaDePrueba() ? codigo.matches('^ZZTEST.*') : !codigo.matches('^ZZTEST.*');
-    }
+    // y dejar ese codigo real INUTILIZABLE para Lety. Se exige en
+    // puedeCrearTechPack (yo.esPrueba ? ZZTEST : no ZZTEST).
     // En UPDATE, cada manifiesto (techPack, ftt) solo se puede tocar si: se
     // deja igual, se quita (null), o quien firma el manifiesto NUEVO es quien
     // esta escribiendo. Antes techPackDocValido exigia subidoPorUid ==
@@ -3127,6 +3125,7 @@ service cloud.firestore {
     function responsableDeDisenoOk(d, esPruebaYo) {
       let p = perfilDe(d.responsableUid);
       return p.get('rol', '') == 'desarrollo'
+        && p.get('maquilaId', '') == ''
         && p.get('activo', false) == true
         && p.get('puedeAsignarDiseno', false) == true
         && p.get('esPrueba', false) == esPruebaYo
@@ -3234,6 +3233,7 @@ service cloud.firestore {
     function destinatariaDeDisenoOk(d, esPruebaYo) {
       let p = perfilDe(d.asignadoAUid);
       return p.get('rol', '') == 'desarrollo'
+        && p.get('maquilaId', '') == ''
         && p.get('activo', false) == true
         && p.get('supervisorDisenoUid', '') == d.jefeUid
         && p.get('esPrueba', false) == esPruebaYo
@@ -3357,9 +3357,13 @@ service cloud.firestore {
         && h.quienNombre == yo.nombre
         && despues.ultimaEdicionId == edicionId
         && despues.revision == h.revision
+        // El padre TIENE que estar cambiando en este batch (Codex, 10-sep):
+        // sin esto la garantia dependia del historial previo del documento.
+        && despues.revision == antes.revision + 1
         && despues.get('esPrueba', false) == yo.esPrueba
         && fotoDeAsignacion(despues) == h.despues
-        && fotoDeAsignacion(antes) == h.antes;
+        && fotoDeAsignacion(antes) == h.antes
+        && h.despues != h.antes;
     }
     match /asignacionesDiseno/{asignacionId}/historial/{edicionId} {
       allow read: if puedeLeerHistorialAsignacion(asignacionId);
@@ -3372,6 +3376,10 @@ service cloud.firestore {
       return campoDeManifiestoOk('techPack', antes, despues, nombre)
         && campoDeManifiestoOk('ftt', antes, despues, nombre)
         && despues.descripcion is string && despues.descripcion.size() <= 200
+        // Exclusion cruzada alias/archivo (Codex, 10-sep): un alias
+        // (apuntaA) no tiene archivo. Antes lo exigia techPackDocValido en
+        // cada update; al validar solo la rama, hay que repetirlo aqui.
+        && (!antes.keys().hasAny(['apuntaA']) || (despues.techPack == null && despues.ftt == null))
         // 'apuntaA' NO se toca por esta rama: los alias los crea un script con
         // Admin SDK (que salta las reglas), y ningun flujo de cliente lo
         // escribe en un update. Dejarlo aqui permitia inyectarlo en un tech
@@ -3469,6 +3477,28 @@ service cloud.firestore {
         && h.quienNombre == yo.nombre
         && altaHistorialCuadra(codigo, edicionId, yo.esPrueba);
     }
+    function puedeCrearTechPack(codigo, d) {
+      let yo = perfilResumido();
+      return yo.subeTechPacks
+        && d.codigo == codigo
+        && techPackDocValido(d)
+        && d.techPack == null
+        && d.ftt == null
+        && d.creadoEn is timestamp
+        && d.creadoPorUid == request.auth.uid
+        // El nombre del creador se ancla al perfil, igual que el del editor
+        // (Codex, 10-sep: antes cualquier valor pasaba).
+        && d.creadoPorNombre == yo.nombre
+        && d.esPrueba == yo.esPrueba
+        && (yo.esPrueba ? codigo.matches('^ZZTEST.*') : !codigo.matches('^ZZTEST.*'))
+        // Lo que Lety teclea SOLO puede entrar por el update con historial:
+        // un documento no puede nacer ya con revision 99 y sin rastro. Y los
+        // alias (apuntaA) los crea SOLO un script con Admin SDK: desde el
+        // cliente no nace ninguno (Codex, 10-sep).
+        && !d.keys().hasAny(['datosEditables', 'revision', 'ultimaEdicionId', 'apuntaA'])
+        && d.creadoEn == request.time
+        && sellosDeEdicionSegun(d, yo.nombre);
+    }
     match /techPacks/{codigo} {
       // En un GET de un documento que no existe, 'resource' es null (no hay
       // dato que leer): sin ese caso aparte, desreferenciar resource.data
@@ -3479,20 +3509,7 @@ service cloud.firestore {
         && (resource == null || resource.data.esPrueba == esCuentaDePrueba());
       // El id ES el codigo: asi un codigo tiene un solo documento y las
       // busquedas por OT son lecturas directas, sin consulta.
-      allow create: if puedeSubirTechPacks()
-        && request.resource.data.codigo == codigo
-        && techPackDocValido(request.resource.data)
-        && request.resource.data.techPack == null
-        && request.resource.data.ftt == null
-        && request.resource.data.creadoEn is timestamp
-        && request.resource.data.creadoPorUid == request.auth.uid
-        && request.resource.data.esPrueba == esCuentaDePrueba()
-        && codigoTechPackDelMundoOk(codigo)
-        // Lo que Lety teclea SOLO puede entrar por el update con historial:
-        // un documento no puede nacer ya con revision 99 y sin rastro.
-        && !request.resource.data.keys().hasAny(['datosEditables', 'revision', 'ultimaEdicionId'])
-        && request.resource.data.creadoEn == request.time
-        && sellosDeEdicionOk();
+      allow create: if puedeCrearTechPack(codigo, request.resource.data);
       // Al actualizar solo se mueven los manifiestos y el sello de quien lo
       // hizo. codigo, creadoEn y la marca de prueba quedan como nacieron.
       // DOS operaciones distintas, cada una con su propia lista cerrada. No se

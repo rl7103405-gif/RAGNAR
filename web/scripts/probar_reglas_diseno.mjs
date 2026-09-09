@@ -238,6 +238,32 @@ Object.assign(ESCENARIOS, {
   }
 })
 
+const TP_ALIAS = { ...TP_SIN, apuntaA: 'ZZTEST-REAL' }
+const TP_NUEVO = { ...TP_SIN, creadoEn: T, creadoPorNombre: JEFA.nombreCompleto, ...sellos(JEFA) }
+delete TP_NUEVO.modelo; delete TP_NUEVO.talla; delete TP_NUEVO.color; delete TP_NUEVO.faltantes
+Object.assign(ESCENARIOS, {
+  'techpack-create': {
+    que: 'Lety da de alta un codigo nuevo en la biblioteca (sin archivo aun)',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc(TP_NUEVO) },
+    functionMocks: [...perfilMocks([JEFA])], ancla: 'return yo.subeTechPacks\n        && d.codigo == codigo'
+  },
+  'neg-alias-recibe-archivo': {
+    expectation: 'DENY', que: 'NEG: subirle un archivo a un ALIAS (apuntaA)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_ALIAS, techPack: manifiesto(1), ...sellos(JEFA) }) },
+    resource: doc(TP_ALIAS), functionMocks: [...perfilMocks([JEFA])]
+  },
+  'neg-create-con-alias': {
+    expectation: 'DENY', que: 'NEG: crear desde el cliente un documento con apuntaA',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc({ ...TP_NUEVO, apuntaA: 'ZZTEST-REAL' }) },
+    functionMocks: [...perfilMocks([JEFA])]
+  },
+  'neg-create-nombre-falso': {
+    expectation: 'DENY', que: 'NEG: dar de alta un codigo firmando el creador con otro nombre',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc({ ...TP_NUEVO, creadoPorNombre: 'Roberto Linares' }) },
+    functionMocks: [...perfilMocks([JEFA])]
+  }
+})
+
 const arg = process.argv[2]
 const lista = arg ? [arg] : Object.keys(ESCENARIOS)
 if (arg && !ESCENARIOS[arg]) { console.error('escenarios:', Object.keys(ESCENARIOS).join(', ')); process.exit(1) }
