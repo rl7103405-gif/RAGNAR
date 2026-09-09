@@ -3004,6 +3004,13 @@ service cloud.firestore {
     function puedeAsignarDiseno() {
       return esInterno() && rol() == 'desarrollo' && perfil().get('puedeAsignarDiseno', false) == true;
     }
+    // De donde nace un encargo: 'plan' (el admin lo saca del plan maestro)
+    // o 'manual' (la jefa teclea las OT porque el plan no esta al dia:
+    // Roberto, 9-sep, "la planta todavia no esta lista"). Un manual se queda
+    // manual para siempre: si luego la OT aparece en el plan, no cambia solo.
+    function origenDelEncargo(d) {
+      return d.get('origen', 'plan');
+    }
     function perfilDe(uid) {
       return get(/databases/$(database)/documents/usuarios/$(uid)).data;
     }
@@ -3014,10 +3021,18 @@ service cloud.firestore {
     }
     function encargoDisenoValido(d) {
       return d.keys().hasAll(['oc', 'planVersionId', 'ots', 'totalOts', 'responsableUid', 'responsableNombre', 'estado', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'esPrueba'])
-        && d.keys().hasOnly(['oc', 'planVersionId', 'ots', 'totalOts', 'responsableUid', 'responsableNombre', 'estado', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'esPrueba', 'notas', 'fechaObjetivo', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && d.keys().hasOnly(['oc', 'planVersionId', 'ots', 'totalOts', 'responsableUid', 'responsableNombre', 'estado', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'esPrueba', 'notas', 'fechaObjetivo', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'origen'])
+        // 'origen' es OPCIONAL: los encargos creados antes del 9-sep no lo
+        // traen y valen como 'plan'. Exigirlo en hasAll los dejaria sin poder
+        // cerrarse (Codex).
+        && (!d.keys().hasAny(['origen']) || d.origen in ['plan', 'manual'])
         && d.oc is string && d.oc.size() > 0 && d.oc.size() <= 40
         && d.planVersionId is string && d.planVersionId.size() > 0 && d.planVersionId.size() <= 60
         && d.ots is list && d.ots.size() >= 1 && d.ots.size() <= 200
+        // pentester R4: sin esto, un 'ots' con OT repetida ('7601','7601')
+        // pasaba totalOts == d.ots.size() e inflaba el avance (denominador
+        // falso). toSet() tira los duplicados; si el tamano cambia, habia.
+        && d.ots.toSet().size() == d.ots.size()
         && d.totalOts == d.ots.size()
         && d.responsableUid is string && d.responsableUid.size() > 0 && d.responsableUid.size() <= 128
         && d.responsableNombre is string && d.responsableNombre.size() <= 120
@@ -3046,7 +3061,16 @@ service cloud.firestore {
       // lee ni toca un encargo de prueba, y viceversa.
       allow read: if esInterno() && (esAdmin() || resource.data.responsableUid == request.auth.uid)
         && resource.data.get('esPrueba', false) == esCuentaDePrueba();
-      allow create: if esAdmin()
+      // PERMISO POR ORIGEN (Codex): 'plan' solo el admin; 'manual' el admin o
+      // la propia jefa, siempre como responsable de si misma y con
+      // planVersionId == 'manual' (para que nadie declare un encargo de plan
+      // con una version inventada).
+      allow create: if (
+            (origenDelEncargo(request.resource.data) == 'plan' && esAdmin())
+            || (origenDelEncargo(request.resource.data) == 'manual'
+                && request.resource.data.planVersionId == 'manual'
+                && (esAdmin() || (puedeAsignarDiseno() && request.resource.data.responsableUid == request.auth.uid)))
+          )
         && encargoDisenoValido(request.resource.data)
         && sellosDeAltaOk(request.resource.data)
         && request.resource.data.estado == 'abierto'
@@ -3055,7 +3079,21 @@ service cloud.firestore {
         && responsableDeDisenoOk(request.resource.data);
       // Solo cerrar/cancelar, cambiar la fecha o las notas. El alcance (oc,
       // ots, planVersionId) y la responsable quedan como nacieron.
-      allow update: if esAdmin()
+      // La jefa administra el ciclo de vida de SUS encargos manuales (Codex:
+      // si no, depende del admin para limpiar una carga equivocada). Los de
+      // plan siguen siendo solo del admin. 'origen' no esta en el hasOnly de
+      // abajo: no se puede convertir un manual en plan ni al reves.
+      // pentester R1: la rama de la jefa no pasaba por puedeAsignarDiseno(),
+      // asi que una jefa dada de baja o con el flag revocado, con su token
+      // todavia vivo, seguia pudiendo cerrar/cancelar/reabrir sus manuales.
+      // pentester R5: esa misma rama solo puede tocar un encargo 'abierto'.
+      // Cancelar antes de la junta y reabrir despues mueve los indicadores
+      // sin dejar rastro (los encargos no tienen historial). El admin si
+      // puede reabrir (para corregir una carga equivocada de la jefa).
+      allow update: if (esAdmin()
+            || (puedeAsignarDiseno() && origenDelEncargo(resource.data) == 'manual'
+                && resource.data.responsableUid == request.auth.uid
+                && resource.data.estado == 'abierto'))
         && resource.data.get('esPrueba', false) == esCuentaDePrueba()
         && encargoDisenoValido(request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -3069,7 +3107,11 @@ service cloud.firestore {
         && d.keys().hasOnly(['encargoId', 'oc', 'ot', 'planVersionId', 'codigos', 'jefeUid', 'asignadoAUid', 'asignadoANombre', 'asignadoPorUid', 'asignadoPorNombre', 'estado', 'revision', 'creadoEn', 'esPrueba', 'notas', 'fechaObjetivo', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
         && d.encargoId is string && d.encargoId.size() > 0 && d.encargoId.size() <= 60
         && d.oc is string && d.oc.size() > 0 && d.oc.size() <= 40
-        && d.ot is string && d.ot.size() > 0 && d.ot.size() <= 40
+        // Mismo patron que apartadoValido (~1767) y tareaEnsambleValida
+        // (~2481): la OT normalizada conserva sufijos ('7887-A' es OTRA OT,
+        // ver normalizarOt en planMaestroNucleo.js), asi que '4 digitos'
+        // era mas estricto que el formato real y rechazaba OT legitimas.
+        && d.ot is string && d.ot.size() >= 1 && d.ot.size() <= 40 && d.ot.matches('^[1-9A-Z][0-9A-Z/-]*$')
         && d.planVersionId is string && d.planVersionId.size() > 0 && d.planVersionId.size() <= 60
         // Rules no puede iterar listas (no hay forma de exigir "cada
         // elemento es string y no vacio" sin un bucle que este lenguaje no
@@ -3077,7 +3119,10 @@ service cloud.firestore {
         // CONTENIDO cuadre contra el plan de Adrian se hace en el cliente
         // (avanceDeEncargo compara contra lineasPorOt y marca
         // alcanceAlterado si no coincide).
+        // pentester R4: mismo hueco que en encargoDisenoValido, aqui con
+        // 'codigos' (denominador de la barra de avance por OT).
         && d.codigos is list && d.codigos.size() >= 1 && d.codigos.size() <= 120
+        && d.codigos.toSet().size() == d.codigos.size()
         && d.jefeUid is string && d.jefeUid.size() > 0 && d.jefeUid.size() <= 128
         && d.asignadoAUid is string && d.asignadoAUid.size() > 0 && d.asignadoAUid.size() <= 128
         && d.asignadoANombre is string && d.asignadoANombre.size() <= 120
@@ -3123,7 +3168,9 @@ service cloud.firestore {
     // OJO: esta forma esta DUPLICADA en web/src/utils/tareasDiseno.js
     // (fotoDeAsignacion). Si agregas un campo aqui, agregalo alla.
     function fotoDeAsignacion(d) {
-      return {'asignadoAUid': d.asignadoAUid, 'asignadoANombre': d.asignadoANombre, 'estado': d.estado};
+      // 'codigos' entra a la foto desde el 9-sep: con la carga manual un
+      // dedazo tiene que poder corregirse, y la correccion queda en el historial.
+      return {'asignadoAUid': d.asignadoAUid, 'asignadoANombre': d.asignadoANombre, 'estado': d.estado, 'codigos': d.codigos};
     }
     function historialDeAsignacionCuadra(asignacionId) {
       let h = getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)/historial/$(request.resource.data.ultimaEdicionId)).data;
@@ -3160,7 +3207,7 @@ service cloud.firestore {
         && resource.data.get('esPrueba', false) == esCuentaDePrueba()
         && asignacionDisenoValida(request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['asignadoAUid', 'asignadoANombre', 'estado', 'notas', 'fechaObjetivo', 'revision', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+             .hasOnly(['asignadoAUid', 'asignadoANombre', 'estado', 'codigos', 'notas', 'fechaObjetivo', 'revision', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
         && sellosDeEdicionOk()
         && request.resource.data.revision == resource.data.revision + 1
         // El nombre SIEMPRE se ancla al perfil del uid vigente, cambie o no

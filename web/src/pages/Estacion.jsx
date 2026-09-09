@@ -152,6 +152,8 @@ export default function Estacion() {
     esMaquila,
     puedeCrearTareas,
     soloDesarrollo,
+    puedeAsignarDiseno,
+    esEquipoDiseno,
     puedeSubirPlanMaestro,
     soloProduccion,
     rol,
@@ -219,7 +221,10 @@ export default function Estacion() {
   const base = soloCaptura
     ? TABS_CAPTURA
     : soloDesarrollo
-      ? TABS_DESARROLLO
+      // 'Tareas de diseno' solo para quien reparte (Lety) o recibe (su
+      // equipo): un 'desarrollo' sin esos flags ve solo Tech packs (Codex:
+      // el rol a secas no es "Lety y su equipo").
+      ? (puedeAsignarDiseno || esEquipoDiseno ? TABS_DESARROLLO : ['techpacks'])
     : soloProduccion
       ? TABS_PRODUCCION
     : soloPT

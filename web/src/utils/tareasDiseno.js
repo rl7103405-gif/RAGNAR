@@ -183,6 +183,7 @@ export async function crearEncargo({ oc, responsable, fechaObjetivo, notas, usua
     totalOts: ots.length,
     responsableUid: responsable.uid,
     responsableNombre: responsable.nombre,
+    origen: 'plan',
     estado: 'abierto',
     notas: String(notas || '').trim().slice(0, 300) || null,
     fechaObjetivo: fechaObjetivo || null,
@@ -205,6 +206,104 @@ export async function crearEncargo({ oc, responsable, fechaObjetivo, notas, usua
  * encargosDiseno solo admite tocar estado, notas y fechaObjetivo (mas los
  * tres sellos), y exige actualizadoPorNombre == nombreCompleto del perfil.
  */
+// ---------------------------------------------------------------------------
+// Carga A MANO (Roberto, 9-sep: "la planta todavia no esta lista" para
+// encargar por orden de compra del plan). La jefa teclea las OT y, al
+// repartir, los codigos. Un encargo manual nace y muere manual: si la OT
+// aparece despues en el plan, no cambia solo.
+// ---------------------------------------------------------------------------
+
+// Formato aceptado de OT: el mismo que valida el resto de la app
+// (normalizarOt en planMaestroNucleo.js conserva sufijos: '7887-A' es OTRA
+// OT, no la '7887').
+const OT_VALIDA = /^[1-9A-Z][0-9A-Z/-]*$/
+// Una OT tiene digitos SIEMPRE ('7593', '7887-A'). Sin esto, 'XYZ' o 'COSA'
+// pasaban como OT (lo cazo el QA); y 'OTRA' -> normalizarOt quita el 'OT' ->
+// 'RA' tambien pasaba.
+const tieneDigito = (x) => /[0-9]/.test(x)
+
+/**
+ * "7593, 7594-A 7595" -> { ots: ['7593','7594-A','7595'], rechazadas: [] }.
+ * Se parte SOLO por coma, punto y coma, salto de linea o espacios: partir
+ * por cualquier no-digito (como antes) truncaba un sufijo como '7887-A' en
+ * '7887' sin avisar, y perdia OT reales. Lo que no cuadra con el formato de
+ * OT se devuelve en 'rechazadas' para que la jefa lo vea y lo corrija, en
+ * vez de que se pierda en silencio.
+ */
+export function parsearOtsDetallado(texto) {
+  const vistas = new Set()
+  const rechazadas = []
+  String(texto || '').replace(/OT\s+(?=[0-9])/gi, '')
+    .split(/[,;\s]+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .forEach((crudo) => {
+      const n = normalizarOt(crudo)
+      if (n && (tieneDigito(n) && OT_VALIDA.test(n))) vistas.add(n)
+      else rechazadas.push(crudo)
+    })
+  return { ots: [...vistas].sort(porOt), rechazadas }
+}
+
+/** "7593, 7594 7595" -> ['7593','7594','7595'] (compatibilidad; ver parsearOtsDetallado). */
+export function parsearOts(texto) {
+  return parsearOtsDetallado(texto).ots
+}
+
+/** "1273-I, 1274-I" -> ['1273-I','1274-I'] con el mismo id que usa la biblioteca. */
+export function parsearCodigos(texto) {
+  const vistos = new Set()
+  String(texto || '')
+    .split(/[,;\s]+/)
+    .map((x) => codigoComoId(x))
+    .filter(Boolean)
+    .forEach((x) => vistos.add(x))
+  return [...vistos].sort(porOt)
+}
+
+/**
+ * La jefa (o el admin) carga una lista de OT a mano, con una etiqueta en vez
+ * de orden de compra. planVersionId es 'manual' y la regla lo exige asi.
+ */
+export async function crearEncargoManual({ etiqueta, ots, responsable, fechaObjetivo, notas, usuario, esPrueba, existentes = [] }) {
+  const oc = String(etiqueta || '').trim().toUpperCase().replace(/\s+/g, ' ').slice(0, 40)
+  if (!oc) throw new ErrorDiseno('Ponle una etiqueta al encargo (por ejemplo PIER RESURTIDO SEP).')
+  const lista = Array.isArray(ots) ? ots : parsearOts(ots)
+  if (!lista.length) throw new ErrorDiseno('Escribe al menos una orden de trabajo (por ejemplo 7593 o 7887-A).')
+  if (lista.length > 200) throw new ErrorDiseno(`Son ${lista.length} ordenes de trabajo; el tope es 200.`)
+  const resp = responsable?.uid ? responsable : { uid: usuario?.uid, nombre: usuario?.nombre }
+  if (!resp.uid || !resp.nombre) throw new ErrorDiseno('Tu perfil no tiene nombre completo; no se puede firmar el encargo.')
+  if (!usuario?.uid || !usuario?.nombre) throw new ErrorDiseno('Tu perfil no tiene nombre completo; no se puede firmar el encargo.')
+  if (existentes.some((e) => e.oc === oc && e.estado === 'abierto')) {
+    throw new ErrorDiseno(`Ya hay un encargo abierto con la etiqueta ${oc}. Usa otra o cierra ese.`)
+  }
+  let ref
+  try {
+    ref = await addDoc(collection(db, COL_ENCARGOS), {
+      oc,
+      planVersionId: 'manual',
+      origen: 'manual',
+      ots: lista,
+      totalOts: lista.length,
+      responsableUid: resp.uid,
+      responsableNombre: resp.nombre,
+      estado: 'abierto',
+      notas: String(notas || '').trim().slice(0, 300) || null,
+      fechaObjetivo: fechaObjetivo || null,
+      creadoPorUid: usuario.uid,
+      creadoPorNombre: usuario.nombre,
+      creadoEn: serverTimestamp(),
+      esPrueba: esPrueba === true
+    })
+  } catch (e) {
+    if (e?.code === 'permission-denied') {
+      throw new ErrorDiseno('No se pudo cargar. Solo quien reparte tareas de diseno (o el admin) puede crear un encargo manual, y a nombre propio.')
+    }
+    throw e
+  }
+  return { id: ref.id, ots: lista }
+}
+
 export async function cambiarEncargo({ encargo, estado, usuario }) {
   if (!encargo?.id) throw new ErrorDiseno('Falta el encargo.')
   if (!['cerrado', 'cancelado'].includes(estado)) throw new ErrorDiseno('Estado invalido.')
@@ -233,7 +332,7 @@ export async function cambiarEncargo({ encargo, estado, usuario }) {
  * cancelada, se reabre por la ruta de cambiarAsignacion (deja historial) en
  * vez de intentar crear un documento que la regla va a rechazar.
  */
-export async function asignarOt({ encargo, ot, destinataria, fechaObjetivo, notas, usuario, esPrueba, existentes = [] }) {
+export async function asignarOt({ encargo, ot, destinataria, fechaObjetivo, notas, usuario, esPrueba, existentes = [], codigosManuales = '' }) {
   const otN = normalizarOt(ot)
   if (!encargo?.id) throw new ErrorDiseno('Falta el encargo.')
   if (encargo.estado !== 'abierto') throw new ErrorDiseno('Ese encargo ya no esta abierto.')
@@ -245,13 +344,21 @@ export async function asignarOt({ encargo, ot, destinataria, fechaObjetivo, nota
   if (existente?.estado === 'abierta') {
     throw new ErrorDiseno(`La OT ${otN} ya esta asignada. Reasignala desde su renglon.`)
   }
-  const codigos = await codigosDeLaOtEnVersion(encargo.planVersionId, otN)
-  if (!codigos.length) throw new ErrorDiseno(`La OT ${otN} no tiene codigos en la version del plan del encargo.`)
+  // Encargo manual: los codigos los teclea la jefa. Encargo del plan: salen
+  // de la version congelada; si el plan no los trae, tambien se aceptan a mano.
+  const tecleados = parsearCodigos(codigosManuales)
+  let codigos = encargo.planVersionId === 'manual' ? tecleados : await codigosDeLaOtEnVersion(encargo.planVersionId, otN)
+  if (!codigos.length && tecleados.length) codigos = tecleados
+  if (!codigos.length) {
+    throw new ErrorDiseno(encargo.planVersionId === 'manual'
+      ? `Escribe los codigos de la OT ${otN} (separados por coma).`
+      : `La OT ${otN} no tiene codigos en el plan del encargo. Escribelos a mano.`)
+  }
   if (codigos.length > 120) throw new ErrorDiseno(`La OT ${otN} trae ${codigos.length} codigos; el tope es 120.`)
   if (existente && ['cerrada', 'cancelada'].includes(existente.estado)) {
     await cambiarAsignacion({
       asignacion: existente,
-      cambios: { asignadoAUid: destinataria.uid, asignadoANombre: destinataria.nombre, estado: 'abierta' },
+      cambios: { asignadoAUid: destinataria.uid, asignadoANombre: destinataria.nombre, estado: 'abierta', codigos },
       motivo: 'reabierta y asignada',
       usuario
     })
@@ -286,7 +393,8 @@ export async function asignarOt({ encargo, ot, destinataria, fechaObjetivo, nota
 export const fotoDeAsignacion = (a) => ({
   asignadoAUid: a?.asignadoAUid || '',
   asignadoANombre: a?.asignadoANombre || '',
-  estado: a?.estado || ''
+  estado: a?.estado || '',
+  codigos: [...(a?.codigos || [])]
 })
 
 /**
@@ -412,8 +520,10 @@ function evaluarDocumento(b) {
 /** El estado de UN codigo del plan frente a la biblioteca. */
 export function estadoDelCodigo(codigo, indice) {
   const lista = documentosDe(codigo, indice)
+  // pentester C2: coercion defensiva, por si algo cuela un codigo que no es
+  // string (el panel lo pinta directo y React no acepta objetos como hijo).
   if (!lista.length) {
-    return { codigo, tiene: false, listo: false, porcentaje: 0, revisado: false, quien: '', variantes: 0, etiqueta: 'sin tech pack' }
+    return { codigo: String(codigo), tiene: false, listo: false, porcentaje: 0, revisado: false, quien: '', variantes: 0, etiqueta: 'sin tech pack' }
   }
   const evals = lista.map(evaluarDocumento)
   const tiene = evals.some((e) => e.tiene)
@@ -421,7 +531,7 @@ export function estadoDelCodigo(codigo, indice) {
   const porcentaje = Math.round(evals.reduce((t, e) => t + e.porcentaje, 0) / evals.length)
   const ultimo = evals.filter((e) => e.quien).sort((a, b) => (b.cuando?.toMillis?.() || 0) - (a.cuando?.toMillis?.() || 0))[0]
   return {
-    codigo,
+    codigo: String(codigo),
     tiene,
     listo,
     porcentaje,
@@ -434,7 +544,12 @@ export function estadoDelCodigo(codigo, indice) {
 
 /** El avance de una OT: todos sus codigos evaluados. */
 export function avanceDeOt(codigos, indice) {
-  const estados = (codigos || []).map((c) => estadoDelCodigo(c, indice))
+  // pentester C2: un 'codigos: [{}]' escrito desde la consola (la regla solo
+  // valida que sea list, no el tipo de cada elemento) llegaba crudo hasta el
+  // panel y React tronaba ("Objects are not valid as a React child"). Se
+  // filtra a strings no vacios antes de evaluar.
+  const validos = (codigos || []).filter((c) => typeof c === 'string' && c.trim())
+  const estados = validos.map((c) => estadoDelCodigo(c, indice))
   const lista = estados.length > 0 && estados.every((e) => e.listo)
   const porcentaje = estados.length ? Math.round(estados.reduce((t, e) => t + e.porcentaje, 0) / estados.length) : 0
   const quienes = [...new Set(estados.map((e) => e.quien).filter(Boolean))]
@@ -462,7 +577,9 @@ export function avanceDeEncargo(encargo, asignaciones, lineasPorOt, indice) {
     let codigos
     let alcanceAlterado = false
     if (codigosDelPlan.length) {
-      codigos = [...new Set([...codigosDelPlan, ...codigosAsignados])]
+      // pentester C2: la union tambien se filtra a strings no vacios, mismo
+      // motivo que en avanceDeOt.
+      codigos = [...new Set([...codigosDelPlan, ...codigosAsignados])].filter((c) => typeof c === 'string' && c.trim())
       if (asignacion) {
         const cuadra =
           codigosDelPlan.length === codigosAsignados.length &&
@@ -473,7 +590,9 @@ export function avanceDeEncargo(encargo, asignaciones, lineasPorOt, indice) {
       codigos = codigosAsignados
     }
     const av = avanceDeOt(codigos, indice)
-    return { ot, asignacion, codigos, alcanceAlterado, codigosDelPlan, codigosAsignados, ...av }
+    // pentester C3: la revision de la asignacion, para la pill de "alcance
+    // corregido" en el panel.
+    return { ot, asignacion, codigos, alcanceAlterado, codigosDelPlan, codigosAsignados, revision: asignacion?.revision || 0, ...av }
   })
   const listas = filas.filter((f) => f.lista).length
   const total = filas.length

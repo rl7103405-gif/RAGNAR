@@ -36,6 +36,19 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-09-02',
+    fecha: '2026-09-09',
+    tipo: 'nuevo',
+    titulo: 'Tareas de diseno: Lety puede cargar ordenes de trabajo a mano',
+    detalle:
+      'Como el plan maestro no siempre esta al dia, Lety ya no depende de que Roberto le encargue una '
+      + 'orden de compra: en su pestana hay un apartado para cargar a mano una lista de ordenes de trabajo '
+      + 'con una etiqueta (por ejemplo "PIER RESURTIDO SEP"), repartirlas entre Monica y Maria Fernanda, y '
+      + 'teclear los codigos de cada una si el plan no los trae. Esos encargos salen marcados como "manual", '
+      + 'Lety misma los puede cerrar o cancelar, y si se equivoco en un codigo lo corrige y queda en el historial.'
+  },
+
+  {
     id: '2026-09-09-01',
     fecha: '2026-09-09',
     tipo: 'nuevo',
