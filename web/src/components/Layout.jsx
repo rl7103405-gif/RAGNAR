@@ -13,6 +13,19 @@ import { useAuth } from '../context/AuthContext'
 import Novedades from './Novedades'
 import AjustesCuenta from './AjustesCuenta'
 
+// usuario-real (9 y 10-sep): a Lety le sobraba "Embarques" bajo su nombre.
+// La etiqueta sigue al rol; quien no esta aqui sigue viendo Embarques.
+const ETIQUETA_ROL = {
+  admin: 'Direccion',
+  desarrollo: 'Desarrollo de producto',
+  produccion: 'Produccion',
+  pt: 'Producto terminado',
+  consulta: 'Consulta',
+  captura: 'Captura',
+  almacen: 'Almacen de avios',
+  maquila: 'Maquila'
+}
+
 export default function Layout({ titulo, children }) {
   const { perfil, cerrarSesion, esPrueba, esInterno } = useAuth()
 
@@ -42,7 +55,7 @@ export default function Layout({ titulo, children }) {
         <div className="barra-usuario">
           <span className="usuario-nombre">
             {perfil?.nombreCompleto || 'Estacion'}
-            <span className="usuario-rol">Embarques</span>
+            <span className="usuario-rol">{ETIQUETA_ROL[perfil?.rol] || 'Embarques'}</span>
           </span>
           {/* La campana va ANTES de Salir: es lo que se mira al entrar, no al
               irse. Se le muestra a todos, incluidas las maquilas: tambien les

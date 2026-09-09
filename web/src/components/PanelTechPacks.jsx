@@ -120,7 +120,7 @@ export default function PanelTechPacks() {
         .filter((x) => x.codigo)
       setCodigosDeOt(lista)
       if (!lista.length) {
-        setError(`El plan vigente no conoce la OT ${limpia}. Pide a Adrian que la suba, o escribe el codigo directo.`)
+        setError(`El plan vigente no conoce la OT ${limpia}. Si la cargaste a mano en Tareas de diseno, escribe el codigo directo (esta en tu asignacion); si es del plan, pide a Adrian que la suba.`)
       } else if (lista.length === 1) {
         // Un solo codigo: se elige solo, que es lo normal.
         setCodigo(lista[0].codigo)
@@ -800,7 +800,7 @@ export default function PanelTechPacks() {
             <h3 style={{ margin: 0 }}>Ordenes de trabajo del plan sin tech pack</h3>
             <p className="texto-suave" style={{ margin: '4px 0 0', fontSize: 13 }}>
               Por cada OT del plan vigente, los codigos a los que les falta el tech pack de empaque: lo
-              que Lindbergh no va a poder pegar al encargar la tarea.
+              que no se va a poder pegar cuando se encargue esa OT a una maquila.
             </p>
           </div>
           <button className="btn-secundario" onClick={onCruzar} disabled={cruce === 'cargando'}>

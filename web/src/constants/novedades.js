@@ -36,6 +36,34 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-10-02',
+    fecha: '2026-09-10',
+    tipo: 'mejorado',
+    titulo: 'Tareas de diseno: lo que pidio "Lety" al probarlo',
+    detalle:
+      'Se probo el tablero como lo usaria Lety y se corrigio lo que le estorbo: cerrar un encargo ahora '
+      + 'pregunta antes (con cuantas OT van listas y cuantas sin asignar) y cierra tambien las asignaciones '
+      + 'abiertas, para que el equipo deje de verlas como pendientes; el encargo cerrado se sigue pudiendo '
+      + 'abrir para consultar el reparto. Hay un bloque "Cuanto lleva cada quien" por persona. "Codigos sin '
+      + 'tech pack" cuenta codigos distintos (el mismo codigo en dos OT es una sola ficha). El historial de '
+      + 'cada OT muestra el reparto original como revision 1. Los botones de cada OT ya caben en una laptop. '
+      + 'Los indicadores explican que miden al pasar el mouse, "manual" dice "cargado a mano", y la cabecera '
+      + 'ya no dice "Embarques" a quien no embarca.'
+  },
+  {
+    id: '2026-09-10-01',
+    fecha: '2026-09-10',
+    tipo: 'corregido',
+    titulo: 'Tareas de diseno: repartir una OT ya no falla con "insufficient permissions"',
+    detalle:
+      'La primera vez que se intento repartir una orden de trabajo, el servidor la rechazo aunque todo '
+      + 'estaba bien: la regla de seguridad evaluaba mas expresiones de las que Firestore permite por '
+      + 'peticion (1,000), y eso se ve igual que un permiso negado. Se reescribieron las reglas de tareas de '
+      + 'diseno y de tech packs para que lean el perfil una sola vez, se probaron contra el motor real de '
+      + 'reglas (20 escenarios, incluidos los que deben negar) y ya se puede repartir, corregir codigos y '
+      + 'cerrar. De paso se cerro un hueco: un atajo de tech pack (alias por folio) ya no puede recibir archivo.'
+  },
+  {
     id: '2026-09-09-02',
     fecha: '2026-09-09',
     tipo: 'nuevo',

@@ -3313,6 +3313,12 @@ service cloud.firestore {
              .hasOnly(['asignadoAUid', 'asignadoANombre', 'estado', 'codigos', 'notas', 'fechaObjetivo', 'revision', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
         && sellosDeEdicionSegun(despues, yo.nombre)
         && despues.revision == antes.revision + 1
+        // Codex (10-sep): REABRIR una asignacion exige que su encargo siga
+        // abierto. Sin esto, el cierre en cascada (cerrarEncargoConAsignaciones)
+        // se podia deshacer por detras y Monica volvia a ver trabajo de un
+        // encargo cerrado. Solo cuesta la lectura cuando se reabre.
+        && (despues.estado != 'abierta' || antes.estado == 'abierta'
+            || get(/databases/$(database)/documents/encargosDiseno/$(antes.encargoId)).data.estado == 'abierto')
         // El nombre SIEMPRE se ancla al perfil del uid vigente, cambie o no
         // el destinatario: asi no se puede dejar el uid quieto y solo
         // renombrar la asignacion para que parezca de otra persona.

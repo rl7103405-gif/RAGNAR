@@ -324,6 +324,51 @@ export async function cambiarEncargo({ encargo, estado, usuario }) {
 }
 
 /**
+ * Cerrar o cancelar un encargo ARRASTRANDO sus asignaciones abiertas.
+ *
+ * usuario-real (10-sep): Lety cerro el encargo y Monica siguio viendo "Mis OT
+ * abiertas: 2". Monica NO puede leer el encargo (la regla solo se lo deja al
+ * admin y a la responsable), asi que el estado tiene que bajar a cada
+ * asignacion. Cada cierre es su propio batch con historial (la regla lo
+ * exige), en orden; si uno falla, se detiene y se dice cuantas quedaron. Las
+ * asignaciones van PRIMERO y el encargo al final: un encargo cerrado con
+ * asignaciones abiertas es el estado que confundio a Monica, y el reves
+ * (asignaciones cerradas, encargo abierto) lo arregla la jefa con otro clic.
+ */
+export async function cerrarEncargoConAsignaciones({ encargo, estado, asignaciones, equipo, usuario }) {
+  if (!['cerrado', 'cancelado'].includes(estado)) throw new ErrorDiseno('Estado invalido.')
+  const abiertas = (asignaciones || []).filter((a) => a.encargoId === encargo?.id && a.estado === 'abierta')
+  const estadoAsig = estado === 'cerrado' ? 'cerrada' : 'cancelada'
+  let hechas = 0
+  for (const a of abiertas) {
+    // Codex (10-sep): la regla ancla asignadoANombre al perfil VIGENTE aunque
+    // el uid no cambie; si renombraron a la persona desde que se le asigno,
+    // mandar solo {estado} se rechaza. Se manda el nombre actual del equipo.
+    const nombreActual = (equipo || []).find((u) => u.id === a.asignadoAUid)?.nombreCompleto
+    const cambios = { estado: estadoAsig }
+    if (nombreActual && nombreActual !== a.asignadoANombre) cambios.asignadoANombre = nombreActual
+    try {
+      await cambiarAsignacion({ asignacion: a, cambios, motivo: `encargo ${estado}`, usuario })
+      hechas++
+    } catch (e) {
+      throw new ErrorDiseno(
+        `Se ${estado === 'cerrado' ? 'cerraron' : 'cancelaron'} ${hechas} de ${abiertas.length} asignaciones y la de la OT ${a.ot} fallo: ${e?.message || e}. El encargo sigue abierto; vuelve a intentar.`
+      )
+    }
+  }
+  try {
+    await cambiarEncargo({ encargo, estado, usuario })
+  } catch (e) {
+    // code-reviewer: si el encargo falla al final, que se sepa que las
+    // asignaciones YA quedaron cerradas; reintentar es seguro (no las retoca).
+    throw new ErrorDiseno(
+      `${hechas ? `Las ${hechas} asignacion(es) ya quedaron ${estado === 'cerrado' ? 'cerradas' : 'canceladas'}, pero e` : 'E'}l encargo no se pudo ${estado === 'cerrado' ? 'cerrar' : 'cancelar'}: ${e?.message || e} Vuelve a intentar.`
+    )
+  }
+  return { asignaciones: hechas }
+}
+
+/**
  * La jefa reparte una OT del encargo a alguien de su equipo.
  *
  * Id determinista `${encargo.id}__${ot}` (igual que exige la regla): una OT

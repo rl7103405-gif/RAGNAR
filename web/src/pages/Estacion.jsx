@@ -258,8 +258,11 @@ export default function Estacion() {
   // La pestana inicial no puede ser 'captura' para quien no la tiene.
   const tabActiva = visibles.some((t) => t.id === tab) ? tab : visibles[0]?.id
 
+  // usuario-real (9-sep): a Lety le sobraba "Embarques" en su cabecera. El
+  // titulo sigue al rol: desarrollo y produccion no embarcan nada.
+  const tituloPorRol = { desarrollo: 'RAGNAR - Desarrollo de producto', produccion: 'RAGNAR - Plan maestro', pt: 'RAGNAR - Producto terminado' }
   return (
-    <Layout titulo="RAGNAR - Embarques">
+    <Layout titulo={tituloPorRol[perfil?.rol] || 'RAGNAR - Embarques'}>
       {visibles.length > 1 && (
         <div className="tabs">
           {visibles.map((t) => (

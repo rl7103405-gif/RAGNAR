@@ -19,6 +19,7 @@ import {
   avanceDeOt,
   cambiarAsignacion,
   cambiarEncargo,
+  cerrarEncargoConAsignaciones,
   crearEncargo,
   crearEncargoManual,
   parsearCodigos,
@@ -182,23 +183,31 @@ export default function PanelTareasDiseno() {
   const tiles = useMemo(() => {
     if (vista === 'equipo') {
       const mias = asignaciones.filter((a) => a.estado === 'abierta').map((a) => avanceDeOt(a.codigos, indice))
+      const codigosMios = mias.reduce((t, a) => t + a.total, 0)
+      const listasMias = mias.filter((a) => a.lista).length
       return [
-        { t: 'Mis OT abiertas', v: mias.length },
-        { t: 'Listas', v: mias.filter((a) => a.lista).length, tono: 'ok' },
-        { t: 'A medias', v: mias.filter((a) => !a.lista && a.porcentaje > 0).length, tono: 'aviso' },
-        { t: 'Codigos sin tech pack', v: mias.reduce((t, a) => t + a.sinTechPack, 0), tono: 'aviso' },
-        { t: 'Avance promedio', v: mias.length ? Math.round(mias.reduce((t, a) => t + a.porcentaje, 0) / mias.length) + '%' : '—' }
+        { t: 'Mis OT abiertas', v: mias.length, que: 'Ordenes de trabajo que te asignaron y siguen abiertas.' },
+        { t: 'Listas', v: listasMias, tono: listasMias ? 'ok' : '', que: 'OT en las que todos los codigos ya tienen tech pack con el checklist completo.' },
+        { t: 'A medias', v: mias.filter((a) => !a.lista && a.porcentaje > 0).length, tono: 'aviso', que: 'OT con algun avance pero todavia no listas.' },
+        // usuario-real (9-sep): "0" sin codigos cargados se leia como "vas bien";
+        // era el cero de un conjunto vacio. Sin codigos, no hay nada que contar.
+        // usuario-real (10-sep): el mismo codigo en dos OT se contaba dos veces;
+        // Lety piensa en fichas que pedir, no en renglones: codigos DISTINTOS.
+        { t: 'Codigos sin tech pack', v: codigosMios ? codigosSinTechPack(mias) : '—', tono: codigosMios ? 'aviso' : '', que: 'De los codigos que te tocan, cuantos (distintos) no tienen ni el archivo del tech pack en la biblioteca.' },
+        { t: 'Avance promedio', v: mias.length ? Math.round(mias.reduce((t, a) => t + a.porcentaje, 0) / mias.length) + '%' : '—', que: 'Promedio del checklist de tus codigos (archivo + los 7 rubros).' }
       ]
     }
     const abiertos = encargos.filter((e) => e.estado === 'abierto')
     const filas = abiertos.flatMap((e) => avances.get(e.id)?.filas || [])
+    const codigos = filas.reduce((t, f) => t + f.total, 0)
+    const listas = filas.filter((f) => f.lista).length
     return [
-      { t: 'Encargos abiertos', v: abiertos.length },
-      { t: 'OT en encargos', v: filas.length },
-      { t: 'OT listas', v: filas.filter((f) => f.lista).length, tono: 'ok' },
-      { t: 'OT sin asignar', v: filas.filter((f) => !f.asignacion).length, tono: filas.some((f) => !f.asignacion) ? 'aviso' : '' },
-      { t: 'Codigos sin tech pack', v: filas.reduce((t, f) => t + f.sinTechPack, 0), tono: 'aviso' },
-      { t: 'Avance promedio', v: filas.length ? Math.round(filas.reduce((t, f) => t + f.porcentaje, 0) / filas.length) + '%' : '—' }
+      { t: 'Encargos abiertos', v: abiertos.length, que: 'Un encargo es una orden de compra (o un grupo de OT cargadas a mano) que hay que dejar con todos sus tech packs listos.' },
+      { t: 'OT en encargos', v: filas.length, que: 'Ordenes de trabajo que suman los encargos abiertos.' },
+      { t: 'OT listas', v: listas, tono: listas ? 'ok' : '', que: 'OT en las que todos los codigos ya tienen tech pack con el checklist completo.' },
+      { t: 'OT sin asignar', v: filas.filter((f) => !f.asignacion).length, tono: filas.some((f) => !f.asignacion) ? 'aviso' : '', que: 'OT que todavia no le tocan a nadie del equipo.' },
+      { t: 'Codigos sin tech pack', v: codigos ? codigosSinTechPack(filas) : '—', tono: codigos ? 'aviso' : '', que: 'De los codigos de las OT (del plan o tecleados), cuantos (distintos) no tienen ni el archivo del tech pack en la biblioteca. Sin codigos cargados no hay nada que contar.' },
+      { t: 'Avance promedio', v: filas.length ? Math.round(filas.reduce((t, f) => t + f.porcentaje, 0) / filas.length) + '%' : '—', que: 'Promedio del checklist de los codigos (archivo + los 7 rubros).' }
     ]
   }, [vista, encargos, asignaciones, avances, indice])
 
@@ -222,12 +231,12 @@ export default function PanelTareasDiseno() {
         <h2 style={{ margin: 0 }}>Tareas de diseno</h2>
         <p className="texto-suave" style={{ marginTop: 4 }}>
           {vista === 'admin' && 'Encarga una orden de compra a Lety y mira cuanto lleva su equipo. El avance sale solo de los tech packs.'}
-          {vista === 'jefa' && 'Reparte las ordenes de trabajo de cada encargo entre tu equipo. Una OT esta lista cuando todos sus codigos tienen tech pack con el checklist completo.'}
+          {vista === 'jefa' && 'Un encargo es una orden de compra (o un grupo de OT que cargas a mano) que hay que dejar con todos sus tech packs listos. Reparte sus ordenes de trabajo entre tu equipo; una OT esta lista cuando todos sus codigos tienen tech pack con el checklist completo.'}
           {vista === 'equipo' && 'Lo que te toca. Cada codigo se pone listo cuando su tech pack tiene archivo y el checklist completo en la pestana Tech packs.'}
         </p>
         <div className="tp-tiles" style={{ marginTop: 12 }}>
           {tiles.map((x) => (
-            <div key={x.t} className={`tp-tile ${x.tono ? 'tp-tile-' + x.tono : ''}`}>
+            <div key={x.t} className={`tp-tile ${x.tono ? 'tp-tile-' + x.tono : ''}`} title={x.que}>
               <div className="tp-tile-valor">{x.v}</div>
               <div className="tp-tile-titulo">{x.t}</div>
             </div>
@@ -288,13 +297,94 @@ export default function PanelTareasDiseno() {
             )
           }
           onCambiar={(asignacion, cambios, motivo, ok) => correr(() => cambiarAsignacion({ asignacion, cambios, motivo, usuario }), ok)}
-          onCerrarEncargo={(encargo, estado) =>
-            correr(() => cambiarEncargo({ encargo, estado, usuario }), `Encargo ${encargo.oc} ${estado}.`)
-          }
+          onCerrarEncargo={(encargo, estado) => {
+            // usuario-real (10-sep): cerraba de un clic, sin preguntar, con una
+            // OT sin asignar y 0 de 3 listas; y Monica seguia viendo sus OT
+            // abiertas. Se pregunta con los numeros y se arrastran las
+            // asignaciones (cerrarEncargoConAsignaciones).
+            const av = avances.get(encargo.id) || { listas: 0, total: 0, sinAsignar: 0 }
+            const abiertas = asignaciones.filter((a) => a.encargoId === encargo.id && a.estado === 'abierta').length
+            const verbo = estado === 'cerrado' ? 'Cerrar' : 'Cancelar'
+            const ok = window.confirm(
+              `${verbo} el encargo ${encargo.oc}?\n\n` +
+                `Lleva ${av.listas} de ${av.total} OT listas` +
+                (av.sinAsignar ? ` y ${av.sinAsignar} sin asignar` : '') +
+                `.${abiertas ? `\nLas ${abiertas} asignacion(es) abierta(s) se ${estado === 'cerrado' ? 'cierran' : 'cancelan'} tambien (queda en su historial) y el equipo deja de verlas como pendientes.` : ''}` +
+                `\n\nEl reparto se sigue pudiendo consultar en el encargo ${estado}.`
+            )
+            if (!ok) return
+            correr(
+              () => cerrarEncargoConAsignaciones({ encargo, estado, asignaciones, equipo: equipoPorJefa.get(encargo.responsableUid) ?? equipo, usuario }),
+              (r) => `Encargo ${encargo.oc} ${estado}${r.asignaciones ? ` y ${r.asignaciones} asignacion(es) ${estado === 'cerrado' ? 'cerrada(s)' : 'cancelada(s)'}` : ''}.`
+            )
+          }}
         />
       )}
 
+      {vista !== 'equipo' && <PorPersona asignaciones={asignaciones} indice={indice} equipo={vista === 'admin' ? [...equipoPorJefa.values()].flat() : equipo} />}
+
       {vista === 'equipo' && <MisAsignaciones asignaciones={asignaciones} indice={indice} />}
+    </div>
+  )
+}
+
+// Codigos DISTINTOS sin archivo de tech pack, a partir de avances (filas de
+// encargo o de asignacion): el mismo codigo en dos OT es UNA ficha que pedir.
+function codigosSinTechPack(avances) {
+  return new Set(avances.flatMap((f) => (f.estados || []).filter((c) => !c.tiene).map((c) => c.codigo))).size
+}
+
+// ---------------------------------------------------------------- jefa: cuanto lleva cada quien
+// usuario-real (10-sep): "para ver cuanto lleva mi equipo no hay donde
+// verlo": los indicadores eran del encargo, no de las personas.
+function PorPersona({ asignaciones, indice, equipo }) {
+  const abiertas = asignaciones.filter((a) => a.estado === 'abierta')
+  if (!abiertas.length && !(equipo || []).length) return null
+  const porUid = new Map()
+  // Primero el equipo completo (Codex: quien no tiene nada tambien cuenta),
+  // luego lo asignado.
+  ;(equipo || []).forEach((u) => porUid.set(u.id, { nombre: u.nombreCompleto || '—', ots: [], avances: [] }))
+  abiertas.forEach((a) => {
+    const av = avanceDeOt(a.codigos, indice)
+    const p = porUid.get(a.asignadoAUid) || { nombre: a.asignadoANombre, ots: [], avances: [] }
+    p.ots.push(a.ot)
+    p.avances.push(av)
+    porUid.set(a.asignadoAUid, p)
+  })
+  const filas = [...porUid.entries()].map(([id, p]) => ({ id, ...p })).sort((x, y) => x.nombre.localeCompare(y.nombre))
+  return (
+    <div className="tarjeta" style={{ marginTop: 12 }}>
+      <h3 style={{ margin: 0 }}>Cuanto lleva cada quien</h3>
+      <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>Carga y avance de las OT asignadas a cada quien (solo abiertas). El avance sale de los tech packs de esos codigos; la biblioteca es de todos, asi que mide lo asignado, no quien subio cada archivo.</p>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="tabla-datos">
+          <thead>
+            <tr>
+              <th>Persona</th>
+              <th>OT abiertas</th>
+              <th>Listas</th>
+              <th>Codigos sin tech pack</th>
+              <th>Avance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((p) => {
+              const listas = p.avances.filter((a) => a.lista).length
+              const total = p.avances.reduce((t, a) => t + a.total, 0)
+              const prom = p.avances.length ? Math.round(p.avances.reduce((t, a) => t + a.porcentaje, 0) / p.avances.length) : 0
+              return (
+                <tr key={p.id}>
+                  <td>{p.nombre}</td>
+                  <td>{p.ots.length ? <>{p.ots.length} <span className="texto-suave" style={{ fontSize: 12 }}>({p.ots.join(', ')})</span></> : <span className="texto-suave">nada asignado</span>}</td>
+                  <td>{listas}</td>
+                  <td>{total ? codigosSinTechPack(p.avances) : <span className="texto-suave">sin codigos</span>}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}><Barra porcentaje={prom} chica /> <span style={{ fontSize: 13 }}>{prom}%</span></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -447,22 +537,25 @@ function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa,
         <summary className="tp-fila" style={{ justifyContent: 'space-between', cursor: 'pointer', flexWrap: 'wrap', gap: 8 }}>
           <div>
             <strong style={{ fontSize: 16 }}>{e.origen === 'manual' ? e.oc : `OC ${e.oc}`}</strong>
-            {e.origen === 'manual' && <span className="tp-pill" style={{ marginLeft: 8 }}>manual</span>}
+            {e.origen === 'manual' && <span className="tp-pill" style={{ marginLeft: 8 }} title="Las OT se teclearon a mano; no vienen del plan de Adrian">cargado a mano</span>}
             <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
-              encargada a {e.responsableNombre} · {fecha(e.creadoEn)}
+              {e.creadoPorUid === uid && e.responsableUid === uid
+                ? `lo cargaste tu · ${fecha(e.creadoEn)}`
+                : `encargada a ${e.responsableNombre} · ${fecha(e.creadoEn)}`}
               {e.fechaObjetivo ? ` · para el ${fecha(e.fechaObjetivo)}` : ''}
-              {cerrado ? ` · ${e.estado}` : ''}
+              {cerrado ? ` · ${e.estado} · abre para ver el reparto` : ''}
             </span>
           </div>
           <div className="tp-fila" style={{ gap: 12 }}>
             <Barra porcentaje={av.porcentaje} />
             <strong>{av.listas} de {av.total} OT listas</strong>
-            <span className="texto-suave" style={{ fontSize: 13 }}>avance interno {av.interno}%</span>
+            <span className="texto-suave" style={{ fontSize: 13 }} title="Promedio del checklist de todos los codigos del encargo (archivo + 7 rubros), aunque la OT no este lista todavia">checklist al {av.interno}%</span>
             {av.sinAsignar > 0 && !cerrado && <span className="tp-pill tp-pill-falta">{av.sinAsignar} sin asignar</span>}
             {(esAdmin || (e.origen === 'manual' && e.responsableUid === uid)) && !cerrado && (
               <span className="tp-fila" style={{ gap: 6 }}>
                 <button
                   className="btn-secundario tp-btn-chico"
+                  disabled={ocupado}
                   onClick={(ev) => {
                     ev.preventDefault()
                     ev.stopPropagation()
@@ -473,6 +566,7 @@ function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa,
                 </button>
                 <button
                   className="btn-secundario tp-btn-chico"
+                  disabled={ocupado}
                   onClick={(ev) => {
                     ev.preventDefault()
                     ev.stopPropagation()
@@ -494,7 +588,6 @@ function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa,
                 <th>Codigos</th>
                 <th>Asignada a</th>
                 <th>Avance</th>
-                <th>Quien lo ha trabajado</th>
                 <th></th>
               </tr>
             </thead>
@@ -575,14 +668,14 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
           ))
         )}
       </td>
-      <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+      <td style={{ fontSize: 13 }}>
         {a ? (
           <>
             {a.asignadoANombre}
             <div className="texto-suave" style={{ fontSize: 12 }}>
               desde {fecha(a.creadoEn)}{a.fechaObjetivo ? ` · para el ${fecha(a.fechaObjetivo)}` : ''}
             </div>
-            <HistorialAsignacion asignacionId={a.id} />
+            <HistorialAsignacion asignacion={a} />
           </>
         ) : (
           <span className="tp-pill tp-pill-falta">sin asignar</span>
@@ -590,12 +683,15 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
       </td>
       <td style={{ whiteSpace: 'nowrap' }}>
         <Barra porcentaje={fila.porcentaje} chica />
-        <span style={{ marginLeft: 6, fontSize: 13 }}>{fila.lista ? 'lista' : `${fila.listos} de ${fila.total} codigos`}</span>
+        <span style={{ marginLeft: 6, fontSize: 13 }}>{fila.lista ? 'lista' : fila.total ? `${fila.listos} de ${fila.total} codigos` : 'sin codigos todavia'}</span>
+        {/* usuario-real (10-sep): "Asignada a" y "Quien lo ha trabajado" se
+            peleaban en dos columnas y la tabla no cabia (987 px en 818).
+            Quien ha tocado los tech packs va aqui, chiquito, solo si hay. */}
+        {fila.quienes.length > 0 && <div className="texto-suave" style={{ fontSize: 12 }} title="Quien ha subido o editado los tech packs de estos codigos">tech packs de {fila.quienes.join(', ')}</div>}
       </td>
-      <td style={{ fontSize: 13 }}>{fila.quienes.length ? fila.quienes.join(', ') : <span className="texto-suave">nadie todavia</span>}</td>
-      <td style={{ whiteSpace: 'nowrap' }}>
+      <td>
         {puedeRepartir && (!a || reasignando) && (
-          <span className="tp-fila" style={{ gap: 6 }}>
+          <span className="tp-fila" style={{ gap: 6, flexWrap: 'wrap' }}>
             <select className="tp-input" style={{ width: 150 }} value={dest} onChange={(e) => setDest(e.target.value)}>
               <option value="">{a ? 'Reasignar a' : 'Asignar a'}</option>
               {equipoDisponible.map((u) => (
@@ -612,7 +708,11 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
                 onChange={(e) => setCodigosTxt(e.target.value)}
               />
             )}
-            {!a && <input className="tp-input" type="date" style={{ width: 140 }} value={fechaObj} onChange={(e) => setFechaObj(e.target.value)} title="Fecha objetivo (opcional)" />}
+            {!a && (
+              <label className="texto-suave" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Para cuando la quieres lista. Se puede dejar vacio.">
+                limite <input className="tp-input" type="date" style={{ width: 130 }} value={fechaObj} onChange={(e) => setFechaObj(e.target.value)} />
+              </label>
+            )}
             <button
               className="btn-primario tp-btn-chico"
               disabled={ocupado || !persona || (!a && aMano && parsearCodigos(codigosTxt).length === 0)}
@@ -632,7 +732,7 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
           </span>
         )}
         {puedeRepartir && a && !reasignando && (
-          <span className="tp-fila" style={{ gap: 6 }}>
+          <span className="tp-fila" style={{ gap: 6, flexWrap: 'wrap' }}>
             <button className="btn-secundario tp-btn-chico" disabled={ocupado} onClick={() => setReasignando(true)}>Reasignar</button>
             {puedeCorregirCodigos && !corrigiendo && (
               <button className="btn-secundario tp-btn-chico" disabled={ocupado} onClick={() => { setCodigosTxt((a.codigos || []).join(', ')); setCorrigiendo(true) }}>Corregir codigos</button>
@@ -686,7 +786,8 @@ function diffCodigos(antes, despues) {
 
 // Carga perezosa: no lee el historial hasta que se abre el <details>. Cada
 // renglon cerrado no gasta ni una lectura.
-function HistorialAsignacion({ asignacionId }) {
+function HistorialAsignacion({ asignacion }) {
+  const asignacionId = asignacion.id
   const [abierto, setAbierto] = useState(false)
   const [cargando, setCargando] = useState(false)
   const [renglones, setRenglones] = useState(null)
@@ -709,8 +810,7 @@ function HistorialAsignacion({ asignacionId }) {
       <summary style={{ cursor: 'pointer', fontSize: 12 }}>Historial</summary>
       {cargando && <div className="texto-suave" style={{ fontSize: 12 }}>Cargando…</div>}
       {error && <div className="texto-suave" style={{ fontSize: 12 }}>{error}</div>}
-      {renglones && renglones.length === 0 && <div className="texto-suave" style={{ fontSize: 12 }}>Sin cambios todavia.</div>}
-      {renglones && renglones.length > 0 && (
+      {renglones && (
         <ul style={{ fontSize: 12, paddingLeft: 16, margin: '4px 0' }}>
           {renglones.map((h) => {
             const diff = diffCodigos(h.antes?.codigos, h.despues?.codigos)
@@ -734,6 +834,24 @@ function HistorialAsignacion({ asignacionId }) {
               </li>
             )
           })}
+          {/* usuario-real (10-sep): "no queda registrado que yo asigne la OT ni
+              con que codigos empezo". La regla solo admite renglones de
+              revision 2 en adelante; el reparto original vive en el propio
+              documento y se muestra desde ahi. */}
+          {(() => {
+            // Codex: despues de una reasignacion la foto actual ya no es la
+            // original. La rev 1 real es el 'antes' del renglon mas viejo.
+            const masViejo = renglones.length ? renglones.reduce((m, h) => (h.revision < m.revision ? h : m)) : null
+            const origen = masViejo?.antes || asignacion
+            const codigos = Array.isArray(origen.codigos) ? origen.codigos.filter((c) => typeof c === 'string') : []
+            return (
+              <li>
+                rev 1 · asignada a {origen.asignadoANombre || '—'}
+                {codigos.length ? ` con ${codigos.length} codigo(s): ${codigos.join(', ')}` : ''}
+                {' · '}{asignacion.asignadoPorNombre || '—'} · {fecha(asignacion.creadoEn)}
+              </li>
+            )
+          })()}
         </ul>
       )}
     </details>
@@ -743,11 +861,15 @@ function HistorialAsignacion({ asignacionId }) {
 // ---------------------------------------------------------------- equipo: lo mio
 function MisAsignaciones({ asignaciones, indice }) {
   const abiertas = asignaciones.filter((a) => a.estado === 'abierta')
+  const cerradas = asignaciones.length - abiertas.length
   if (!abiertas.length) {
     return (
       <div className="tarjeta tp-vacio">
-        <div className="tp-vacio-titulo">No tienes ordenes de trabajo asignadas</div>
-        <div className="texto-suave">Cuando Lety te asigne una, aparece aqui con sus codigos.</div>
+        <div className="tp-vacio-titulo">No tienes ordenes de trabajo abiertas</div>
+        <div className="texto-suave">
+          Cuando tu jefa te asigne una, aparece aqui con sus codigos.
+          {cerradas ? ` Tienes ${cerradas} cerrada(s) o cancelada(s).` : ''}
+        </div>
       </div>
     )
   }
@@ -759,12 +881,12 @@ function MisAsignaciones({ asignaciones, indice }) {
           <div>
             <strong style={{ fontSize: 16 }}>OT {a.ot}</strong>
             <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
-              OC {a.oc} · te la asigno {a.asignadoPorNombre} el {fecha(a.creadoEn)}{a.fechaObjetivo ? ` · para el ${fecha(a.fechaObjetivo)}` : ''}
+              {a.planVersionId === 'manual' ? `${a.oc} (cargada a mano)` : `OC ${a.oc}`} · te la asigno {a.asignadoPorNombre} el {fecha(a.creadoEn)}{a.fechaObjetivo ? ` · para el ${fecha(a.fechaObjetivo)}` : ''}
             </span>
           </div>
           <div className="tp-fila" style={{ gap: 10 }}>
             <Barra porcentaje={av.porcentaje} />
-            <strong>{av.lista ? 'Lista' : `${av.listos} de ${av.total} codigos listos`}</strong>
+            <strong>{av.lista ? 'Lista' : av.total ? `${av.listos} de ${av.total} codigos listos` : 'sin codigos todavia'}</strong>
           </div>
         </div>
         {a.notas && <p className="texto-suave" style={{ fontSize: 13 }}>{a.notas}</p>}

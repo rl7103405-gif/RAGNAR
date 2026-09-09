@@ -89,7 +89,8 @@ const HIST_TP = { revision: 1, antes: {}, despues: DATOS, cuando: T, quienUid: J
 
 const encargoManual = { oc: 'PRUEBA OC MANUAL', planVersionId: 'manual', ots: ['7601', '7887-A'], totalOts: 2, responsableUid: JEFA.uid, responsableNombre: JEFA.nombreCompleto, estado: 'abierto', creadoPorUid: JEFA.uid, creadoPorNombre: JEFA.nombreCompleto, creadoEn: T, esPrueba: true, origen: 'manual', notas: null, fechaObjetivo: null }
 
-const { id: _idEnc, ...ENCARGO_DOC } = ENCARGO
+// Abierto a la fuerza: el demo real lo cierra el usuario-real en su ultimo paso, y estos escenarios lo necesitan abierto
+const { id: _idEnc, ...ENCARGO_DOC } = { ...ENCARGO, estado: 'abierto' }
 const P_ENC = DBPATH + '/encargosDiseno/' + ENCARGO.id
 const P_ASIG = DBPATH + '/asignacionesDiseno/' + ASIG_ID
 const P_TP = DBPATH + '/techPacks/' + TP.codigo
@@ -246,6 +247,20 @@ Object.assign(ESCENARIOS, {
     que: 'Lety da de alta un codigo nuevo en la biblioteca (sin archivo aun)',
     request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc(TP_NUEVO) },
     functionMocks: [...perfilMocks([JEFA])], ancla: 'return yo.subeTechPacks\n        && d.codigo == codigo'
+  },
+  'asig-reabrir': {
+    que: 'la jefa reabre una asignacion cerrada de un encargo que sigue abierto',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_ASIG, time: T, resource: doc({ ...ASIG, estado: 'abierta', revision: 3, ultimaEdicionId: 'HIST0003', ...sellos(JEFA) }) },
+    resource: doc({ ...ASIG, estado: 'cerrada', revision: 2 }),
+    functionMocks: [...perfilMocks([JEFA, EQUIPO]), mGet(P_ENC, ENCARGO_DOC),
+      mAfter(P_ASIG + '/historial/HIST0003', { revision: 3, antes: foto({ ...ASIG, estado: 'cerrada' }), despues: foto(ASIG), motivo: null, cuando: T, quienUid: JEFA.uid, quienNombre: JEFA.nombreCompleto })]
+  },
+  'neg-reabrir-encargo-cerrado': {
+    expectation: 'DENY', que: 'NEG: reabrir una asignacion cuando su encargo ya esta cerrado',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_ASIG, time: T, resource: doc({ ...ASIG, estado: 'abierta', revision: 3, ultimaEdicionId: 'HIST0003', ...sellos(JEFA) }) },
+    resource: doc({ ...ASIG, estado: 'cerrada', revision: 2 }),
+    functionMocks: [...perfilMocks([JEFA, EQUIPO]), mGet(P_ENC, { ...ENCARGO_DOC, estado: 'cerrado' }),
+      mAfter(P_ASIG + '/historial/HIST0003', { revision: 3, antes: foto({ ...ASIG, estado: 'cerrada' }), despues: foto(ASIG), motivo: null, cuando: T, quienUid: JEFA.uid, quienNombre: JEFA.nombreCompleto })]
   },
   'neg-alias-recibe-archivo': {
     expectation: 'DENY', que: 'NEG: subirle un archivo a un ALIAS (apuntaA)',
