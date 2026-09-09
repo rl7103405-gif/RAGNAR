@@ -44,6 +44,9 @@ service cloud.firestore {
     //   consulta -> solo lectura (Cielo)
     //   almacen  -> avios (Alvaro; reservado, aun sin usar)
     //   admin    -> Roberto
+    function rolesInternos() {
+      return ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion', 'pt', 'desarrollo'];
+    }
     function esInterno() {
       //   produccion -> Adrian, jefe de produccion: sube el PLAN MAESTRO que
       //                 agrupa las ordenes de trabajo bajo su orden de compra.
@@ -54,12 +57,21 @@ service cloud.firestore {
       //   desarrollo -> Lety, Desarrollo de Producto: sube los TECH PACKS a la
       //                 biblioteca (por codigo). No captura, no embarca, no
       //                 encarga tareas ni ve inventarios.
-      return rol() in ['captura', 'completo', 'consulta', 'almacen', 'admin', 'produccion', 'pt', 'desarrollo']
+      // PRESUPUESTO (2026-09-09): Firestore evalua como maximo 1,000
+      // expresiones por peticion; pasarse se ve en la app como "Missing or
+      // insufficient permissions" (asi cayo la primera asignacion de diseno,
+      // medido con la API firebaserules :test). rol() y maquilaDelPerfil()
+      // volvian a correr perfilActivo() cada una; aqui se corre UNA vez y se
+      // leen los dos campos del mismo perfil. Equivale exactamente a
+      //   rol() in [...] && maquilaDelPerfil() == ''
+      // (sin perfil activo, rol() daba '' y '' no esta en la lista).
+      return perfilActivo()
+        && perfil().get('rol', '') in rolesInternos()
         // Defensa en profundidad: un perfil que trae 'maquilaId' es de una
         // empresa EXTERNA y jamas es interno, aunque su rol diga otra cosa.
         // Sin esto, una cuenta hibrida (rol interno + maquilaId) le abriria a
         // la maquila la operacion completa (pentester, 2026-08-12).
-        && maquilaDelPerfil() == '';
+        && perfil().get('maquilaId', '') == '';
     }
 
     // Quien puede ver LO QUE REPORTARON las maquilas al recibir (faltantes,
@@ -90,7 +102,44 @@ service cloud.firestore {
       // (autorizaciones, saldo inicial de inventario, saldos), y sin esto un
       // perfil hibrido admin+maquilaId las cruzaria aunque todas las demas
       // puertas ya lo rechacen. esInterno() no llama esAdmin(): sin recursion.
-      return esInterno() && rol() == 'admin';
+      // perfil().get y no rol(): esInterno() ya garantizo el perfil activo,
+      // y rol() lo volveria a comprobar (presupuesto de expresiones).
+      return esInterno() && perfil().get('rol', '') == 'admin';
+    }
+
+    // EL PERFIL, LEIDO UNA SOLA VEZ. Firestore evalua como maximo 1,000
+    // expresiones por peticion; cada esAdmin()/esCuentaDePrueba()/perfil()
+    // vuelve a recorrer perfilActivo() -> exists() + get(), y una regla que
+    // los llama seis o siete veces se pasa del tope y la app recibe un
+    // "insufficient permissions" (asi cayo la primera asignacion de diseno,
+    // 2026-09-09, medido con web/scripts/probar_reglas_diseno.mjs). Las
+    // reglas pesadas (tareas de diseno, tech packs) ligan este mapa con let
+    // y leen banderas. Cada bandera significa EXACTAMENTE lo mismo que la
+    // funcion base que sustituye:
+    //   interno      == esInterno()
+    //   admin        == esAdmin()
+    //   jefaDiseno   == puedeAsignarDiseno()
+    //   subeTechPacks == puedeSubirTechPacks()
+    //   veTechPacks  == puedeVerTechPacks()
+    //   esPrueba     == esCuentaDePrueba()
+    //   nombre       == perfil().get('nombreCompleto', '')
+    // Sin sesion o sin documento de perfil, el mapa vale todo false/'' (no
+    // truena): igual que perfilActivo() daba false.
+    function perfilResumido() {
+      let hay = estaAutenticado() && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+      let p = hay ? perfil() : {};
+      let activo = hay && p.get('activo', false) == true;
+      let r = p.get('rol', '');
+      let interno = activo && r in rolesInternos() && p.get('maquilaId', '') == '';
+      return {
+        'interno': interno,
+        'admin': interno && r == 'admin',
+        'jefaDiseno': interno && r == 'desarrollo' && p.get('puedeAsignarDiseno', false) == true,
+        'subeTechPacks': interno && r in ['admin', 'desarrollo'],
+        'veTechPacks': interno && (r in ['admin', 'desarrollo', 'completo'] || p.get('puedeCrearTareas', false) == true),
+        'esPrueba': activo && p.get('esPrueba', false) == true,
+        'nombre': p.get('nombreCompleto', '')
+      };
     }
 
     // ---- Usuarios EXTERNOS: las maquilas ----
@@ -2844,15 +2893,20 @@ service cloud.firestore {
     // 950 KB con id '<tipo>-NN' (tp-00..tp-16, ftt-00..ftt-16), manifiesto
     // con sha256 en el documento padre.
     function puedeSubirTechPacks() {
-      return esInterno() && rol() in ['admin', 'desarrollo'];
+      // perfil().get('rol') y no rol(): esInterno() ya comprobo el perfil
+      // activo (presupuesto de expresiones, ver perfilResumido()).
+      return esInterno() && perfil().get('rol', '') in ['admin', 'desarrollo'];
     }
     // Quien VE la biblioteca: el que sube, el que encarga tareas (Lindbergh)
     // y direccion/embarques ('completo': el papa). Cielo (consulta) NO ve la
     // biblioteca. Los pesadores, Adrian y Valeria (pt) tampoco la necesitan:
     // la lista es la MISMA que las pestanas de Estacion.jsx, a proposito.
     function puedeVerTechPacks() {
-      return esInterno() && (puedeSubirTechPacks() || puedeCrearTareas()
-        || rol() in ['completo']);
+      // Equivale a esInterno() && (puedeSubirTechPacks() || puedeCrearTareas()
+      // || rol() == 'completo'), desplegado para no releer el perfil seis
+      // veces (presupuesto de expresiones).
+      return esInterno() && (perfil().get('rol', '') in ['admin', 'desarrollo', 'completo']
+        || perfil().get('puedeCrearTareas', false) == true);
     }
     function manifiestoTechPackValido(m) {
       return m is map
@@ -2904,10 +2958,13 @@ service cloud.firestore {
     // se puede firmar una edicion con el nombre de otra persona o con una fecha
     // inventada, y el historial deja de servir para lo que Roberto lo quiere:
     // saber quien se equivoco.
+    function sellosDeEdicionSegun(d, nombre) {
+      return d.actualizadoEn == request.time
+        && d.actualizadoPorUid == request.auth.uid
+        && d.actualizadoPorNombre == nombre;
+    }
     function sellosDeEdicionOk() {
-      return request.resource.data.actualizadoEn == request.time
-        && request.resource.data.actualizadoPorUid == request.auth.uid
-        && request.resource.data.actualizadoPorNombre == perfil().get('nombreCompleto', '');
+      return sellosDeEdicionSegun(request.resource.data, perfil().get('nombreCompleto', ''));
     }
     function techPackDocValido(d) {
       return d.keys().hasAll(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba'])
@@ -3001,8 +3058,24 @@ service cloud.firestore {
     // El alcance se CONGELA al crear (version del plan + lista de OT +
     // codigos): si Adrian sube un plan nuevo, el porcentaje historico no se
     // mueve solo.
+    // PRESUPUESTO DE EXPRESIONES (2026-09-09). Firestore evalua como maximo
+    // 1,000 expresiones por peticion y, si se pasa, la app recibe un
+    // "Missing or insufficient permissions" identico al de una regla que
+    // niega. Asi cayo la PRIMERA asignacion de diseno (usuario-real como
+    // Lety): el 'allow create' llamaba esAdmin(), puedeAsignarDiseno(),
+    // esCuentaDePrueba() tres veces y perfil().get(...), y cada una vuelve a
+    // recorrer perfilActivo() -> exists() + get(). Medido con el motor real
+    // (web/scripts/probar_reglas_diseno.mjs): 0 expresiones de margen.
+    //
+    // La regla de esta seccion: cada allow delega a UNA funcion que lee el
+    // perfil UNA sola vez (perfilResumido) y reparte banderas; ninguna
+    // funcion de aqui llama esAdmin(), esCuentaDePrueba() ni perfil() por su
+    // cuenta. Las banderas significan EXACTAMENTE lo mismo que las funciones
+    // base (ver perfilResumido); solo se calculan una vez.
     function puedeAsignarDiseno() {
-      return esInterno() && rol() == 'desarrollo' && perfil().get('puedeAsignarDiseno', false) == true;
+      // Se conserva para usuarios/{uid} (allow read de los perfiles del
+      // equipo). Dentro de esta seccion se usa perfilResumido().jefaDiseno.
+      return esInterno() && perfil().get('rol', '') == 'desarrollo' && perfil().get('puedeAsignarDiseno', false) == true;
     }
     // De donde nace un encargo: 'plan' (el admin lo saca del plan maestro)
     // o 'manual' (la jefa teclea las OT porque el plan no esta al dia:
@@ -3014,9 +3087,11 @@ service cloud.firestore {
     function perfilDe(uid) {
       return get(/databases/$(database)/documents/usuarios/$(uid)).data;
     }
-    function sellosDeAltaOk(d) {
+    // 'nombre' viene de perfilResumido(): el nombre del PERFIL de quien firma,
+    // nunca el que manda el cliente.
+    function sellosDeAltaOk(d, nombre) {
       return d.creadoPorUid == request.auth.uid
-        && d.creadoPorNombre == perfil().get('nombreCompleto', '')
+        && d.creadoPorNombre == nombre
         && d.creadoEn == request.time;
     }
     function encargoDisenoValido(d) {
@@ -3041,64 +3116,77 @@ service cloud.firestore {
         && (d.get('notas', null) == null || (d.notas is string && d.notas.size() <= 300))
         && (d.get('fechaObjetivo', null) == null || d.fechaObjetivo is timestamp);
     }
-    // A quien se le encarga: una jefa de diseno real, del mismo mundo, y con
-    // el nombre tomado de SU perfil (no del cliente).
-    function responsableDeDisenoOk(d) {
+    // A quien se le encarga: una jefa de diseno real, del mismo mundo que
+    // quien escribe (esPruebaYo), y con el nombre tomado de SU perfil (no del
+    // cliente).
+    function responsableDeDisenoOk(d, esPruebaYo) {
       let p = perfilDe(d.responsableUid);
       return p.get('rol', '') == 'desarrollo'
         && p.get('activo', false) == true
         && p.get('puedeAsignarDiseno', false) == true
-        && p.get('esPrueba', false) == esCuentaDePrueba()
+        && p.get('esPrueba', false) == esPruebaYo
         // Nombre nunca vacio de ningun lado: ni el que manda el cliente ni el
         // que trae el perfil (un perfil a medio llenar no puede validar).
         && d.responsableNombre.size() > 0
         && p.get('nombreCompleto', '').size() > 0
         && d.responsableNombre == p.get('nombreCompleto', '');
     }
-    match /encargosDiseno/{encargoId} {
-      // Corral de prueba, patron de la casa (igual que techPacks:
-      // resource.data.esPrueba == esCuentaDePrueba()): una cuenta real nunca
-      // lee ni toca un encargo de prueba, y viceversa.
-      allow read: if esInterno() && (esAdmin() || resource.data.responsableUid == request.auth.uid)
-        && resource.data.get('esPrueba', false) == esCuentaDePrueba();
-      // PERMISO POR ORIGEN (Codex): 'plan' solo el admin; 'manual' el admin o
-      // la propia jefa, siempre como responsable de si misma y con
-      // planVersionId == 'manual' (para que nadie declare un encargo de plan
-      // con una version inventada).
-      allow create: if (
-            (origenDelEncargo(request.resource.data) == 'plan' && esAdmin())
-            || (origenDelEncargo(request.resource.data) == 'manual'
-                && request.resource.data.planVersionId == 'manual'
-                && (esAdmin() || (puedeAsignarDiseno() && request.resource.data.responsableUid == request.auth.uid)))
+    // Corral de prueba, patron de la casa (igual que techPacks): una cuenta
+    // real nunca lee ni toca un encargo de prueba, y viceversa.
+    function puedeLeerEncargo(d) {
+      let yo = perfilResumido();
+      return yo.interno
+        && (yo.admin || d.responsableUid == request.auth.uid)
+        && d.get('esPrueba', false) == yo.esPrueba;
+    }
+    // PERMISO POR ORIGEN (Codex): 'plan' solo el admin; 'manual' el admin o
+    // la propia jefa, siempre como responsable de si misma y con
+    // planVersionId == 'manual' (para que nadie declare un encargo de plan
+    // con una version inventada).
+    function puedeCrearEncargo(d) {
+      let yo = perfilResumido();
+      return (
+            (origenDelEncargo(d) == 'plan' && yo.admin)
+            || (origenDelEncargo(d) == 'manual'
+                && d.planVersionId == 'manual'
+                && (yo.admin || (yo.jefaDiseno && d.responsableUid == request.auth.uid)))
           )
-        && encargoDisenoValido(request.resource.data)
-        && sellosDeAltaOk(request.resource.data)
-        && request.resource.data.estado == 'abierto'
-        && !request.resource.data.keys().hasAny(['actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
-        && request.resource.data.esPrueba == esCuentaDePrueba()
-        && responsableDeDisenoOk(request.resource.data);
-      // Solo cerrar/cancelar, cambiar la fecha o las notas. El alcance (oc,
-      // ots, planVersionId) y la responsable quedan como nacieron.
-      // La jefa administra el ciclo de vida de SUS encargos manuales (Codex:
-      // si no, depende del admin para limpiar una carga equivocada). Los de
-      // plan siguen siendo solo del admin. 'origen' no esta en el hasOnly de
-      // abajo: no se puede convertir un manual en plan ni al reves.
-      // pentester R1: la rama de la jefa no pasaba por puedeAsignarDiseno(),
-      // asi que una jefa dada de baja o con el flag revocado, con su token
-      // todavia vivo, seguia pudiendo cerrar/cancelar/reabrir sus manuales.
-      // pentester R5: esa misma rama solo puede tocar un encargo 'abierto'.
-      // Cancelar antes de la junta y reabrir despues mueve los indicadores
-      // sin dejar rastro (los encargos no tienen historial). El admin si
-      // puede reabrir (para corregir una carga equivocada de la jefa).
-      allow update: if (esAdmin()
-            || (puedeAsignarDiseno() && origenDelEncargo(resource.data) == 'manual'
-                && resource.data.responsableUid == request.auth.uid
-                && resource.data.estado == 'abierto'))
-        && resource.data.get('esPrueba', false) == esCuentaDePrueba()
-        && encargoDisenoValido(request.resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && encargoDisenoValido(d)
+        && sellosDeAltaOk(d, yo.nombre)
+        && d.estado == 'abierto'
+        && !d.keys().hasAny(['actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && d.esPrueba == yo.esPrueba
+        && responsableDeDisenoOk(d, yo.esPrueba);
+    }
+    // Solo cerrar/cancelar, cambiar la fecha o las notas. El alcance (oc,
+    // ots, planVersionId) y la responsable quedan como nacieron.
+    // La jefa administra el ciclo de vida de SUS encargos manuales (Codex:
+    // si no, depende del admin para limpiar una carga equivocada). Los de
+    // plan siguen siendo solo del admin. 'origen' no esta en el hasOnly de
+    // abajo: no se puede convertir un manual en plan ni al reves.
+    // pentester R1: la rama de la jefa pasa por jefaDiseno (interno + rol +
+    // flag), asi que una jefa dada de baja o con el flag revocado, con su
+    // token todavia vivo, no puede cerrar/cancelar/reabrir sus manuales.
+    // pentester R5: esa misma rama solo puede tocar un encargo 'abierto'.
+    // Cancelar antes de la junta y reabrir despues mueve los indicadores
+    // sin dejar rastro (los encargos no tienen historial). El admin si
+    // puede reabrir (para corregir una carga equivocada de la jefa).
+    function puedeEditarEncargo(antes, despues) {
+      let yo = perfilResumido();
+      return (yo.admin
+            || (yo.jefaDiseno && origenDelEncargo(antes) == 'manual'
+                && antes.responsableUid == request.auth.uid
+                && antes.estado == 'abierto'))
+        && antes.get('esPrueba', false) == yo.esPrueba
+        && encargoDisenoValido(despues)
+        && despues.diff(antes).affectedKeys()
              .hasOnly(['estado', 'notas', 'fechaObjetivo', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
-        && sellosDeEdicionOk();
+        && sellosDeEdicionSegun(despues, yo.nombre);
+    }
+    match /encargosDiseno/{encargoId} {
+      allow read: if puedeLeerEncargo(resource.data);
+      allow create: if puedeCrearEncargo(request.resource.data);
+      allow update: if puedeEditarEncargo(resource.data, request.resource.data);
       allow delete: if false;
     }
 
@@ -3138,20 +3226,20 @@ service cloud.firestore {
     // A quien se le asigna: alguien del equipo de ESA jefa (su perfil dice
     // supervisorDisenoUid == jefeUid), activa, del mismo mundo, y con el
     // nombre tomado de su perfil.
-    function destinatariaDeDisenoOk(d) {
+    function destinatariaDeDisenoOk(d, esPruebaYo) {
       let p = perfilDe(d.asignadoAUid);
       return p.get('rol', '') == 'desarrollo'
         && p.get('activo', false) == true
         && p.get('supervisorDisenoUid', '') == d.jefeUid
-        && p.get('esPrueba', false) == esCuentaDePrueba()
+        && p.get('esPrueba', false) == esPruebaYo
         && d.asignadoANombre.size() > 0
         && p.get('nombreCompleto', '').size() > 0
         && d.asignadoANombre == p.get('nombreCompleto', '');
     }
     // La asignacion tiene que colgar de un encargo abierto de esa OC, que
     // incluya esa OT, de la misma version del plan, y cuya responsable sea
-    // quien reparte (o el admin).
-    function encargoDeLaAsignacionOk(d) {
+    // quien reparte (o el admin: la bandera viene de perfilResumido).
+    function encargoDeLaAsignacionOk(d, admin, esPruebaYo) {
       // getAfter, no get: lee el encargo tal como queda DESPUES del batch.
       // Con get() a secas, un batch que cierra el encargo y en la misma
       // escritura le crea una asignacion pasaba (leia el "abierto" de antes).
@@ -3160,9 +3248,9 @@ service cloud.firestore {
         && e.oc == d.oc
         && d.ot in e.ots
         && e.planVersionId == d.planVersionId
-        && e.esPrueba == esCuentaDePrueba()
+        && e.esPrueba == esPruebaYo
         && d.jefeUid == e.responsableUid
-        && (esAdmin() || e.responsableUid == request.auth.uid);
+        && (admin || e.responsableUid == request.auth.uid);
     }
     // Lo que el historial compara: a quien y en que estado.
     // OJO: esta forma esta DUPLICADA en web/src/utils/tareasDiseno.js
@@ -3172,80 +3260,105 @@ service cloud.firestore {
       // dedazo tiene que poder corregirse, y la correccion queda en el historial.
       return {'asignadoAUid': d.asignadoAUid, 'asignadoANombre': d.asignadoANombre, 'estado': d.estado, 'codigos': d.codigos};
     }
-    function historialDeAsignacionCuadra(asignacionId) {
-      let h = getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)/historial/$(request.resource.data.ultimaEdicionId)).data;
-      return h.revision == request.resource.data.revision
-        && h.antes == fotoDeAsignacion(resource.data)
-        && h.despues == fotoDeAsignacion(request.resource.data)
+    // El amarre con getAfter(): mira como va a quedar el renglon de historial
+    // DESPUES de este batch y exige que diga la verdad sobre este cambio.
+    function historialDeAsignacionCuadra(asignacionId, antes, despues) {
+      let h = getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)/historial/$(despues.ultimaEdicionId)).data;
+      return h.revision == despues.revision
+        && h.antes == fotoDeAsignacion(antes)
+        && h.despues == fotoDeAsignacion(despues)
         && h.quienUid == request.auth.uid
         && h.cuando == request.time;
     }
-    match /asignacionesDiseno/{asignacionId} {
-      // Corral de prueba, patron de la casa (igual que techPacks).
-      allow read: if esInterno()
-        && (esAdmin() || resource.data.jefeUid == request.auth.uid || resource.data.asignadoAUid == request.auth.uid)
-        && resource.data.get('esPrueba', false) == esCuentaDePrueba();
-      allow create: if (esAdmin() || puedeAsignarDiseno())
-        && asignacionDisenoValida(request.resource.data)
-        && request.resource.data.estado == 'abierta'
-        && request.resource.data.revision == 1
-        && !request.resource.data.keys().hasAny(['ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
-        && request.resource.data.asignadoPorUid == request.auth.uid
-        && request.resource.data.asignadoPorNombre == perfil().get('nombreCompleto', '')
-        && request.resource.data.creadoEn == request.time
-        && request.resource.data.esPrueba == esCuentaDePrueba()
+    function puedeLeerAsignacion(d) {
+      let yo = perfilResumido();
+      return yo.interno
+        && (yo.admin || d.jefeUid == request.auth.uid || d.asignadoAUid == request.auth.uid)
+        && d.get('esPrueba', false) == yo.esPrueba;
+    }
+    function puedeCrearAsignacion(d, asignacionId) {
+      let yo = perfilResumido();
+      return (yo.admin || yo.jefaDiseno)
+        && asignacionDisenoValida(d)
+        && d.estado == 'abierta'
+        && d.revision == 1
+        && !d.keys().hasAny(['ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        && d.asignadoPorUid == request.auth.uid
+        && d.asignadoPorNombre == yo.nombre
+        && d.creadoEn == request.time
+        && d.esPrueba == yo.esPrueba
         // Id determinista: una OT de un encargo solo puede tener UNA
         // asignacion viva. El segundo intento sobre la misma OT cae aqui (no
         // hay create posible) y tiene que pasar por el update, que exige
         // historial -- asi no se puede duplicar el reparto sin dejar rastro.
-        && asignacionId == request.resource.data.encargoId + '__' + request.resource.data.ot
-        && encargoDeLaAsignacionOk(request.resource.data)
-        && destinatariaDeDisenoOk(request.resource.data);
-      // Reasignar o cerrar: solo la jefa que la reparte (o el admin), SIEMPRE
-      // con historial en el mismo batch. La destinataria no puede tocarla.
-      allow update: if (esAdmin() || resource.data.jefeUid == request.auth.uid)
-        && resource.data.get('esPrueba', false) == esCuentaDePrueba()
-        && asignacionDisenoValida(request.resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && asignacionId == d.encargoId + '__' + d.ot
+        && encargoDeLaAsignacionOk(d, yo.admin, yo.esPrueba)
+        && destinatariaDeDisenoOk(d, yo.esPrueba);
+    }
+    // Reasignar o cerrar: solo la jefa que la reparte (o el admin), SIEMPRE
+    // con historial en el mismo batch. La destinataria no puede tocarla.
+    // La rama de la jefa exige jefaDiseno (interno + rol + flag vigentes),
+    // igual que en los encargos (pentester R1): antes bastaba jefeUid ==
+    // uid, y una jefa dada de baja seguia pudiendo reasignar.
+    function puedeEditarAsignacion(antes, despues, asignacionId) {
+      let yo = perfilResumido();
+      return (yo.admin || (yo.jefaDiseno && antes.jefeUid == request.auth.uid))
+        && antes.get('esPrueba', false) == yo.esPrueba
+        && asignacionDisenoValida(despues)
+        && despues.diff(antes).affectedKeys()
              .hasOnly(['asignadoAUid', 'asignadoANombre', 'estado', 'codigos', 'notas', 'fechaObjetivo', 'revision', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
-        && sellosDeEdicionOk()
-        && request.resource.data.revision == resource.data.revision + 1
+        && sellosDeEdicionSegun(despues, yo.nombre)
+        && despues.revision == antes.revision + 1
         // El nombre SIEMPRE se ancla al perfil del uid vigente, cambie o no
         // el destinatario: asi no se puede dejar el uid quieto y solo
         // renombrar la asignacion para que parezca de otra persona.
-        && request.resource.data.asignadoANombre == perfilDe(request.resource.data.asignadoAUid).get('nombreCompleto', '')
-        && (request.resource.data.asignadoAUid == resource.data.asignadoAUid
-            || destinatariaDeDisenoOk(request.resource.data))
-        && fotoDeAsignacion(request.resource.data) != fotoDeAsignacion(resource.data)
-        && historialDeAsignacionCuadra(asignacionId);
+        && despues.asignadoANombre == perfilDe(despues.asignadoAUid).get('nombreCompleto', '')
+        && (despues.asignadoAUid == antes.asignadoAUid
+            || destinatariaDeDisenoOk(despues, yo.esPrueba))
+        && fotoDeAsignacion(despues) != fotoDeAsignacion(antes)
+        && historialDeAsignacionCuadra(asignacionId, antes, despues);
+    }
+    match /asignacionesDiseno/{asignacionId} {
+      allow read: if puedeLeerAsignacion(resource.data);
+      allow create: if puedeCrearAsignacion(request.resource.data, asignacionId);
+      allow update: if puedeEditarAsignacion(resource.data, request.resource.data, asignacionId);
       allow delete: if false;
     }
+    // Corral de prueba: el historial hereda el mundo del padre.
+    function puedeLeerHistorialAsignacion(asignacionId) {
+      let yo = perfilResumido();
+      let a = get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data;
+      return yo.interno
+        && (yo.admin || a.jefeUid == request.auth.uid || a.asignadoAUid == request.auth.uid)
+        && a.get('esPrueba', false) == yo.esPrueba;
+    }
+    // Y al reves que en el padre: la asignacion TIENE que cambiar en este
+    // mismo batch, apuntar a este renglon, y decir la verdad sobre el antes
+    // y el despues. El padre posterior (getAfter) tiene que seguir en el
+    // mismo mundo que quien escribe.
+    function puedeCrearHistorialAsignacion(h, asignacionId, edicionId) {
+      let yo = perfilResumido();
+      let antes = get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data;
+      let despues = getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data;
+      return (yo.admin || yo.jefaDiseno)
+        && h.keys().hasAll(['revision', 'antes', 'despues', 'cuando', 'quienUid', 'quienNombre'])
+        && h.keys().hasOnly(['revision', 'antes', 'despues', 'motivo', 'cuando', 'quienUid', 'quienNombre'])
+        && h.revision is int && h.revision >= 2
+        && h.antes is map
+        && h.despues is map
+        && (h.get('motivo', null) == null || (h.motivo is string && h.motivo.size() <= 300))
+        && h.cuando == request.time
+        && h.quienUid == request.auth.uid
+        && h.quienNombre == yo.nombre
+        && despues.ultimaEdicionId == edicionId
+        && despues.revision == h.revision
+        && despues.get('esPrueba', false) == yo.esPrueba
+        && fotoDeAsignacion(despues) == h.despues
+        && fotoDeAsignacion(antes) == h.antes;
+    }
     match /asignacionesDiseno/{asignacionId}/historial/{edicionId} {
-      allow read: if esInterno()
-        && (esAdmin()
-            || get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.jefeUid == request.auth.uid
-            || get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.asignadoAUid == request.auth.uid)
-        // Corral de prueba: el historial hereda el mundo del padre.
-        && get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.get('esPrueba', false) == esCuentaDePrueba();
-      allow create: if (esAdmin() || puedeAsignarDiseno())
-        && request.resource.data.keys().hasAll(['revision', 'antes', 'despues', 'cuando', 'quienUid', 'quienNombre'])
-        && request.resource.data.keys().hasOnly(['revision', 'antes', 'despues', 'motivo', 'cuando', 'quienUid', 'quienNombre'])
-        && request.resource.data.revision is int && request.resource.data.revision >= 2
-        && request.resource.data.antes is map
-        && request.resource.data.despues is map
-        && (request.resource.data.get('motivo', null) == null || (request.resource.data.motivo is string && request.resource.data.motivo.size() <= 300))
-        && request.resource.data.cuando == request.time
-        && request.resource.data.quienUid == request.auth.uid
-        && request.resource.data.quienNombre == perfil().get('nombreCompleto', '')
-        // Y al reves: la asignacion TIENE que cambiar en este mismo batch,
-        // apuntar a este renglon, y decir la verdad sobre el antes y el despues.
-        && getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.ultimaEdicionId == edicionId
-        && getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.revision == request.resource.data.revision
-        // Corral de prueba: el padre posterior (getAfter) tiene que seguir
-        // en el mismo mundo que quien escribe.
-        && getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data.get('esPrueba', false) == esCuentaDePrueba()
-        && fotoDeAsignacion(getAfter(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data) == request.resource.data.despues
-        && fotoDeAsignacion(get(/databases/$(database)/documents/asignacionesDiseno/$(asignacionId)).data) == request.resource.data.antes;
+      allow read: if puedeLeerHistorialAsignacion(asignacionId);
+      allow create: if puedeCrearHistorialAsignacion(request.resource.data, asignacionId, edicionId);
       allow update, delete: if false;
     }
 
@@ -3288,7 +3401,7 @@ service cloud.firestore {
     // podia crear un renglon de historial en una solicitud SEPARADA del
     // update del padre (el candado del padre no alcanza a un create suelto
     // en la subcoleccion).
-    function altaHistorialCuadra(codigo, edicionId) {
+    function altaHistorialCuadra(codigo, edicionId, esPruebaYo) {
       let antesPadre = get(/databases/$(database)/documents/techPacks/$(codigo)).data;
       let despuesPadre = getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data;
       return despuesPadre.ultimaEdicionId == edicionId
@@ -3296,7 +3409,7 @@ service cloud.firestore {
         && antesPadre.get('datosEditables', {}) == request.resource.data.antes
         && despuesPadre.datosEditables == request.resource.data.despues
         && despuesPadre.datosEditables != antesPadre.get('datosEditables', {})
-        && despuesPadre.esPrueba == esCuentaDePrueba();
+        && despuesPadre.esPrueba == esPruebaYo;
     }
     // El amarre con getAfter(): mira como va a quedar el renglon de historial
     // DESPUES de este batch y exige que diga la verdad sobre este cambio.
@@ -3307,6 +3420,39 @@ service cloud.firestore {
         && h.despues == request.resource.data.datosEditables
         && h.quienUid == request.auth.uid
         && h.cuando == request.time;
+    }
+    function puedeActualizarTechPack(codigo, antes, despues) {
+      let yo = perfilResumido();
+      return yo.subeTechPacks
+        && antes.esPrueba == yo.esPrueba
+        && techPackDocValido(despues)
+        && despues.codigo == antes.codigo
+        && despues.creadoEn == antes.creadoEn
+        && despues.creadoPorUid == antes.creadoPorUid
+        && despues.esPrueba == antes.esPrueba
+        // Las marcas de quien y cuando se exigen en las DOS ramas (archivo y
+        // datos): las dos tocan actualizadoEn/actualizadoPorUid/Nombre.
+        && sellosDeEdicionSegun(despues, yo.nombre)
+        && (updateDeArchivoTechPack() || updateDeDatosTechPack(codigo));
+    }
+    // El renglon de historial de una edicion. 'antes' tiene que ser el
+    // estado real previo del padre, el padre tiene que cambiar en este mismo
+    // batch y apuntar a ESTE renglon (altaHistorialCuadra), y el corral del
+    // padre tiene que cuadrar con quien escribe.
+    function puedeCrearHistorialTechPack(h, codigo, edicionId) {
+      let yo = perfilResumido();
+      return yo.subeTechPacks
+        && h.keys().hasOnly(['revision', 'antes', 'despues', 'cuando', 'quienUid', 'quienNombre'])
+        && h.revision is int
+        && h.revision >= 1
+        && h.antes is map
+        && h.despues is map
+        && datosEditablesValidos(h.antes)
+        && datosEditablesValidos(h.despues)
+        && h.cuando == request.time
+        && h.quienUid == request.auth.uid
+        && h.quienNombre == yo.nombre
+        && altaHistorialCuadra(codigo, edicionId, yo.esPrueba);
     }
     match /techPacks/{codigo} {
       // En un GET de un documento que no existe, 'resource' es null (no hay
@@ -3338,17 +3484,10 @@ service cloud.firestore {
       // juntan en un solo hasOnly gigante a proposito: asi la edicion de datos
       // puede EXIGIR historial sin que una subida de archivo tenga que
       // arrastrarlo, y una sola escritura no puede mezclar las dos cosas.
-      allow update: if puedeSubirTechPacks()
-        && resource.data.esPrueba == esCuentaDePrueba()
-        && techPackDocValido(request.resource.data)
-        && request.resource.data.codigo == resource.data.codigo
-        && request.resource.data.creadoEn == resource.data.creadoEn
-        && request.resource.data.creadoPorUid == resource.data.creadoPorUid
-        && request.resource.data.esPrueba == resource.data.esPrueba
-        // Las marcas de quien y cuando se exigen en las DOS ramas (archivo y
-        // datos): las dos tocan actualizadoEn/actualizadoPorUid/Nombre.
-        && sellosDeEdicionOk()
-        && (updateDeArchivoTechPack() || updateDeDatosTechPack(codigo));
+      // Delegado a una funcion que lee el perfil UNA vez (presupuesto de
+      // 1,000 expresiones; ver perfilResumido). Con techPackDocValido mas
+      // los dos manifiestos, la forma anterior quedaba a ~100 del tope.
+      allow update: if puedeActualizarTechPack(codigo, resource.data, request.resource.data);
       // No se borra el documento: se quitan los manifiestos (update a null).
       // Un codigo que existio deja rastro de quien lo toco y cuando.
       allow delete: if false;
@@ -3363,24 +3502,10 @@ service cloud.firestore {
     match /techPacks/{codigo}/historial/{edicionId} {
       allow read: if puedeVerTechPacks()
         && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;
-      allow create: if puedeSubirTechPacks()
-        && request.resource.data.keys().hasOnly(['revision', 'antes', 'despues', 'cuando', 'quienUid', 'quienNombre'])
-        && request.resource.data.revision is int
-        && request.resource.data.revision >= 1
-        && request.resource.data.antes is map
-        && request.resource.data.despues is map
-        && datosEditablesValidos(request.resource.data.antes)
-        && datosEditablesValidos(request.resource.data.despues)
-        && request.resource.data.cuando == request.time
-        && request.resource.data.quienUid == request.auth.uid
-        && request.resource.data.quienNombre == perfil().get('nombreCompleto', '')
-        // Y al reves que en el padre: el documento TIENE que cambiar en este
-        // mismo batch y apuntar a ESTE renglon, 'antes' tiene que ser el
-        // estado real previo del padre, y el corral de prueba del padre tiene
-        // que cuadrar. Sin esto se podrian sembrar renglones de historial de
-        // ediciones que nunca ocurrieron, o crear el historial en una
-        // solicitud separada de la del padre.
-        && altaHistorialCuadra(codigo, edicionId);
+      // Sin esto se podrian sembrar renglones de historial de ediciones que
+      // nunca ocurrieron, o crear el historial en una solicitud separada de
+      // la del padre (ver puedeCrearHistorialTechPack).
+      allow create: if puedeCrearHistorialTechPack(request.resource.data, codigo, edicionId);
       // Un renglon de historial no se corrige ni se borra: para eso es historial.
       allow update, delete: if false;
     }
