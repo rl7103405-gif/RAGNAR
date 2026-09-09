@@ -3028,17 +3028,22 @@ service cloud.firestore {
     // request.auth.uid en LOS DOS manifiestos en cada update, y eso bloqueaba
     // a Lety si Roberto habia subido la FTT: no podia ni tocar el tech pack
     // de empaque sin antes anular el manifiesto ajeno.
-    function campoDeManifiestoOk(campo) {
-      return request.resource.data[campo] == resource.data[campo]
-        || request.resource.data[campo] == null
-        || (request.resource.data[campo].subidoPorUid == request.auth.uid
+    // 'nombre' llega de perfilResumido(): no se vuelve a leer el perfil aqui.
+    function campoDeManifiestoOk(campo, antes, despues, nombre) {
+      return despues[campo] == antes[campo]
+        || despues[campo] == null
+        // La FORMA del manifiesto nuevo se valida AQUI (y no en un
+        // techPackDocValido del documento entero): solo se paga por el
+        // manifiesto que cambia.
+        || (manifiestoTechPackValido(despues[campo])
+            && despues[campo].subidoPorUid == request.auth.uid
             // Ancla QUIEN y CUANDO del manifiesto nuevo al servidor y al
             // perfil, y hace avanzar su version: sin esto se podia escribir
             // 'actualizadoPorNombre: Roberto Linares' con fecha de 2019, que
             // es exactamente la columna "Ultimo cambio" que Roberto mira.
-            && request.resource.data[campo].subidoEn == request.time
-            && request.resource.data[campo].subidoPorNombre == perfil().get('nombreCompleto', '')
-            && request.resource.data[campo].version == (resource.data[campo] == null ? 1 : resource.data[campo].version + 1));
+            && despues[campo].subidoEn == request.time
+            && despues[campo].subidoPorNombre == nombre
+            && despues[campo].version == (antes[campo] == null ? 1 : antes[campo].version + 1));
     }
     // ===================================================================
     // TAREAS DE DISENO: la lupa sobre el equipo de Lety (2026-09-09)
@@ -3363,35 +3368,39 @@ service cloud.firestore {
     }
 
     // RAMA 1: subir o quitar el archivo. Es lo que ya se podia hacer.
-    function updateDeArchivoTechPack() {
-      return campoDeManifiestoOk('techPack')
-        && campoDeManifiestoOk('ftt')
+    function updateDeArchivoTechPack(antes, despues, nombre) {
+      return campoDeManifiestoOk('techPack', antes, despues, nombre)
+        && campoDeManifiestoOk('ftt', antes, despues, nombre)
+        && despues.descripcion is string && despues.descripcion.size() <= 200
         // 'apuntaA' NO se toca por esta rama: los alias los crea un script con
         // Admin SDK (que salta las reglas), y ningun flujo de cliente lo
         // escribe en un update. Dejarlo aqui permitia inyectarlo en un tech
         // pack real y volverlo invisible para la biblioteca.
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && despues.diff(antes).affectedKeys()
              .hasOnly(['techPack', 'ftt', 'descripcion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre']);
     }
     // RAMA 2: editar los datos. SIEMPRE deja historial: la regla exige que en
     // el MISMO batch nazca el renglon de historial y que su contenido cuadre
     // exactamente con el antes y el despues reales. No hay forma de editar sin
     // dejar rastro, ni de escribir un rastro que mienta.
-    function updateDeDatosTechPack(codigo) {
-      return request.resource.data.diff(resource.data).affectedKeys()
+    function updateDeDatosTechPack(codigo, antes, despues) {
+      return despues.diff(antes).affectedKeys()
              .hasOnly(['datosEditables', 'revision', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
         // Un ALIAS no tiene datos propios: apunta a otro codigo y hereda los
         // suyos. Si se le dejaran datos, divergirian del documento real.
-        && !resource.data.keys().hasAny(['apuntaA'])
-        && request.resource.data.datosEditables is map
+        && !antes.keys().hasAny(['apuntaA'])
+        && despues.datosEditables is map
+        && datosEditablesValidos(despues.datosEditables)
         // Tiene que cambiar algo de verdad: sin esto se puede quemar una
         // revision y sembrar un renglon de historial que diga "cambio nada".
         // El cliente ya lo evita (devuelve sinCambios), pero el candado real
         // va en el servidor.
-        && request.resource.data.datosEditables != resource.data.get('datosEditables', {})
+        && despues.datosEditables != antes.get('datosEditables', {})
         // De uno en uno. Si alguien edito mientras el modal estaba abierto, la
         // revision ya no coincide y la escritura se rechaza en vez de pisar.
-        && request.resource.data.revision == resource.data.get('revision', 0) + 1
+        && despues.revision is int
+        && despues.revision == antes.get('revision', 0) + 1
+        && despues.ultimaEdicionId is string && despues.ultimaEdicionId.size() > 0 && despues.ultimaEdicionId.size() <= 40
         && historialDeEdicionCuadra(codigo);
     }
     // El amarre del lado del historial: compara el padre ANTES (get) contra
@@ -3423,17 +3432,23 @@ service cloud.firestore {
     }
     function puedeActualizarTechPack(codigo, antes, despues) {
       let yo = perfilResumido();
+      // Selector barato de rama (Codex): lo que toca archivo/descripcion va
+      // por la rama de archivo; lo demas, por la de datos con historial. Una
+      // escritura mixta cae en la de archivo y su hasOnly la rechaza.
+      let tocaArchivo = despues.diff(antes).affectedKeys().hasAny(['techPack', 'ftt', 'descripcion']);
       return yo.subeTechPacks
         && antes.esPrueba == yo.esPrueba
-        && techPackDocValido(despues)
-        && despues.codigo == antes.codigo
-        && despues.creadoEn == antes.creadoEn
-        && despues.creadoPorUid == antes.creadoPorUid
-        && despues.esPrueba == antes.esPrueba
-        // Las marcas de quien y cuando se exigen en las DOS ramas (archivo y
-        // datos): las dos tocan actualizadoEn/actualizadoPorUid/Nombre.
+        // La FORMA del documento entero (techPackDocValido) se exige al
+        // CREAR. En el update cada rama valida SOLO lo que toca, y lo que no
+        // toca (codigo, creadoEn, creadoPorUid, esPrueba, el otro manifiesto,
+        // 'apuntaA'...) no esta en el hasOnly de ninguna rama: queda como
+        // nacio, ya validado cuando se escribio. Con techPackDocValido aqui,
+        // editar un tech pack con archivo Y FTT reventaba el tope de 1,000
+        // expresiones (medido: escenario techpack-datos-2m).
+        // Las marcas de quien y cuando se exigen en las DOS ramas.
         && sellosDeEdicionSegun(despues, yo.nombre)
-        && (updateDeArchivoTechPack() || updateDeDatosTechPack(codigo));
+        && ((tocaArchivo && updateDeArchivoTechPack(antes, despues, yo.nombre))
+            || (!tocaArchivo && updateDeDatosTechPack(codigo, antes, despues)));
     }
     // El renglon de historial de una edicion. 'antes' tiene que ser el
     // estado real previo del padre, el padre tiene que cambiar en este mismo

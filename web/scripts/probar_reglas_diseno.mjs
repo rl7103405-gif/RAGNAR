@@ -148,7 +148,7 @@ async function correr(nombre, pad = 0, detalle = false) {
       ? rules.replace(esc.ancla, esc.ancla.slice(0, -1) + relleno + ';')
       : rules.replace(esc.ancla, esc.ancla + relleno)
   }
-  const caso = { expectation: 'ALLOW', expressionReportLevel: 'FULL', request: esc.request, functionMocks: esc.functionMocks }
+  const caso = { expectation: esc.expectation || 'ALLOW', expressionReportLevel: 'FULL', request: esc.request, functionMocks: esc.functionMocks }
   if (esc.resource) caso.resource = esc.resource
   const body = { source: { files: [{ name: 'firestore.rules', content: rules }] }, testSuite: { testCases: [caso] } }
   const resp = await fetch(`https://firebaserules.googleapis.com/v1/projects/${PROJECT}:test`, {
@@ -174,19 +174,84 @@ async function correr(nombre, pad = 0, detalle = false) {
   return { state: res.state, tope, debug, errorPosition: res.errorPosition, malas, porLinea }
 }
 
+// ---------- mas escenarios: subir archivo, tech pack con los dos manifiestos, y los NEGATIVOS
+const manifiesto = (v) => ({ nombre: 'TECH PACK ZZTEST.xlsx', formato: 'xlsx', tamano: 123456, totalChunks: 1, sha256: 'a'.repeat(64), version: v, subidoEn: T, subidoPorUid: JEFA.uid, subidoPorNombre: JEFA.nombreCompleto })
+const TP_SIN = { ...TP, techPack: null, ftt: null }
+const TP_SUBIDO = { ...TP_SIN, techPack: manifiesto(1), ...sellos(JEFA) }
+const TP_2M = { ...TP, techPack: manifiesto(1), ftt: manifiesto(1) }
+const TP_2M2 = { ...TP_2M, datosEditables: DATOS, revision: 1, ultimaEdicionId: 'HIST0002', ...sellos(JEFA) }
+const JEFA_BAJA = { ...JEFA, activo: false }
+const REAL_JEFA = { ...JEFA, uid: 'REALJEFA000000000000000000000', esPrueba: false, nombreCompleto: 'JEFA REAL' }
+const sinResultado = (fn, path) => ({ function: fn, args: [{ exactValue: path }], result: { undefined: {} } })
+Object.assign(ESCENARIOS, {
+  'techpack-archivo': {
+    que: 'Lety sube el archivo de un tech pack (manifiesto nuevo, version 1)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc(TP_SUBIDO) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])], ancla: ESCENARIOS['techpack-datos'].ancla
+  },
+  'techpack-datos-2m': {
+    que: 'Lety edita datos de un tech pack que YA tiene archivo y FTT (el caso mas pesado)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc(TP_2M2) },
+    resource: doc(TP_2M),
+    functionMocks: [...perfilMocks([JEFA]), mAfter(P_TP + '/historial/HIST0002', HIST_TP), mAfter(P_TP, TP_2M2), mGet(P_TP, TP_2M)],
+    ancla: ESCENARIOS['techpack-datos'].ancla
+  },
+  'neg-equipo-reparte': {
+    expectation: 'DENY', que: 'NEG: alguien del equipo (sin puedeAsignarDiseno) intenta repartir',
+    request: { auth: { uid: EQUIPO.uid }, method: 'create', path: P_ASIG, time: T, resource: doc({ ...ASIG, asignadoPorUid: EQUIPO.uid, asignadoPorNombre: EQUIPO.nombreCompleto }) },
+    functionMocks: ESCENARIOS['asig-create'].functionMocks
+  },
+  'neg-destinataria-ajena': {
+    expectation: 'DENY', que: 'NEG: la jefa se asigna la OT a si misma (no es de su equipo)',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_ASIG, time: T, resource: doc({ ...ASIG, asignadoAUid: JEFA.uid, asignadoANombre: JEFA.nombreCompleto }) },
+    functionMocks: ESCENARIOS['asig-create'].functionMocks
+  },
+  'neg-encargo-cerrado': {
+    expectation: 'DENY', que: 'NEG: repartir una OT de un encargo que queda cerrado en este batch',
+    request: ESCENARIOS['asig-create'].request,
+    functionMocks: [...perfilMocks([JEFA, EQUIPO]), mAfter(P_ENC, { ...ENCARGO_DOC, estado: 'cerrado' }), mGet(P_ENC, ENCARGO_DOC)]
+  },
+  'neg-cruce-corral': {
+    expectation: 'DENY', que: 'NEG: una jefa REAL reparte sobre un encargo/equipo de PRUEBA',
+    request: { auth: { uid: REAL_JEFA.uid }, method: 'create', path: P_ASIG, time: T, resource: doc({ ...ASIG, jefeUid: REAL_JEFA.uid, asignadoPorUid: REAL_JEFA.uid, asignadoPorNombre: REAL_JEFA.nombreCompleto }) },
+    functionMocks: [...perfilMocks([REAL_JEFA, EQUIPO]), mAfter(P_ENC, { ...ENCARGO_DOC, responsableUid: REAL_JEFA.uid }), mGet(P_ENC, ENCARGO_DOC)]
+  },
+  'neg-nombre-suplantado': {
+    expectation: 'DENY', que: 'NEG: la jefa firma la asignacion con otro nombre',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_ASIG, time: T, resource: doc({ ...ASIG, asignadoPorNombre: 'Roberto Linares' }) },
+    functionMocks: ESCENARIOS['asig-create'].functionMocks
+  },
+  'neg-jefa-baja-corrige': {
+    expectation: 'DENY', que: 'NEG: una jefa dada de baja (activo:false) corrige una asignacion suya',
+    request: ESCENARIOS['asig-update'].request, resource: doc(ASIG),
+    functionMocks: [...perfilMocks([JEFA_BAJA, EQUIPO]), mAfter(P_ASIG + '/historial/HIST0001', HIST_ASIG), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)]
+  },
+  'neg-corrige-sin-historial': {
+    expectation: 'DENY', que: 'NEG: corregir codigos sin el renglon de historial en el batch',
+    request: ESCENARIOS['asig-update'].request, resource: doc(ASIG),
+    functionMocks: [...perfilMocks([JEFA, EQUIPO]), sinResultado('getAfter', P_ASIG + '/historial/HIST0001'), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)]
+  },
+  'neg-techpack-mixto': {
+    expectation: 'DENY', que: 'NEG: un update que sube archivo Y edita datos a la vez',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP2, techPack: manifiesto(1) }) },
+    resource: doc(TP_SIN), functionMocks: ESCENARIOS['techpack-datos'].functionMocks
+  }
+})
+
 const arg = process.argv[2]
 const lista = arg ? [arg] : Object.keys(ESCENARIOS)
 if (arg && !ESCENARIOS[arg]) { console.error('escenarios:', Object.keys(ESCENARIOS).join(', ')); process.exit(1) }
 console.log('jefa:', JEFA.uid, JEFA.nombreCompleto, '| equipo:', EQUIPO.uid, EQUIPO.nombreCompleto, '| encargo:', ENCARGO.id, ENCARGO.oc, '| tech pack forma:', tpSnap.id, '\n')
 let fallas = 0
 for (const nombre of lista) {
+  const esc = ESCENARIOS[nombre]
   const r = await correr(nombre, 0, !!arg)
   const ok = r.state === 'SUCCESS'
   if (!ok) fallas++
-  console.log((ok ? 'OK    ' : 'FALLA ') + nombre.padEnd(20) + ' ' + ESCENARIOS[nombre].que + (r.tope ? '  <-- TOPE DE 1000 EXPRESIONES' : ''))
+  console.log((ok ? 'OK    ' : 'FALLA ') + nombre.padEnd(24) + ' ' + esc.que + (r.tope ? '  <-- TOPE DE 1000 EXPRESIONES' : ''))
   for (const m of r.debug) if (!/maximum of 1000/.test(m)) console.log('        debug: ' + m)
   if (!ok && r.errorPosition && !r.tope) console.log('        error en L' + r.errorPosition.line + ': ' + (LINEAS[r.errorPosition.line - 1] || '').trim().slice(0, 110))
-  if (!ok || arg) {
+  if ((!ok || arg) && !esc.expectation) {
     for (const m of r.malas.sort((a, b) => (a.ln || 0) - (b.ln || 0)).slice(0, 30)) console.log('        L' + m.ln + ': ' + (LINEAS[m.ln - 1] || '').trim().slice(0, 100) + '  => ' + m.vals.join(','))
   }
   if (arg) {
@@ -194,7 +259,7 @@ for (const nombre of lista) {
     console.log('        lineas mas evaluadas:')
     for (const [ln, n] of top) console.log('        ' + String(n).padStart(4) + ' x L' + ln + ': ' + (LINEAS[ln - 1] || '').trim().slice(0, 90))
   }
-  if (process.env.MARGEN === '1' && ok) {
+  if (process.env.MARGEN === '1' && ok && esc.ancla) {
     // busqueda binaria del relleno que revienta el tope: mas alto = mas margen
     let lo = 0, hi = 1024
     while (hi - lo > 4) {
