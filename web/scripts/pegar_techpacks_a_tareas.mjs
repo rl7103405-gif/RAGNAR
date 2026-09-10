@@ -39,7 +39,10 @@ const MAX_CHUNKS = 17
 const PLAN = [
   { maquila: 'hugo_martinez', ot: '7942', codigo: 'CIG90-406-P1178' },
   { maquila: 'hugo_martinez', ot: '7943', codigo: 'CIG90-810-P1178' },
-  { maquila: 'hugo_martinez', ot: '7944', codigo: 'CAC64-UN-04502' }
+  { maquila: 'hugo_martinez', ot: '7944', codigo: 'CAC64-UN-04502' },
+  // El CPD32 no bajaba del Drive (6.6 MB, el conector corta ahi); lo mando
+  // Lindbergh por WhatsApp y se cargo a la biblioteca desde el Escritorio.
+  { maquila: 'hugo_martinez', ot: '7945', codigo: 'CPD32-UN-01711' }
 ]
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex')
