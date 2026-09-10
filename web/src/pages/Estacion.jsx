@@ -37,7 +37,11 @@ import { useAuth } from '../context/AuthContext'
 
 const TABS = [
   { id: 'captura', label: 'Captura' },
-  { id: 'tareas', label: 'Tareas' },
+  // 2026-09-10: se llamaba solo "Tareas" y competia con la seccion "Tareas"
+  // de la pestana Maquilas (las de ensamble). Lindbergh entraba aqui, veia
+  // que solo se le puede encargar a gente de Quini y concluia que no tenia
+  // permiso para las maquilas. Cada una dice ahora a quien se le encarga.
+  { id: 'tareas', label: 'Tareas internas' },
   { id: 'folios', label: 'Folios del dia' },
   { id: 'historial', label: 'Historial' },
   { id: 'reportes', label: 'Reportes' },

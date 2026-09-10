@@ -121,6 +121,7 @@ service cloud.firestore {
     //   jefaDiseno   == puedeAsignarDiseno()
     //   subeTechPacks == puedeSubirTechPacks()
     //   veTechPacks  == puedeVerTechPacks()
+    //   creaTareas   == puedeCrearTareas()
     //   esPrueba     == esCuentaDePrueba()
     //   nombre       == perfil().get('nombreCompleto', '')
     // Sin sesion o sin documento de perfil, el mapa vale todo false/'' (no
@@ -137,6 +138,7 @@ service cloud.firestore {
         'jefaDiseno': interno && r == 'desarrollo' && p.get('puedeAsignarDiseno', false) == true,
         'subeTechPacks': interno && r in ['admin', 'desarrollo'],
         'veTechPacks': interno && (r in ['admin', 'desarrollo', 'completo'] || p.get('puedeCrearTareas', false) == true),
+        'creaTareas': interno && (r == 'admin' || p.get('puedeCrearTareas', false) == true),
         'esPrueba': activo && p.get('esPrueba', false) == true,
         'nombre': p.get('nombreCompleto', '')
       };
@@ -225,6 +227,11 @@ service cloud.firestore {
     // La maquila ficticia del catalogo. Se consulta el documento y no una
     // lista de ids a mano: si manana hay una segunda maquila de pruebas,
     // basta marcarla y estas reglas la reconocen sin tocarse.
+    // Igual que mismoMundoMaquila(mid) pero con el corral de quien escribe ya
+    // resuelto: no vuelve a leer el perfil (presupuesto de expresiones).
+    function mismoMundoMaquilaSegun(mid, esPruebaYo) {
+      return esPruebaYo == maquilaDePrueba(mid);
+    }
     function maquilaDePrueba(mid) {
       return mid is string
         && mid.size() > 0
@@ -2315,14 +2322,17 @@ service cloud.firestore {
     // ¿La terna quien/cuando de una firma esta COMPLETA o completamente
     // vacia? Nunca a medias: una firma con fecha y sin nombre (o al reves) es
     // un dato que no se puede auditar.
+    // Los tres campos se leen UNA vez cada uno y no ocho: esta funcion se
+    // llama cuatro veces por tarea de ensamble y era el mayor gasto del
+    // presupuesto de 1,000 expresiones (medido el 2026-09-10: ~280 de las
+    // 1,000 se iban aqui, y por eso Lindbergh no podia ni cancelar una tarea
+    // con orden de trabajo). Mismo significado, exactamente.
     function firmaCoherente(d, campoEn, campoUid, campoNombre) {
-      return (d.get(campoEn, null) == null
-              && d.get(campoUid, null) == null
-              && d.get(campoNombre, null) == null)
-        || (d.get(campoEn, null) is timestamp
-            && d.get(campoUid, null) is string
-            && d.get(campoNombre, null) is string
-            && d.get(campoNombre, '').size() > 0);
+      let en = d.get(campoEn, null);
+      let uid = d.get(campoUid, null);
+      let nombre = d.get(campoNombre, null);
+      return (en == null && uid == null && nombre == null)
+        || (en is timestamp && uid is string && nombre is string && nombre.size() > 0);
     }
 
     // Una fecha que EXISTA: '2026-02-31' pasa cualquier regex de forma. El
@@ -2337,7 +2347,18 @@ service cloud.firestore {
         && d <= (m in [1, 3, 5, 7, 8, 10, 12] ? 31 : (m == 2 ? (bisiesto ? 29 : 28) : 30));
     }
 
+    // 'revisarFirmas' (2026-09-10): las cuatro firmaCoherente se llevaban ~264
+    // de las 1,000 expresiones que Firestore permite por peticion, y por eso
+    // Lindbergh no podia ponerle fecha ni CANCELAR una tarea con orden de
+    // trabajo (se veia como "insufficient permissions"). En el update de Quini
+    // que reedita la tarea NO hacen falta: reporteDeLaMaquilaIntacto() ya
+    // exige que esas mismas firmas queden IDENTICAS a como estaban, y el
+    // documento anterior ya paso por aqui cuando se escribio. Donde las firmas
+    // SI se mueven (el create y las ramas de la maquila) se sigue pidiendo.
     function tareaEnsambleValida(mid) {
+      return tareaEnsambleValidaCon(mid, true);
+    }
+    function tareaEnsambleValidaCon(mid, revisarFirmas) {
       let d = request.resource.data;
       // Los campos del reporte de la maquila van en hasOnly pero NO en hasAll,
       // y se leen con get(...,null): asi las tareas que ya estaban vivas antes
@@ -2372,13 +2393,14 @@ service cloud.firestore {
         // OT; suelto seria texto libre disfrazado de dato.
         && (d.get('destino', null) == null || d.get('ot', null) != null)
         // Las tres firmas del ciclo, cada una entera o vacia.
-        && firmaCoherente(d, 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre')
-        && firmaCoherente(d, 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre')
-        && firmaCoherente(d, 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre')
+        && (!revisarFirmas || (
+              firmaCoherente(d, 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre')
+              && firmaCoherente(d, 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre')
+              && firmaCoherente(d, 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre')))
         // Quien movio la prioridad y cuando. Adelantarle la fecha a una tarea
         // que la maquila YA esta armando es una decision que despues se
         // reclama: tiene que quedar con nombre.
-        && firmaCoherente(d, 'fechaRequeridaCambiadaEn', 'fechaRequeridaCambiadaPorUid', 'fechaRequeridaCambiadaPorNombre')
+        && (!revisarFirmas || firmaCoherente(d, 'fechaRequeridaCambiadaEn', 'fechaRequeridaCambiadaPorUid', 'fechaRequeridaCambiadaPorNombre'))
         && (d.get('notaMaquila', null) == null
             || (d.get('notaMaquila', '') is string && d.get('notaMaquila', '').size() <= 300))
         && (d.get('motivoDevolucion', null) == null
@@ -2470,6 +2492,226 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // 2026-09-10: Lindbergh reporto que "no tiene permisos para subir tareas"
+    // y en produccion habia CERO tareas de ensamble en las seis maquilas.
+    // NO era el permiso: su perfil siempre trajo puedeCrearTareas. Lo que
+    // fallaba es que TRAER LA OT DEL PLAN -- la forma normal de encargar --
+    // se pasaba del tope de 1,000 expresiones por peticion, y Firestore eso
+    // lo devuelve como "Missing or insufficient permissions", identico a un
+    // permiso negado. Medido con web/scripts/probar_regla_tarea_maquila.mjs.
+    // El arreglo es el mismo de tareas de diseno: leer el perfil UNA vez.
+    function puedeCrearTareaEnsamble(maquilaId, tareaId) {
+      let yo = perfilResumido();
+      return yo.creaTareas
+        && mismoMundoMaquilaSegun(maquilaId, yo.esPrueba)
+        // Sin revisar las firmas del ciclo, y en su lugar se exige que NAZCAN
+        // VACIAS: es mas estricto (una tarea no puede nacer ya iniciada,
+        // declarada o devuelta) y mucho mas barato en el presupuesto de
+        // expresiones, que es lo que tenia atorado a Lindbergh.
+        && tareaEnsambleValidaCon(maquilaId, false)
+        && request.resource.data.get('iniciadaEn', null) == null
+        && request.resource.data.get('iniciadaPorUid', null) == null
+        && request.resource.data.get('iniciadaPorNombre', null) == null
+        && request.resource.data.get('declaradaEn', null) == null
+        && request.resource.data.get('declaradaPorUid', null) == null
+        && request.resource.data.get('declaradaPorNombre', null) == null
+        && request.resource.data.get('devueltaEn', null) == null
+        && request.resource.data.get('devueltaPorUid', null) == null
+        && request.resource.data.get('devueltaPorNombre', null) == null
+        && request.resource.data.get('notaMaquila', null) == null
+        && request.resource.data.get('motivoDevolucion', null) == null
+        && request.resource.data.estado in ['preparando', 'abierta']
+        // Una tarea que nace 'abierta' no puede declarar tech pack: los
+        // chunks solo se escriben en 'preparando', asi que un manifiesto en
+        // el create apuntaria a chunks que no existen.
+        && (request.resource.data.estado == 'preparando' || request.resource.data.techPack == null)
+        && (request.resource.data.publicadaEn == null
+            || request.resource.data.publicadaEn == request.time)
+        && request.resource.data.creadoPorUid == request.auth.uid
+        && request.resource.data.creadoPorNombre == yo.nombre
+        && request.resource.data.creadoEn == request.time
+        && request.resource.data.terminadaEn == null
+        && request.resource.data.terminadaPorUid == null
+        && request.resource.data.terminadaPorNombre == null
+        && request.resource.data.techPackBorradoEn == null
+        // ⚠️ SI LA TAREA DICE UNA ORDEN, ESA ORDEN QUEDA APARTADA EN ESTE MISMO
+        // LOTE, a nombre de esta maquila y de esta tarea. Sin esta linea el
+        // candado dependeria de que el cliente escribiera las dos cosas, y un
+        // cliente hecho a mano se lo saltaria creando la tarea sola.
+        && (request.resource.data.get('ot', null) == null
+            || (request.resource.data.ot.matches('^[1-9A-Z][0-9A-Z/-]*$')
+                && !request.resource.data.ot.matches('^OT.*')
+                && getAfter(/databases/$(database)/documents/otsAsignadas/$((yo.esPrueba ? 'zz_' : '') + request.resource.data.ot.toUtf8().toHexString().lower()))
+                     .data.asignaciones[maquilaId] == tareaId))
+        && request.resource.data.get('fechaRequeridaCambiadaEn', null) == null
+        && request.resource.data.get('fechaRequeridaCambiadaPorUid', null) == null
+        && request.resource.data.get('fechaRequeridaCambiadaPorNombre', null) == null;
+    }
+
+    // El update de Quini, con el perfil ligado una sola vez (mismo motivo
+    // que puedeCrearTareaEnsamble).
+    function puedeEditarTareaEnsambleQuini(maquilaId) {
+      let yo = perfilResumido();
+      // ---- Lo que hace QUINI (Lindbergh o el admin) ----
+      // tareaEnsambleValida se evalua UNA sola vez, aqui, y ya no dentro de las
+      // ramas: estaba en dos de ellas y una tarea que trae OT + fechaRequerida
+      // se pasaba del tope de 1,000 expresiones. Eso dejaba a Lindbergh sin
+      // poder ponerle fecha, adjuntarle el tech pack NI CANCELARLA, con la OT
+      // apartada para siempre (medido el 2026-09-10 con
+      // web/scripts/probar_regla_tarea_maquila.mjs).
+      // Exigirla en TODAS las ramas es mas estricto, no menos: las tres que no
+      // la pedian solo mueven estado y firmas, que ella tambien valida. Y no
+      // rompe nada vivo: hoy hay CERO tareas de ensamble en las seis maquilas.
+      return yo.creaTareas && mismoMundoMaquilaSegun(maquilaId, yo.esPrueba)
+        && tareaEnsambleValidaCon(maquilaId, false) && (
+          // (1) Mientras nadie la ha empezado ('preparando' o 'abierta'): se
+          // reedita entera, se publica ('preparando' -> 'abierta'), se regresa
+          // a 'preparando' para cambiarle el archivo, o se cierra. Quien la
+          // creo no cambia.
+          ( resource.data.estado in ['preparando', 'abierta']
+            // Esta rama reescribe el documento entero (es la de reedicion),
+            // asi que lo que NO se puede tocar hay que blindarlo a mano.
+            && reporteDeLaMaquilaIntacto()
+            && request.resource.data.creadoPorUid == resource.data.creadoPorUid
+            && request.resource.data.creadoPorNombre == resource.data.creadoPorNombre
+            && request.resource.data.creadoEn == resource.data.creadoEn
+            // La PRIORIDAD no se toca por aqui aunque esta rama reescriba el
+            // documento entero: tiene su propia rama, que la sella con nombre.
+            // Si se pudiera cambiar tambien aqui, bastaria reeditar la tarea
+            // para mover la fecha sin dejar rastro de quien fue.
+            // La ORDEN DE TRABAJO tampoco se cambia despues de creada: su
+            // apartado se escribio con esa orden, y cambiarla aqui dejaria
+            // apartada una orden que la tarea ya no trabaja mientras la nueva
+            // queda sin apartar. El candado dejaria de significar nada.
+            && request.resource.data.get('ot', null) == resource.data.get('ot', null)
+            && request.resource.data.get('fechaRequerida', null) == resource.data.get('fechaRequerida', null)
+            && request.resource.data.get('fechaRequeridaCambiadaEn', null) == resource.data.get('fechaRequeridaCambiadaEn', null)
+            && request.resource.data.get('fechaRequeridaCambiadaPorUid', null) == resource.data.get('fechaRequeridaCambiadaPorUid', null)
+            && request.resource.data.get('fechaRequeridaCambiadaPorNombre', null) == resource.data.get('fechaRequeridaCambiadaPorNombre', null)
+            // 'publicadaEn' se fija UNA vez (al publicar) y ya no se borra:
+            // si se pudiera quitar, una tarea ya entregada desapareceria del
+            // portal de la maquila sin rastro.
+            && ( request.resource.data.publicadaEn == resource.data.get('publicadaEn', null)
+                 || (resource.data.get('publicadaEn', null) == null
+                     && request.resource.data.publicadaEn == request.time) )
+            // Al cerrar queda firmado quien y cuando; mientras vive, en null.
+            && ( (request.resource.data.estado in ['preparando', 'abierta']
+                   && request.resource.data.terminadaEn == null
+                   && request.resource.data.terminadaPorUid == null
+                   && request.resource.data.terminadaPorNombre == null)
+                 || (request.resource.data.estado in ['terminada', 'cancelada']
+                   && request.resource.data.terminadaEn == request.time
+                   && request.resource.data.terminadaPorUid == request.auth.uid
+                   && request.resource.data.terminadaPorNombre == yo.nombre) ) )
+          ||
+          // (2) La maquila YA la empezo o ya la declaro terminada: aqui Quini
+          // solo CIERRA (o cancela). Se acota con un diff exacto a propósito:
+          // reeditarle los renglones o el tech pack a alguien que ya esta
+          // armando cambia el encargo debajo de sus manos, y reescribir el
+          // documento entero le permitiria ademas pisar la firma de la maquila
+          // (los tiempos que despues pagan la maquila).
+          ( resource.data.estado in ['iniciada', 'declarada']
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['estado', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPack'])
+            // El manifiesto se borra EN EL MISMO WRITE que cierra, no despues.
+            // La maquila conserva lectura del documento mientras publicadaEn
+            // exista, asi que dejarlo un momento mas le seguiria mostrando el
+            // nombre del archivo -- y ese nombre suele traer el cliente y el
+            // pedido. Los chunks se barren luego; 'techPackBorradoEn' se queda
+            // en null hasta que ese barrido de verdad termine.
+            && (request.resource.data.get('techPack', null) == null
+                || request.resource.data.get('techPack', null) == resource.data.get('techPack', null))
+            && request.resource.data.estado in ['terminada', 'cancelada']
+            // Y la orden QUEDA SUELTA. Cerrar sin soltar dejaria esa orden
+            // apartada para siempre por una tarea que ya no existe -- peor que
+            // el problema que este candado resuelve. Se comprueba el resultado
+            // del lote, no la intencion: despues de esto, el apartado ya no
+            // puede seguir apuntando a esta tarea. Si la tarea no trae orden, o
+            // si es de antes del candado y no tiene apartado, pasa de largo.
+            && (resource.data.get('ot', null) == null
+                || !existsAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
+                || getAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
+                     .data.asignaciones.get(maquilaId, '') != tareaId)
+            && request.resource.data.terminadaEn == request.time
+            && request.resource.data.terminadaPorUid == request.auth.uid
+            && request.resource.data.terminadaPorNombre == yo.nombre )
+          ||
+          // (3) DEVOLVER una tarea declarada: no cuadro lo que entrego, vuelve
+          // a manos de la maquila. Queda firmado quien la devolvio y por que
+          // -- sin eso, la maquila veria su tarea "abierta otra vez" sin
+          // entender que paso, y no se distinguiria de que ella misma retirara
+          // su declaracion.
+          ( resource.data.estado == 'declarada'
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['estado', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre',
+                           'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion'])
+            && request.resource.data.estado == 'iniciada'
+            // La declaracion se limpia (la tarea ya no esta declarada), pero
+            // el 'iniciadaEn' original NO se toca: el tiempo de armado tiene
+            // que incluir el retrabajo, o devolver una tarea seria una forma
+            // de mejorarle el numero a la maquila.
+            && request.resource.data.declaradaEn == null
+            && request.resource.data.declaradaPorUid == null
+            && request.resource.data.declaradaPorNombre == null
+            && request.resource.data.devueltaEn == request.time
+            && request.resource.data.devueltaPorUid == request.auth.uid
+            && request.resource.data.devueltaPorNombre == yo.nombre
+            // Y que ese nombre NO venga vacio. Esta rama no revalida el
+            // documento entero, asi que sin esto un perfil interno mal dado de
+            // alta dejaria una firma coja: firmaCoherente() la rechazaria para
+            // siempre despues, y la tarea se quedaria sin poder cerrarse ni
+            // avanzar. Es un candado contra un dedazo de provisionamiento, no
+            // contra un atacante.
+            && yo.nombre.size() > 0
+            && request.resource.data.motivoDevolucion is string
+            && request.resource.data.motivoDevolucion.size() > 0
+            && request.resource.data.motivoDevolucion.size() <= 300 )
+          ||
+          // (4) CAMBIAR LA PRIORIDAD, y nada mas. Roberto, 2026-09-02: hacia
+          // falta poder mover la fecha de una tarea ya encargada.
+          //
+          // El caso real es "esto ahora corre prisa", y casi siempre pasa
+          // cuando la maquila YA empezo — justo donde la rama (2) no deja
+          // tocar nada. Se abre aqui a proposito con un diff cerrado a estos
+          // cuatro campos: no cambia el ENCARGO (renglones, tech pack, precio)
+          // ni pisa la firma de la maquila, solo el ORDEN en que ella ve su
+          // trabajo. Reordenar la lista de alguien no es cambiarle el trabajo
+          // debajo de las manos; cambiarle los codigos si.
+          //
+          // Cerradas fuera: una tarea terminada es historia, y moverle la
+          // prioridad no cambia ninguna decision pendiente.
+          ( resource.data.estado in ['preparando', 'abierta', 'iniciada', 'declarada']
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['fechaRequerida', 'fechaRequeridaCambiadaEn',
+                           'fechaRequeridaCambiadaPorUid', 'fechaRequeridaCambiadaPorNombre'])
+            // Que la fecha DE VERDAD cambie: hasOnly acepta el conjunto vacio,
+            // asi que sin esto se podria sellar una firma sin haber movido
+            // nada.
+            && request.resource.data.diff(resource.data).affectedKeys().hasAll(['fechaRequerida'])
+            // Que la fecha CAMBIE de verdad. Con solo hasAll, escribir el mismo
+            // valor (o null sobre un campo que ya no existia) sellaria una firma
+            // nueva sin que nada se hubiera movido.
+            && request.resource.data.get('fechaRequerida', null)
+                 != resource.data.get('fechaRequerida', null)
+            && request.resource.data.fechaRequeridaCambiadaEn == request.time
+            && request.resource.data.fechaRequeridaCambiadaPorUid == request.auth.uid
+            && request.resource.data.fechaRequeridaCambiadaPorNombre == yo.nombre
+            // Y que ese nombre NO venga vacio, igual que en la rama de
+            // devolver: esta rama ya no revalida el documento entero, asi que
+            // sin esto un perfil sin nombreCompleto dejaria una firma coja.
+            && yo.nombre.size() > 0 )
+          ||
+          // (5) Ya cerrada: SOLO la limpieza del tech pack (borrar el
+          // manifiesto cuando los chunks ya se barrieron). Nada mas.
+          ( resource.data.estado in ['terminada', 'cancelada']
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['techPack', 'techPackBorradoEn'])
+            && request.resource.data.techPack == null
+            && request.resource.data.techPackBorradoEn == request.time )
+        );
+
+    }
+
     match /portalMaquila/{maquilaId}/tareasEnsamble/{tareaId} {
       // La maquila solo ve tareas que de verdad llegaron a estar ABIERTAS
       // alguna vez ('publicadaEn' fijado). Un borrador en 'preparando' -- o
@@ -2505,184 +2747,9 @@ service cloud.firestore {
       // Una tarea de ensamble lleva el Tech Pack del pedido adentro: mandarle
       // una de prueba a una maquila real seria filtrarle el documento de un
       // cliente. Solo a la ficticia.
-      allow create: if puedeCrearTareas()
-        && mismoMundoMaquila(maquilaId)
-        && tareaEnsambleValida(maquilaId)
-        && request.resource.data.estado in ['preparando', 'abierta']
-        // Una tarea que nace 'abierta' no puede declarar tech pack: los
-        // chunks solo se escriben en 'preparando', asi que un manifiesto en
-        // el create apuntaria a chunks que no existen.
-        && (request.resource.data.estado == 'preparando' || request.resource.data.techPack == null)
-        && (request.resource.data.publicadaEn == null
-            || request.resource.data.publicadaEn == request.time)
-        && request.resource.data.creadoPorUid == request.auth.uid
-        && request.resource.data.creadoPorNombre == perfil().get('nombreCompleto', '')
-        && request.resource.data.creadoEn == request.time
-        && request.resource.data.terminadaEn == null
-        && request.resource.data.terminadaPorUid == null
-        && request.resource.data.terminadaPorNombre == null
-        && request.resource.data.techPackBorradoEn == null
-        // ⚠️ SI LA TAREA DICE UNA ORDEN, ESA ORDEN QUEDA APARTADA EN ESTE MISMO
-        // LOTE, a nombre de esta maquila y de esta tarea. Sin esta linea el
-        // candado dependeria de que el cliente escribiera las dos cosas, y un
-        // cliente hecho a mano se lo saltaria creando la tarea sola.
-        && (request.resource.data.get('ot', null) == null
-            || (request.resource.data.ot.matches('^[1-9A-Z][0-9A-Z/-]*$')
-                && !request.resource.data.ot.matches('^OT.*')
-                && getAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + request.resource.data.ot.toUtf8().toHexString().lower()))
-                     .data.asignaciones[maquilaId] == tareaId))
-        && request.resource.data.get('fechaRequeridaCambiadaEn', null) == null
-        && request.resource.data.get('fechaRequeridaCambiadaPorUid', null) == null
-        && request.resource.data.get('fechaRequeridaCambiadaPorNombre', null) == null;
+      allow create: if puedeCrearTareaEnsamble(maquilaId, tareaId);
       // ---- Lo que hace QUINI (Lindbergh o el admin) ----
-      allow update: if puedeCrearTareas() && mismoMundoMaquila(maquilaId) && (
-          // (1) Mientras nadie la ha empezado ('preparando' o 'abierta'): se
-          // reedita entera, se publica ('preparando' -> 'abierta'), se regresa
-          // a 'preparando' para cambiarle el archivo, o se cierra. Quien la
-          // creo no cambia.
-          ( resource.data.estado in ['preparando', 'abierta']
-            && tareaEnsambleValida(maquilaId)
-            // Esta rama reescribe el documento entero (es la de reedicion),
-            // asi que lo que NO se puede tocar hay que blindarlo a mano.
-            && reporteDeLaMaquilaIntacto()
-            && request.resource.data.creadoPorUid == resource.data.creadoPorUid
-            && request.resource.data.creadoPorNombre == resource.data.creadoPorNombre
-            && request.resource.data.creadoEn == resource.data.creadoEn
-            // La PRIORIDAD no se toca por aqui aunque esta rama reescriba el
-            // documento entero: tiene su propia rama, que la sella con nombre.
-            // Si se pudiera cambiar tambien aqui, bastaria reeditar la tarea
-            // para mover la fecha sin dejar rastro de quien fue.
-            // La ORDEN DE TRABAJO tampoco se cambia despues de creada: su
-            // apartado se escribio con esa orden, y cambiarla aqui dejaria
-            // apartada una orden que la tarea ya no trabaja mientras la nueva
-            // queda sin apartar. El candado dejaria de significar nada.
-            && request.resource.data.get('ot', null) == resource.data.get('ot', null)
-            && request.resource.data.get('fechaRequerida', null) == resource.data.get('fechaRequerida', null)
-            && request.resource.data.get('fechaRequeridaCambiadaEn', null) == resource.data.get('fechaRequeridaCambiadaEn', null)
-            && request.resource.data.get('fechaRequeridaCambiadaPorUid', null) == resource.data.get('fechaRequeridaCambiadaPorUid', null)
-            && request.resource.data.get('fechaRequeridaCambiadaPorNombre', null) == resource.data.get('fechaRequeridaCambiadaPorNombre', null)
-            // 'publicadaEn' se fija UNA vez (al publicar) y ya no se borra:
-            // si se pudiera quitar, una tarea ya entregada desapareceria del
-            // portal de la maquila sin rastro.
-            && ( request.resource.data.publicadaEn == resource.data.get('publicadaEn', null)
-                 || (resource.data.get('publicadaEn', null) == null
-                     && request.resource.data.publicadaEn == request.time) )
-            // Al cerrar queda firmado quien y cuando; mientras vive, en null.
-            && ( (request.resource.data.estado in ['preparando', 'abierta']
-                   && request.resource.data.terminadaEn == null
-                   && request.resource.data.terminadaPorUid == null
-                   && request.resource.data.terminadaPorNombre == null)
-                 || (request.resource.data.estado in ['terminada', 'cancelada']
-                   && request.resource.data.terminadaEn == request.time
-                   && request.resource.data.terminadaPorUid == request.auth.uid
-                   && request.resource.data.terminadaPorNombre == perfil().get('nombreCompleto', '')) ) )
-          ||
-          // (2) La maquila YA la empezo o ya la declaro terminada: aqui Quini
-          // solo CIERRA (o cancela). Se acota con un diff exacto a propósito:
-          // reeditarle los renglones o el tech pack a alguien que ya esta
-          // armando cambia el encargo debajo de sus manos, y reescribir el
-          // documento entero le permitiria ademas pisar la firma de la maquila
-          // (los tiempos que despues pagan la maquila).
-          ( resource.data.estado in ['iniciada', 'declarada']
-            && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['estado', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPack'])
-            // El manifiesto se borra EN EL MISMO WRITE que cierra, no despues.
-            // La maquila conserva lectura del documento mientras publicadaEn
-            // exista, asi que dejarlo un momento mas le seguiria mostrando el
-            // nombre del archivo -- y ese nombre suele traer el cliente y el
-            // pedido. Los chunks se barren luego; 'techPackBorradoEn' se queda
-            // en null hasta que ese barrido de verdad termine.
-            && (request.resource.data.get('techPack', null) == null
-                || request.resource.data.get('techPack', null) == resource.data.get('techPack', null))
-            && request.resource.data.estado in ['terminada', 'cancelada']
-            // Y la orden QUEDA SUELTA. Cerrar sin soltar dejaria esa orden
-            // apartada para siempre por una tarea que ya no existe -- peor que
-            // el problema que este candado resuelve. Se comprueba el resultado
-            // del lote, no la intencion: despues de esto, el apartado ya no
-            // puede seguir apuntando a esta tarea. Si la tarea no trae orden, o
-            // si es de antes del candado y no tiene apartado, pasa de largo.
-            && (resource.data.get('ot', null) == null
-                || !existsAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
-                || getAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
-                     .data.asignaciones.get(maquilaId, '') != tareaId)
-            && request.resource.data.terminadaEn == request.time
-            && request.resource.data.terminadaPorUid == request.auth.uid
-            && request.resource.data.terminadaPorNombre == perfil().get('nombreCompleto', '') )
-          ||
-          // (3) DEVOLVER una tarea declarada: no cuadro lo que entrego, vuelve
-          // a manos de la maquila. Queda firmado quien la devolvio y por que
-          // -- sin eso, la maquila veria su tarea "abierta otra vez" sin
-          // entender que paso, y no se distinguiria de que ella misma retirara
-          // su declaracion.
-          ( resource.data.estado == 'declarada'
-            && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['estado', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre',
-                           'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion'])
-            && request.resource.data.estado == 'iniciada'
-            // La declaracion se limpia (la tarea ya no esta declarada), pero
-            // el 'iniciadaEn' original NO se toca: el tiempo de armado tiene
-            // que incluir el retrabajo, o devolver una tarea seria una forma
-            // de mejorarle el numero a la maquila.
-            && request.resource.data.declaradaEn == null
-            && request.resource.data.declaradaPorUid == null
-            && request.resource.data.declaradaPorNombre == null
-            && request.resource.data.devueltaEn == request.time
-            && request.resource.data.devueltaPorUid == request.auth.uid
-            && request.resource.data.devueltaPorNombre == perfil().get('nombreCompleto', '')
-            // Y que ese nombre NO venga vacio. Esta rama no revalida el
-            // documento entero, asi que sin esto un perfil interno mal dado de
-            // alta dejaria una firma coja: firmaCoherente() la rechazaria para
-            // siempre despues, y la tarea se quedaria sin poder cerrarse ni
-            // avanzar. Es un candado contra un dedazo de provisionamiento, no
-            // contra un atacante.
-            && perfil().get('nombreCompleto', '').size() > 0
-            && request.resource.data.motivoDevolucion is string
-            && request.resource.data.motivoDevolucion.size() > 0
-            && request.resource.data.motivoDevolucion.size() <= 300 )
-          ||
-          // (4) CAMBIAR LA PRIORIDAD, y nada mas. Roberto, 2026-09-02: hacia
-          // falta poder mover la fecha de una tarea ya encargada.
-          //
-          // El caso real es "esto ahora corre prisa", y casi siempre pasa
-          // cuando la maquila YA empezo — justo donde la rama (2) no deja
-          // tocar nada. Se abre aqui a proposito con un diff cerrado a estos
-          // cuatro campos: no cambia el ENCARGO (renglones, tech pack, precio)
-          // ni pisa la firma de la maquila, solo el ORDEN en que ella ve su
-          // trabajo. Reordenar la lista de alguien no es cambiarle el trabajo
-          // debajo de las manos; cambiarle los codigos si.
-          //
-          // Cerradas fuera: una tarea terminada es historia, y moverle la
-          // prioridad no cambia ninguna decision pendiente.
-          ( resource.data.estado in ['preparando', 'abierta', 'iniciada', 'declarada']
-            && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['fechaRequerida', 'fechaRequeridaCambiadaEn',
-                           'fechaRequeridaCambiadaPorUid', 'fechaRequeridaCambiadaPorNombre'])
-            // Que la fecha DE VERDAD cambie: hasOnly acepta el conjunto vacio,
-            // asi que sin esto se podria sellar una firma sin haber movido
-            // nada.
-            && request.resource.data.diff(resource.data).affectedKeys().hasAll(['fechaRequerida'])
-            // El documento completo se revalida: sin esto, un perfil interno mal
-            // dado de alta (sin nombreCompleto) podria dejar una firma coja que
-            // firmaCoherente() si habria rechazado.
-            && tareaEnsambleValida(maquilaId)
-            // Que la fecha CAMBIE de verdad. Con solo hasAll, escribir el mismo
-            // valor (o null sobre un campo que ya no existia) sellaria una firma
-            // nueva sin que nada se hubiera movido.
-            && request.resource.data.get('fechaRequerida', null)
-                 != resource.data.get('fechaRequerida', null)
-            && request.resource.data.fechaRequeridaCambiadaEn == request.time
-            && request.resource.data.fechaRequeridaCambiadaPorUid == request.auth.uid
-            && request.resource.data.fechaRequeridaCambiadaPorNombre == perfil().get('nombreCompleto', '') )
-          ||
-          // (5) Ya cerrada: SOLO la limpieza del tech pack (borrar el
-          // manifiesto cuando los chunks ya se barrieron). Nada mas.
-          ( resource.data.estado in ['terminada', 'cancelada']
-            && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['techPack', 'techPackBorradoEn'])
-            && request.resource.data.techPack == null
-            && request.resource.data.techPackBorradoEn == request.time )
-        );
-
+      allow update: if puedeEditarTareaEnsambleQuini(maquilaId);
       // ---- Lo que hace la MAQUILA: reportar su avance ----
       // Tres transiciones, cada una con su diff exacto. La maquila NUNCA toca
       // el encargo (titulo, renglones, notas), ni el tech pack, ni las firmas

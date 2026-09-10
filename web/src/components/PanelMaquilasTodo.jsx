@@ -92,7 +92,7 @@ export default function PanelMaquilasTodo() {
     (esInterno && !soloAlmacen && !soloConsulta && !soloCaptura && !soloProduccion && !soloPT)
 
   const secciones = [
-    tareas && { id: 'tareas', label: 'Tareas', render: () => <PanelTareasMaquila /> },
+    tareas && { id: 'tareas', label: 'Encargar a la maquila', render: () => <PanelTareasMaquila /> },
     // Va arriba de todo el material a proposito: un bulto rechazado es lo
     // primero que hay que atender del dia, no algo que se busca al final.
     reportes && {
