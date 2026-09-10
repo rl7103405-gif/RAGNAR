@@ -2353,8 +2353,10 @@ service cloud.firestore {
     // trabajo (se veia como "insufficient permissions"). En el update de Quini
     // que reedita la tarea NO hacen falta: reporteDeLaMaquilaIntacto() ya
     // exige que esas mismas firmas queden IDENTICAS a como estaban, y el
-    // documento anterior ya paso por aqui cuando se escribio. Donde las firmas
-    // SI se mueven (el create y las ramas de la maquila) se sigue pidiendo.
+    // documento anterior ya paso por aqui cuando se escribio. Las dos ramas de
+    // Quini que SI mueven una firma (devolver y cambiar la fecha) fijan cada
+    // campo a mano, que es mas estricto; la maquila sigue pasando por aqui con
+    // revisarFirmas en true.
     function tareaEnsambleValida(mid) {
       return tareaEnsambleValidaCon(mid, true);
     }
@@ -2550,7 +2552,7 @@ service cloud.firestore {
 
     // El update de Quini, con el perfil ligado una sola vez (mismo motivo
     // que puedeCrearTareaEnsamble).
-    function puedeEditarTareaEnsambleQuini(maquilaId) {
+    function puedeEditarTareaEnsambleQuini(maquilaId, tareaId) {
       let yo = perfilResumido();
       // ---- Lo que hace QUINI (Lindbergh o el admin) ----
       // tareaEnsambleValida se evalua UNA sola vez, aqui, y ya no dentro de las
@@ -2629,8 +2631,8 @@ service cloud.firestore {
             // puede seguir apuntando a esta tarea. Si la tarea no trae orden, o
             // si es de antes del candado y no tiene apartado, pasa de largo.
             && (resource.data.get('ot', null) == null
-                || !existsAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
-                || getAfter(/databases/$(database)/documents/otsAsignadas/$((esCuentaDePrueba() ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
+                || !existsAfter(/databases/$(database)/documents/otsAsignadas/$((yo.esPrueba ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
+                || getAfter(/databases/$(database)/documents/otsAsignadas/$((yo.esPrueba ? 'zz_' : '') + resource.data.ot.toUtf8().toHexString().lower()))
                      .data.asignaciones.get(maquilaId, '') != tareaId)
             && request.resource.data.terminadaEn == request.time
             && request.resource.data.terminadaPorUid == request.auth.uid
@@ -2662,6 +2664,7 @@ service cloud.firestore {
             // siempre despues, y la tarea se quedaria sin poder cerrarse ni
             // avanzar. Es un candado contra un dedazo de provisionamiento, no
             // contra un atacante.
+            && yo.nombre is string
             && yo.nombre.size() > 0
             && request.resource.data.motivoDevolucion is string
             && request.resource.data.motivoDevolucion.size() > 0
@@ -2696,9 +2699,10 @@ service cloud.firestore {
             && request.resource.data.fechaRequeridaCambiadaEn == request.time
             && request.resource.data.fechaRequeridaCambiadaPorUid == request.auth.uid
             && request.resource.data.fechaRequeridaCambiadaPorNombre == yo.nombre
-            // Y que ese nombre NO venga vacio, igual que en la rama de
+            // Y que ese nombre sea un string NO vacio, igual que en la rama de
             // devolver: esta rama ya no revalida el documento entero, asi que
             // sin esto un perfil sin nombreCompleto dejaria una firma coja.
+            && yo.nombre is string
             && yo.nombre.size() > 0 )
           ||
           // (5) Ya cerrada: SOLO la limpieza del tech pack (borrar el
@@ -2749,7 +2753,7 @@ service cloud.firestore {
       // cliente. Solo a la ficticia.
       allow create: if puedeCrearTareaEnsamble(maquilaId, tareaId);
       // ---- Lo que hace QUINI (Lindbergh o el admin) ----
-      allow update: if puedeEditarTareaEnsambleQuini(maquilaId);
+      allow update: if puedeEditarTareaEnsambleQuini(maquilaId, tareaId);
       // ---- Lo que hace la MAQUILA: reportar su avance ----
       // Tres transiciones, cada una con su diff exacto. La maquila NUNCA toca
       // el encargo (titulo, renglones, notas), ni el tech pack, ni las firmas

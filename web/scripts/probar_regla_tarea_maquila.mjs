@@ -108,6 +108,17 @@ const ESCENARIOS = {
     resource: doc({ ...conOt, estado: 'abierta', publicadaEn: T }),
     functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ)]
   },
+  'cerrar-iniciada-con-ot': {
+    que: 'Lindbergh CIERRA una tarea que la maquila ya empezo y que trae OT (libera el apartado)',
+    request: { auth: { uid: LIN.uid }, method: 'update', path: P_TAREA, time: T,
+      resource: doc({ ...conOt, estado: 'terminada', publicadaEn: T,
+        iniciadaEn: T, iniciadaPorUid: 'MAQUILAUID', iniciadaPorNombre: 'Hugo Martinez',
+        terminadaEn: T, terminadaPorUid: LIN.uid, terminadaPorNombre: LIN.nombreCompleto }) },
+    resource: doc({ ...conOt, estado: 'iniciada', publicadaEn: T,
+      iniciadaEn: T, iniciadaPorUid: 'MAQUILAUID', iniciadaPorNombre: 'Hugo Martinez' }),
+    functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ),
+      { function: 'existsAfter', args: [{ exactValue: DBPATH + '/otsAsignadas/' + hexOt('7922') }], result: { value: false } }]
+  },
   'publicar': {
     que: 'Lindbergh PUBLICA la tarea (de borrador a abierta, que es cuando la maquila la ve)',
     request: { auth: { uid: LIN.uid }, method: 'update', path: P_TAREA, time: T, resource: doc({ ...base, estado: 'abierta', publicadaEn: T }) },
