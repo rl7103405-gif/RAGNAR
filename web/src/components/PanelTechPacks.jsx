@@ -47,6 +47,108 @@ const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—'
 const codigoBase = (c) => String(c || '').replace(/-\d{1,2}-\d{1,2}$/, '')
 const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`
 
+// QUE TAN COMPLETOS ESTAN LOS TECH PACKS (Roberto, 2026-09-10: "no veo el
+// avance de los tech packs... hay que armar una tabla; en base al tech pack
+// estandar que nos mando Lety vamos a sacar una calificacion, ese va a ser un
+// diez de diez").
+//
+// La calificacion la calcula web/scripts/medir_tech_packs.mjs leyendo las
+// HOJAS del archivo y comparandolas con las siete del estandar. Se guarda en
+// el documento (`medicion`) para no bajar 120 Excel cada vez que alguien abre
+// la pantalla. Si Lety llena el checklist a mano, ESE manda: ella sabe si una
+// hoja esta bien llena y la app solo sabe si existe.
+function AvanceDeTechPacks({ biblioteca }) {
+  const filas = biblioteca.filter((b) => !b.apuntaA && b.techPack)
+  const medidos = filas.filter((b) => b.medicion?.porcentaje != null)
+  if (!filas.length) return null
+
+  const rubros = RUBROS_TECH_PACK.map((r) => {
+    // Lo que Lety marco a mano manda sobre lo que leyo la maquina.
+    const falta = medidos.filter((b) => {
+      const suyo = b.datosEditables?.checklist?.[r.id]
+      if (suyo === 'no_aplica') return false
+      if (suyo === 'completo') return false
+      if (suyo === 'pendiente') return true
+      return (b.medicion.faltan || []).includes(r.id)
+    })
+    return { ...r, faltan: falta.length, ejemplos: falta.slice(0, 3).map((b) => b.codigo) }
+  }).sort((a, b) => b.faltan - a.faltan)
+
+  const promedio = medidos.length
+    ? Math.round(medidos.reduce((t, b) => t + b.medicion.porcentaje, 0) / medidos.length)
+    : 0
+  const completos = medidos.filter((b) => b.medicion.porcentaje === 100).length
+  const escalones = [
+    { min: 100, etiqueta: 'Completos (10/10)', tono: 'ok' },
+    { min: 80, etiqueta: 'Casi listos (8 a 9.9)', tono: '' },
+    { min: 60, etiqueta: 'A medias (6 a 7.9)', tono: 'aviso' },
+    { min: 0, etiqueta: 'Muy incompletos (menos de 6)', tono: 'aviso' }
+  ].map((e, i, todos) => {
+    const tope = i === 0 ? 101 : todos[i - 1].min
+    return { ...e, cuantos: medidos.filter((b) => b.medicion.porcentaje >= e.min && b.medicion.porcentaje < tope).length }
+  })
+
+  return (
+    <details className="tarjeta tp-cuadro" open>
+      <summary className="tp-cuadro-cab">
+        <strong style={{ fontSize: 16 }}>Que tan completos estan</strong>
+        <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
+          {medidos.length} medidos · promedio {(promedio / 10).toFixed(1)} de 10 · {completos} en 10
+        </span>
+      </summary>
+      <p className="texto-suave" style={{ margin: '4px 0 10px', fontSize: 13 }}>
+        Se califica contra el tech pack que Lety dio como su ejemplo al 100%: sus siete apartados valen igual.
+        La app mide si el apartado ESTA; que este bien lleno lo dice Lety desde Editar, y lo que ella marque manda.
+        {filas.length - medidos.length > 0 && ` ${filas.length - medidos.length} no se pueden medir (son PDF).`}
+      </p>
+
+      <div className="tp-tiles" style={{ marginBottom: 12 }}>
+        {escalones.map((e) => (
+          <div key={e.etiqueta} className={`tp-tile ${e.cuantos && e.tono ? 'tp-tile-' + e.tono : ''}`}>
+            <div className="tp-tile-valor">{e.cuantos}</div>
+            <div className="tp-tile-titulo">{e.etiqueta}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table className="tabla-datos">
+          <thead>
+            <tr>
+              <th>Que falta</th>
+              <th>A cuantos</th>
+              <th>De cada 10</th>
+              <th>Por ejemplo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rubros.map((r) => (
+              <tr key={r.id}>
+                <td title={r.ayuda}>{r.titulo}</td>
+                <td>{r.faltan === 0 ? <span className="texto-suave">a ninguno</span> : r.faltan}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {medidos.length ? <Barra porcentaje={Math.round((r.faltan / medidos.length) * 100)} /> : null}
+                </td>
+                <td className="texto-suave" style={{ fontSize: 12 }}>{r.ejemplos.join(', ')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  )
+}
+
+// Barra chica para la tabla de avance.
+function Barra({ porcentaje }) {
+  const p = Math.max(0, Math.min(100, Number(porcentaje) || 0))
+  return (
+    <span style={{ display: 'inline-block', width: 90, height: 8, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden', verticalAlign: 'middle' }}>
+      <span style={{ display: 'block', width: `${p}%`, height: '100%', background: p > 60 ? '#f59e0b' : '#94a3b8' }} />
+    </span>
+  )
+}
+
 // Una orden de compra del arbol, con sus OT y sus disenos. Vive en su propio
 // componente porque ahora se pinta en DOS cuadros: el de las ordenes de compra
 // de verdad y el de las OT que todavia no tienen una (Roberto, 2026-09-10).
@@ -790,6 +892,8 @@ export default function PanelTechPacks() {
           </details>
         </>
       )}
+
+      <AvanceDeTechPacks biblioteca={biblioteca} />
 
       {/* ------------------------------------------------ la lista completa (plegada) */}
       <details className="tarjeta tp-lista">

@@ -74,7 +74,10 @@ for (const item of PLAN) {
     .collection('tareasEnsamble').where('ot', '==', item.ot).get()
   if (tareas.empty) { console.log(`  OT ${item.ot}: no hay tarea`); continue }
   const tarea = tareas.docs[0]
-  if (tarea.data().techPack) { console.log(`  OT ${item.ot}: ya tiene tech pack, se deja`); continue }
+  // REEMPLAZAR=1 vuelve a pegar aunque ya tenga uno: sirve cuando llega una
+  // version distinta del mismo tech pack (2026-09-10: Lindbergh mando por
+  // WhatsApp versiones con mas contenido que las del Drive).
+  if (tarea.data().techPack && process.env.REEMPLAZAR !== '1') { console.log(`  OT ${item.ot}: ya tiene tech pack, se deja (REEMPLAZAR=1 para cambiarlo)`); continue }
 
   let bajado
   try { bajado = await bajarDeLaBiblioteca(item.codigo) } catch (e) { console.log(`  OT ${item.ot}: ${e.message}`); continue }

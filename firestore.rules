@@ -3095,7 +3095,12 @@ service cloud.firestore {
         // lo que le falta al tech pack (fotos, virtual, cadena...), para el
         // porcentaje de avance. Los CUATRO son opcionales: los documentos que
         // ya estaban cargados no los traen y siguen siendo validos.
-        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes', 'datosEditables', 'revision', 'ultimaEdicionId'])
+        // 'medicion' (2026-09-10): que tan completo esta el tech pack contra el
+        // estandar de Lety, calculado leyendo las hojas del archivo. Lo escribe
+        // un script con Admin SDK (web/scripts/medir_tech_packs.mjs), NUNCA el
+        // cliente; va en el hasOnly para que un documento medido siga siendo
+        // valido cuando Lety lo edite desde la app.
+        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes', 'datosEditables', 'revision', 'ultimaEdicionId', 'medicion'])
         // Lo que Lety TECLEA vive junto, en 'datosEditables', separado de los
         // manifiestos y de lo inmutable. Asi el historial guarda un snapshot
         // exacto de ese mapa y la regla puede compararlo entero, en vez de
