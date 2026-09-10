@@ -199,7 +199,7 @@ export default function PanelTareasDiseno() {
         // usuario-real (10-sep): el mismo codigo en dos OT se contaba dos veces;
         // Lety piensa en fichas que pedir, no en renglones: codigos DISTINTOS.
         { t: 'Codigos sin tech pack', v: codigosMios ? codigosSinTechPack(mias) : '—', tono: codigosMios && codigosSinTechPack(mias) ? 'aviso' : '', que: 'De los codigos que te tocan, cuantos (distintos) no tienen ni el archivo del tech pack en la biblioteca.' },
-        { t: 'Avance promedio', v: mias.length ? Math.round(mias.reduce((t, a) => t + a.porcentaje, 0) / mias.length) + '%' : '—', que: 'Promedio del checklist de tus codigos (archivo + los 7 rubros).' }
+        { t: 'Avance promedio', v: codigosMios ? Math.round(mias.reduce((t, a) => t + a.porcentaje, 0) / mias.length) + '%' : '—', que: 'Promedio del checklist de tus codigos (archivo + los 7 rubros). Sin codigos cargados no hay nada que promediar.' }
       ]
     }
     const abiertos = encargos.filter((e) => e.estado === 'abierto')
@@ -211,8 +211,8 @@ export default function PanelTareasDiseno() {
       { t: 'OT en encargos', v: filas.length, que: 'Ordenes de trabajo que suman los encargos abiertos.' },
       { t: 'OT listas', v: listas, tono: listas ? 'ok' : '', que: 'OT en las que todos los codigos ya tienen tech pack con el checklist completo.' },
       { t: 'OT sin asignar', v: filas.filter((f) => !f.asignacion).length, tono: filas.some((f) => !f.asignacion) ? 'aviso' : '', que: 'OT que todavia no le tocan a nadie del equipo.' },
-      { t: 'Codigos sin tech pack', v: codigos ? codigosSinTechPack(filas) : '—', tono: codigos && codigosSinTechPack(filas) ? 'aviso' : '', que: 'De los codigos de las OT (del plan o tecleados), cuantos (distintos) no tienen ni el archivo del tech pack en la biblioteca. Sin codigos cargados no hay nada que contar.' },
-      { t: 'Avance promedio', v: filas.length ? Math.round(filas.reduce((t, f) => t + f.porcentaje, 0) / filas.length) + '%' : '—', que: 'Promedio del checklist de los codigos (archivo + los 7 rubros).' }
+      { t: 'Codigos sin tech pack', v: codigos ? codigosSinTechPack(filas) : '—', tono: codigos && codigosSinTechPack(filas) ? 'aviso' : '', que: 'De los codigos de las OT de los ENCARGOS ABIERTOS (del plan o tecleados), cuantos (distintos) no tienen ni el archivo del tech pack en la biblioteca. Sin codigos cargados no hay nada que contar.' },
+      { t: 'Avance promedio', v: codigos ? Math.round(filas.reduce((t, f) => t + f.porcentaje, 0) / filas.length) + '%' : '—', que: 'Promedio del checklist de los codigos de los encargos abiertos (archivo + los 7 rubros). Sin codigos cargados no hay nada que promediar.' }
     ]
   }, [vista, encargos, asignaciones, avances, indice])
 
@@ -326,7 +326,14 @@ export default function PanelTareasDiseno() {
         />
       )}
 
-      {vista !== 'equipo' && <PorPersona asignaciones={asignaciones} indice={indice} equipo={vista === 'admin' ? [...equipoPorJefa.values()].flat() : equipo} />}
+      {vista !== 'equipo' && (
+        <PorPersona
+          asignaciones={asignaciones}
+          encargosAbiertos={new Set(encargos.filter((e) => e.estado === 'abierto').map((e) => e.id))}
+          indice={indice}
+          equipo={vista === 'admin' ? [...equipoPorJefa.values()].flat() : equipo}
+        />
+      )}
 
       {vista === 'equipo' && <MisAsignaciones asignaciones={asignaciones} indice={indice} />}
     </div>
@@ -342,8 +349,11 @@ function codigosSinTechPack(avances) {
 // ---------------------------------------------------------------- jefa: cuanto lleva cada quien
 // usuario-real (10-sep): "para ver cuanto lleva mi equipo no hay donde
 // verlo": los indicadores eran del encargo, no de las personas.
-function PorPersona({ asignaciones, indice, equipo }) {
-  const abiertas = asignaciones.filter((a) => a.estado === 'abierta')
+function PorPersona({ asignaciones, encargosAbiertos, indice, equipo }) {
+  // usuario-real (10-sep): "arriba dice 2 y abajo dice 4": los indicadores
+  // solo cuentan encargos abiertos y esta tabla contaba toda asignacion
+  // abierta, incluidas las de encargos ya cerrados. Mismo universo.
+  const abiertas = asignaciones.filter((a) => a.estado === 'abierta' && encargosAbiertos.has(a.encargoId))
   if (!abiertas.length && !(equipo || []).length) return null
   const porUid = new Map()
   // Primero el equipo completo (Codex: quien no tiene nada tambien cuenta),
@@ -360,7 +370,7 @@ function PorPersona({ asignaciones, indice, equipo }) {
   return (
     <div className="tarjeta" style={{ marginTop: 12 }}>
       <h3 style={{ margin: 0 }}>Cuanto lleva cada quien</h3>
-      <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>Carga y avance de las OT asignadas a cada quien (solo abiertas). El avance es el promedio por OT (cada OT pesa igual, tenga uno o veinte codigos) y sale de los tech packs; la biblioteca es de todos, asi que mide lo asignado, no quien subio cada archivo.</p>
+      <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>Carga y avance de las OT asignadas a cada quien (solo las de encargos abiertos, igual que los indicadores de arriba). El avance es el promedio por OT (cada OT pesa igual, tenga uno o veinte codigos) y sale de los tech packs; la biblioteca es de todos, asi que mide lo asignado, no quien subio cada archivo.</p>
       <div style={{ overflowX: 'auto' }}>
         <table className="tabla-datos">
           <thead>
@@ -425,8 +435,8 @@ function FormEncargo({ ocs, responsables, encargos, ocupado, onEncargar }) {
           </select>
         </label>
         <label className="tp-campo">
-          <span>Fecha objetivo (opcional)</span>
-          <input className="tp-input" type="date" value={fechaObj} onChange={(e) => setFechaObj(e.target.value)} />
+          <span title="Para cuando quieres el encargo listo. Solo se muestra junto al encargo; no avisa ni cambia de color. Se puede dejar vacia.">Fecha objetivo (opcional)</span>
+          <input className="tp-input" type="date" value={fechaObj} onChange={(e) => setFechaObj(e.target.value)} title="Solo informativa: se muestra junto al encargo, no avisa a nadie." />
         </label>
         <label className="tp-campo" style={{ flex: 1, minWidth: 200 }}>
           <span>Notas (opcional)</span>
@@ -491,8 +501,8 @@ function FormEncargoManual({ esAdmin, responsables, usuario, encargos, ocupado, 
           </label>
         )}
         <label className="tp-campo">
-          <span>Fecha objetivo (opcional)</span>
-          <input className="tp-input" type="date" value={fechaObj} onChange={(e) => setFechaObj(e.target.value)} />
+          <span title="Para cuando quieres el encargo listo. Solo se muestra junto al encargo; no avisa ni cambia de color. Se puede dejar vacia.">Fecha objetivo (opcional)</span>
+          <input className="tp-input" type="date" value={fechaObj} onChange={(e) => setFechaObj(e.target.value)} title="Solo informativa: se muestra junto al encargo, no avisa a nadie." />
         </label>
         <label className="tp-campo" style={{ flex: 1, minWidth: 200 }}>
           <span>Notas (opcional)</span>
@@ -715,7 +725,7 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
               />
             )}
             {!a && (
-              <label className="texto-suave" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Para cuando la quieres lista. Se puede dejar vacio.">
+              <label className="texto-suave" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Para cuando la quieres lista. Solo se muestra junto a la OT (tambien a quien se la asignas); no avisa ni cambia de color. Se puede dejar vacio.">
                 limite <input className="tp-input" type="date" style={{ width: 130 }} value={fechaObj} onChange={(e) => setFechaObj(e.target.value)} />
               </label>
             )}

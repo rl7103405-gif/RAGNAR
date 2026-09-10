@@ -92,6 +92,28 @@ export function escucharAsignaciones({ alcance, uid, esPrueba }, alRecibir, alFa
   )
 }
 
+/**
+ * Los codigos de una OT segun las asignaciones de diseno (para las OT
+ * cargadas a mano, que el plan no conoce). usuario-real (10-sep): buscar la
+ * 7701 en Tech packs la mandaba a la otra pestana a copiar los codigos. La
+ * jefa ve las asignaciones que reparte; el equipo, las suyas (mismo filtro
+ * que exige la regla de lectura).
+ */
+export async function codigosDeOtAsignada({ ot, uid, esPrueba, alcance }) {
+  const limpia = normalizarOt(ot)
+  if (!limpia || !uid) return []
+  const filtros = [where('esPrueba', '==', esPrueba === true), where('ot', '==', limpia)]
+  filtros.push(alcance === 'jefa' ? where('jefeUid', '==', uid) : where('asignadoAUid', '==', uid))
+  const snap = await getDocs(query(collection(db, COL_ASIGNACIONES), ...filtros))
+  const vistos = new Map()
+  docs(snap)
+    .filter((a) => a.estado !== 'cancelada')
+    .forEach((a) => (a.codigos || []).forEach((c) => {
+      if (typeof c === 'string' && c.trim() && !vistos.has(c)) vistos.set(c, { codigo: c, descripcion: '', oc: a.oc })
+    }))
+  return [...vistos.values()]
+}
+
 /** Quienes reportan a esta jefa (la regla deja leer solo a los suyos). */
 export async function equipoDe(jefeUid) {
   const snap = await getDocs(query(collection(db, 'usuarios'), where('supervisorDisenoUid', '==', jefeUid)))

@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { renglonesDeLaOt, versionActiva } from '../utils/planMaestro'
 import { normalizarOt } from '../utils/planMaestroNucleo'
+import { codigosDeOtAsignada } from '../utils/tareasDiseno'
 import { formatoDeArchivo, MAX_TECHPACK_BYTES } from '../utils/tareasEnsamble'
 import {
   codigoComoId,
@@ -47,7 +48,7 @@ const codigoBase = (c) => String(c || '').replace(/-\d{1,2}-\d{1,2}$/, '')
 const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`
 
 export default function PanelTechPacks() {
-  const { authUser, perfil, esPrueba, puedeSubirTechPacks } = useAuth()
+  const { authUser, perfil, esPrueba, puedeSubirTechPacks, puedeAsignarDiseno, esEquipoDiseno } = useAuth()
   const [biblioteca, setBiblioteca] = useState([])
   const [error, setError] = useState('')
   const [aviso, setAviso] = useState('')
@@ -118,6 +119,18 @@ export default function PanelTechPacks() {
       const lista = r
         .map((x) => ({ codigo: codigoComoId(x.codigo), descripcion: x.descripcion, oc: x.oc }))
         .filter((x) => x.codigo)
+      // usuario-real (10-sep): una OT cargada a mano en Tareas de diseno no
+      // esta en el plan, pero SUS codigos si estan en la asignacion. Se
+      // buscan ahi antes de mandar a nadie a copiarlos de la otra pestana.
+      if (!lista.length && (puedeAsignarDiseno || esEquipoDiseno)) {
+        const deAsignacion = await codigosDeOtAsignada({ ot: limpia, uid: authUser?.uid, esPrueba, alcance: puedeAsignarDiseno ? 'jefa' : 'mias' }).catch((e) => { console.warn('[TechPacks] codigos de la asignacion:', e); return [] })
+        if (deAsignacion.length) {
+          setCodigosDeOt(deAsignacion)
+          setAviso(`La OT ${limpia} no esta en el plan; estos codigos vienen de tu asignacion en Tareas de diseno.`)
+          if (deAsignacion.length === 1) setCodigo(deAsignacion[0].codigo)
+          return
+        }
+      }
       setCodigosDeOt(lista)
       if (!lista.length) {
         setError(`El plan vigente no conoce la OT ${limpia}. Si la cargaste a mano en Tareas de diseno, escribe el codigo directo (esta en tu asignacion); si es del plan, pide a Adrian que la suba.`)

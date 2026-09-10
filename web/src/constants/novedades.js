@@ -48,7 +48,8 @@ export const NOVEDADES = [
       + 'tech pack" cuenta codigos distintos (el mismo codigo en dos OT es una sola ficha). El historial de '
       + 'cada OT muestra el reparto original como revision 1. Los botones de cada OT ya caben en una laptop. '
       + 'Los indicadores explican que miden al pasar el mouse, "manual" dice "cargado a mano", y la cabecera '
-      + 'ya no dice "Embarques" a quien no embarca.'
+      + 'ya no dice "Embarques" a quien no embarca. Y al buscar en Tech packs una OT cargada a mano, '
+      + 'sus codigos salen de la asignacion (ya no hay que copiarlos de la otra pestana).'
   },
   {
     id: '2026-09-10-01',
