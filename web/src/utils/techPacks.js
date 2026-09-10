@@ -268,7 +268,8 @@ export function datosDelTechPack(b) {
     color: e.color ?? b?.color ?? '',
     notas: e.notas ?? '',
     checklist: e.checklist || null,
-    checklistVersion: e.checklistVersion || ''
+    checklistVersion: e.checklistVersion || '',
+    codigos: Array.isArray(e.codigos) ? e.codigos : []
   }
 }
 
@@ -311,6 +312,13 @@ export async function editarDatosTechPack({ codigo, actual, datos, usuario }) {
   if (datos.checklist && Object.keys(datos.checklist).length) {
     limpio.checklist = datos.checklist
     limpio.checklistVersion = CHECKLIST_VERSION
+  }
+  // Los codigos u ordenes a los que pertenece este tech pack, tecleados por
+  // Lety. Se normalizan igual que en el buscador (mayusculas, sin espacios) y
+  // sin repetidos, que es lo que exige la regla.
+  if (Array.isArray(datos.codigos)) {
+    const cods = [...new Set(datos.codigos.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))].slice(0, 60)
+    if (cods.length) limpio.codigos = cods
   }
 
   const antes = actual?.datosEditables || {}

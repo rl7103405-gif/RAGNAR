@@ -3005,9 +3005,19 @@ service cloud.firestore {
     // mismo codigo QUI-CSHA20X existe como COMBO BEIGE y como RAYAS. Se probo
     // sacarlo automatico del nombre del archivo y NO se puede (lo que queda al
     // quitar el codigo son numeros de ficha), asi que lo escribe ella.
+    // 'codigos' (2026-09-10): a que codigos u ordenes de trabajo pertenece este
+    // tech pack, TECLEADO por Lety. Nace de la carga masiva del Drive: 81 tech
+    // packs entraron sin colgar de nada, porque su pedido es anterior al plan
+    // que Adrian empezo a subir en agosto. La app no lo puede adivinar; ella si
+    // lo sabe. Va aqui dentro (y no como alias sueltos) para que quede con
+    // historial, igual que todo lo que ella teclea.
     function datosEditablesValidos(e) {
       return e is map
-        && e.keys().hasOnly(['modelo', 'talla', 'color', 'notas', 'checklist', 'checklistVersion'])
+        && e.keys().hasOnly(['modelo', 'talla', 'color', 'notas', 'checklist', 'checklistVersion', 'codigos'])
+        && (!e.keys().hasAny(['codigos']) || (
+              e.codigos is list
+              && e.codigos.size() <= 60
+              && e.codigos.toSet().size() == e.codigos.size()))
         && (!e.keys().hasAny(['modelo']) || (e.modelo is string && e.modelo.size() <= 160))
         && (!e.keys().hasAny(['talla']) || (e.talla is string && e.talla.size() <= 60))
         && (!e.keys().hasAny(['color']) || (e.color is string && e.color.size() <= 200))

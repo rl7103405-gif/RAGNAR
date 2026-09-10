@@ -407,6 +407,10 @@ export default function PanelTechPacks() {
       agrega(enPlan.get(b.codigo))
       if (codigoBase(b.codigo) !== b.codigo) agrega(enPlan.get(codigoBase(b.codigo)))
       ;(resumen.foliosDe.get(b.codigo) || []).forEach((f) => agrega(enPlan.get(f)))
+      // Y los codigos que LETY declaro a mano (2026-09-10). Es lo que saca del
+      // ultimo cuadro a los tech packs viejos, cuyo pedido es anterior al plan
+      // que Adrian empezo a subir en agosto: la app no los puede adivinar.
+      ;(b.datosEditables?.codigos || []).forEach((c) => agrega(enPlan.get(String(c).toUpperCase())))
       if (!ots.size) { sinOrden.push(b); continue }
       totalConOrden++
       for (const [ot, oc] of ots) {
@@ -989,6 +993,9 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
   const [talla, setTalla] = useState(inicial.talla)
   const [color, setColor] = useState(inicial.color)
   const [notas, setNotas] = useState(inicial.notas)
+  // A que codigos u ordenes pertenece. Se teclea separado por comas, como las
+  // OT del tablero de diseno: es el mismo gesto que ella ya conoce.
+  const [codigosTxt, setCodigosTxt] = useState((inicial.codigos || []).join(', '))
   const [checklist, setChecklist] = useState(inicial.checklist || {})
   const [historial, setHistorial] = useState(null)
   const [guardando, setGuardando] = useState(false)
@@ -1031,7 +1038,7 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
       const r = await editarDatosTechPack({
         codigo: item.codigo,
         actual: item,
-        datos: { modelo, talla, color, notas, checklist },
+        datos: { modelo, talla, color, notas, checklist, codigos: codigosTxt.split(/[,;\s]+/).filter(Boolean) },
         usuario
       })
       onGuardado(r.sinCambios ? 'No habia nada que cambiar.' : `Guardado: ${item.codigo}.`)
@@ -1075,6 +1082,24 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
             <input className="tp-input" value={color} maxLength={200} onChange={(e) => setColor(e.target.value)} />
           </label>
         </div>
+
+        <label className="tp-campo">
+          <span>A que codigos u ordenes pertenece</span>
+          <input
+            className="tp-input"
+            value={codigosTxt}
+            placeholder="ej. 1564-I, 6080-K, 7942"
+            onChange={(e) => setCodigosTxt(e.target.value)}
+          />
+          <small className="texto-suave">
+            Separa con comas. Sirve para que este tech pack aparezca en su orden de compra y de trabajo, y para que
+            se pueda pegar por OT al encargarle a una maquila. Si lo dejas vacio, queda en &quot;Sin orden de compra
+            ni de trabajo&quot;.
+            {(inicial.codigos || []).length > 0 && (
+              <> Ahora tiene {(inicial.codigos || []).length}.</>
+            )}
+          </small>
+        </label>
 
         <div className="tp-campo">
           <span>
