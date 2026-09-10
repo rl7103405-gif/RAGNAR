@@ -733,3 +733,24 @@ table th, table td {
 .td-a-medias { background: #fef3c7; border-color: #fde68a; color: #b45309; }
 .td-sin-tech-pack { background: #fee2e2; border-color: #fecaca; color: #b91c1c; }
 .td-sin-revisar { background: #f1f5f9; color: #475569; }
+
+/* Los tres cuadros del arbol de tech packs (Roberto, 2026-09-10): se abren y
+   se cierran, y el encabezado se ve como titulo, no como renglon de lista. */
+.tp-cuadro > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.tp-cuadro > summary::-webkit-details-marker { display: none; }
+
+.tp-cuadro > summary::before {
+  content: '▸';
+  color: var(--texto-suave);
+  margin-right: 6px;
+  transition: transform 0.15s;
+}
+
+.tp-cuadro[open] > summary::before { content: '▾'; }

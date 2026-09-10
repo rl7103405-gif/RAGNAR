@@ -47,6 +47,71 @@ const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—'
 const codigoBase = (c) => String(c || '').replace(/-\d{1,2}-\d{1,2}$/, '')
 const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`
 
+// Una orden de compra del arbol, con sus OT y sus disenos. Vive en su propio
+// componente porque ahora se pinta en DOS cuadros: el de las ordenes de compra
+// de verdad y el de las OT que todavia no tienen una (Roberto, 2026-09-10).
+function OrdenDeCompra({ o, resumen, mb, setVisor }) {
+  return (
+      <details className="tp-oc" open>
+        <summary>
+          <span className="tp-oc-titulo">{o.oc === 'SIN OC' ? 'Ordenes de trabajo sin orden de compra' : `OC ${o.oc}`}</span>
+          <span className="texto-suave"> · {o.ots.length} {o.ots.length === 1 ? 'orden de trabajo' : 'ordenes de trabajo'} · {o.ots.reduce((n, t) => n + t.grupos.length, 0)} {o.ots.reduce((n, t) => n + t.grupos.length, 0) === 1 ? 'diseno' : 'disenos'}</span>
+        </summary>
+        {o.ots.map((t) => (
+          <div key={t.ot} className="tp-ot">
+            <div className="tp-ot-cab">
+              <span className="tp-ot-num">OT {t.ot}</span>
+              {t.destino ? <span className="texto-suave"> · {t.destino}</span> : null}
+              {t.faltan.length > 0 && (
+                <span className="tp-pill tp-pill-falta" style={{ marginLeft: 8 }}>faltan {t.faltan.length}: {t.faltan.join(', ')}</span>
+              )}
+            </div>
+            <div className="tp-disenos">
+              {t.grupos.map((g) => (
+                <div key={g.base} className="tp-diseno">
+                  <div>
+                    <span className="tp-codigo">{g.base}</span>
+                    {g.variantes.length > 1 || g.variantes[0].codigo !== g.base ? (
+                      <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>
+                        {g.variantes.length} {g.variantes.length === 1 ? 'talla' : 'tallas'}
+                      </span>
+                    ) : null}
+                    {g.variantes.length === 1 && (resumen.foliosDe.get(g.variantes[0].codigo) || []).length > 0 && (
+                      <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>folios {(resumen.foliosDe.get(g.variantes[0].codigo) || []).join(', ')}</span>
+                    )}
+                  </div>
+                  <div className="tp-fila">
+                    {g.variantes.map((b) => {
+                      const talla = b.codigo !== g.base ? b.codigo.slice(g.base.length + 1) : ''
+                      return b.techPack?.totalChunks ? (
+                        <button
+                          key={b.id}
+                          className="btn-secundario tp-btn-chico"
+                          title={`${b.techPack.formato?.toUpperCase()} · ${mb(b.techPack.tamano)} · v${b.techPack.version || 1}${(resumen.foliosDe.get(b.codigo) || []).length ? ' · folios ' + resumen.foliosDe.get(b.codigo).join(', ') : ''}`}
+                          onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
+                        >
+                          {talla ? `Ver talla ${talla}` : 'Ver tech pack'}
+                        </button>
+                      ) : (
+                        <span key={b.id} className="tp-pill tp-pill-falta">{talla ? `talla ${talla} sin tech pack` : 'sin tech pack'}</span>
+                      )
+                    })}
+                    {g.variantes.some((b) => b.ftt?.totalChunks) &&
+                      g.variantes.filter((b) => b.ftt?.totalChunks).map((b) => (
+                        <button key={b.id + '-ftt'} className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
+                          Ver FTT{b.codigo !== g.base ? ` ${b.codigo.slice(g.base.length + 1)}` : ''}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </details>
+  )
+}
+
 export default function PanelTechPacks() {
   const { authUser, perfil, esPrueba, puedeSubirTechPacks, puedeAsignarDiseno, esEquipoDiseno } = useAuth()
   const [biblioteca, setBiblioteca] = useState([])
@@ -377,7 +442,19 @@ export default function PanelTechPacks() {
           .sort((x, y) => x.ot.localeCompare(y.ot, 'es', { numeric: true }))
       }))
       .sort((x, y) => (x.oc === 'SIN OC' ? 1 : y.oc === 'SIN OC' ? -1 : x.oc.localeCompare(y.oc, 'es', { numeric: true })))
-    return { ocs, sinOrden: sinOrden.sort((x, y) => x.codigo.localeCompare(y.codigo)), totalConOrden }
+    // Roberto (2026-09-10): tres cuadros que se abren y se cierran, en vez de
+    // una sola lista larga. Las OC de verdad por un lado, las OT que todavia
+    // no tienen orden de compra por otro, y lo que no cuelga de nada al final.
+    const conOc = ocs.filter((o) => o.oc !== 'SIN OC')
+    const sinOc = ocs.filter((o) => o.oc === 'SIN OC')
+    return {
+      ocs,
+      conOc,
+      sinOc,
+      otsSinOc: sinOc.reduce((n, o) => n + o.ots.length, 0),
+      sinOrden: sinOrden.sort((x, y) => x.codigo.localeCompare(y.codigo)),
+      totalConOrden
+    }
   }, [biblioteca, enPlan, resumen.foliosDe, cruce])
   const codigoListo = Boolean(codigoComoId(codigo))
   const ligueDelElegido = codigoListo && enPlan ? enPlan.get(codigoComoId(codigo)) : null
@@ -604,122 +681,111 @@ export default function PanelTechPacks() {
         </div>
       )}
 
-      {/* ------------------------------------------------ el arbol */}
-      <div className="tarjeta">
-        <div className="tp-fila" style={{ justifyContent: 'space-between' }}>
-          <div>
-            <h3 style={{ margin: 0 }}>Por orden de compra y orden de trabajo</h3>
-            <p className="texto-suave" style={{ margin: '4px 0 0', fontSize: 13 }}>
-              Cada tech pack cuelga de la orden de trabajo que el plan le da, por su codigo o por sus folios de ficha.
-              {Array.isArray(cruce) ? ' Con el cruce hecho, cada OT dice tambien que codigos le faltan.' : ' Pulsa "Cruzar con el plan maestro" para ver ademas lo que le falta a cada OT.'}
-            </p>
-          </div>
-          <div className="tp-fila">
-            {/* usuario-real (10-sep): "0 con orden / 0 sin orden" no dice nada.
-                Un contador en cero es ruido; solo se pinta si hay que contar. */}
-            {arbol.totalConOrden > 0 && <span className="tp-pill">{arbol.totalConOrden} con orden</span>}
-            {arbol.sinOrden.length > 0 && <span className="tp-pill tp-pill-aviso">{arbol.sinOrden.length} todavia sin orden</span>}
-          </div>
+      {/* ---------------------------------- el arbol, en TRES cuadros que se
+          abren y se cierran (Roberto, 2026-09-10). Cada uno responde a una
+          pregunta distinta: que hay por orden de compra, que trae orden de
+          trabajo pero todavia no de compra, y que no cuelga de nada. */}
+      {enPlan === null ? (
+        <div className="tarjeta">
+          <p className="texto-suave" style={{ margin: 0 }}>Leyendo el plan maestro...</p>
         </div>
-
-        {enPlan === null ? (
-          <p className="texto-suave" style={{ marginTop: 12 }}>Leyendo el plan maestro...</p>
-        ) : arbol.ocs.length === 0 && arbol.sinOrden.length === 0 ? (
+      ) : arbol.conOc.length === 0 && arbol.sinOc.length === 0 && arbol.sinOrden.length === 0 ? (
+        <div className="tarjeta">
           <div className="tp-vacio">
             <div className="tp-vacio-titulo">Todavia no hay nada en la biblioteca</div>
           </div>
-        ) : (
-          <div className="tp-arbol">
-            {arbol.ocs.map((o) => (
-              <details key={o.oc} className="tp-oc" open>
-                <summary>
-                  <span className="tp-oc-titulo">{o.oc === 'SIN OC' ? 'Ordenes de trabajo sin orden de compra' : `OC ${o.oc}`}</span>
-                  <span className="texto-suave"> · {o.ots.length} {o.ots.length === 1 ? 'orden de trabajo' : 'ordenes de trabajo'} · {o.ots.reduce((n, t) => n + t.grupos.length, 0)} {o.ots.reduce((n, t) => n + t.grupos.length, 0) === 1 ? 'diseno' : 'disenos'}</span>
-                </summary>
-                {o.ots.map((t) => (
-                  <div key={t.ot} className="tp-ot">
-                    <div className="tp-ot-cab">
-                      <span className="tp-ot-num">OT {t.ot}</span>
-                      {t.destino ? <span className="texto-suave"> · {t.destino}</span> : null}
-                      {t.faltan.length > 0 && (
-                        <span className="tp-pill tp-pill-falta" style={{ marginLeft: 8 }}>faltan {t.faltan.length}: {t.faltan.join(', ')}</span>
-                      )}
+        </div>
+      ) : (
+        <>
+          <details className="tarjeta tp-cuadro" open>
+            <summary className="tp-cuadro-cab">
+              <strong style={{ fontSize: 16 }}>Por orden de compra</strong>
+              <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
+                {arbol.conOc.length} {arbol.conOc.length === 1 ? 'orden de compra' : 'ordenes de compra'}
+                {' · '}
+                {arbol.conOc.reduce((n, o) => n + o.ots.length, 0)} de trabajo
+              </span>
+            </summary>
+            <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>
+              Cada tech pack cuelga de la orden de trabajo que le da el plan, por su codigo o por sus folios de ficha.
+              {Array.isArray(cruce)
+                ? ' Con el cruce hecho, cada OT dice tambien que codigos le faltan.'
+                : ' Pulsa "Cruzar con el plan maestro" para ver ademas lo que le falta a cada OT.'}
+            </p>
+            {arbol.conOc.length === 0 ? (
+              <p className="texto-suave" style={{ margin: '8px 0 0 12px' }}>Ninguna todavia.</p>
+            ) : (
+              <div className="tp-arbol">
+                {arbol.conOc.map((o) => (
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} />
+                ))}
+              </div>
+            )}
+          </details>
+
+          <details className="tarjeta tp-cuadro">
+            <summary className="tp-cuadro-cab">
+              <strong style={{ fontSize: 16 }}>Sin orden de compra</strong>
+              <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
+                {arbol.otsSinOc} {arbol.otsSinOc === 1 ? 'orden de trabajo' : 'ordenes de trabajo'}
+              </span>
+            </summary>
+            <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>
+              Tienen orden de trabajo en el plan, pero el plan no dice a que orden de compra pertenecen.
+            </p>
+            {arbol.sinOc.length === 0 ? (
+              <p className="texto-suave" style={{ margin: '8px 0 0 12px' }}>Ninguna: todas las OT traen su orden de compra.</p>
+            ) : (
+              <div className="tp-arbol">
+                {arbol.sinOc.map((o) => (
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} />
+                ))}
+              </div>
+            )}
+          </details>
+
+          <details className="tarjeta tp-cuadro">
+            <summary className="tp-cuadro-cab">
+              <strong style={{ fontSize: 16 }}>Sin orden de compra ni de trabajo</strong>
+              <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
+                {arbol.sinOrden.length} {arbol.sinOrden.length === 1 ? 'diseno' : 'disenos'}
+              </span>
+            </summary>
+            <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>
+              Desarrollos que aun no son pedido, o que Adrian todavia no ha subido al plan. Aqui caen tambien los
+              tech packs que se cargaron sin ligar a ningun codigo del plan.
+            </p>
+            {arbol.sinOrden.length === 0 ? (
+              <p className="texto-suave" style={{ margin: '8px 0 0 12px' }}>Ninguno: todos cuelgan de una OT.</p>
+            ) : (
+              <div className="tp-disenos">
+                {arbol.sinOrden.map((b) => (
+                  <div key={b.id} className="tp-diseno">
+                    <div>
+                      <span className="tp-codigo">{b.codigo}</span>
+                      {b.descripcion ? (
+                        <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>{b.descripcion}</span>
+                      ) : null}
                     </div>
-                    <div className="tp-disenos">
-                      {t.grupos.map((g) => (
-                        <div key={g.base} className="tp-diseno">
-                          <div>
-                            <span className="tp-codigo">{g.base}</span>
-                            {g.variantes.length > 1 || g.variantes[0].codigo !== g.base ? (
-                              <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>
-                                {g.variantes.length} {g.variantes.length === 1 ? 'talla' : 'tallas'}
-                              </span>
-                            ) : null}
-                            {g.variantes.length === 1 && (resumen.foliosDe.get(g.variantes[0].codigo) || []).length > 0 && (
-                              <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>folios {(resumen.foliosDe.get(g.variantes[0].codigo) || []).join(', ')}</span>
-                            )}
-                          </div>
-                          <div className="tp-fila">
-                            {g.variantes.map((b) => {
-                              const talla = b.codigo !== g.base ? b.codigo.slice(g.base.length + 1) : ''
-                              return b.techPack?.totalChunks ? (
-                                <button
-                                  key={b.id}
-                                  className="btn-secundario tp-btn-chico"
-                                  title={`${b.techPack.formato?.toUpperCase()} · ${mb(b.techPack.tamano)} · v${b.techPack.version || 1}${(resumen.foliosDe.get(b.codigo) || []).length ? ' · folios ' + resumen.foliosDe.get(b.codigo).join(', ') : ''}`}
-                                  onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
-                                >
-                                  {talla ? `Ver talla ${talla}` : 'Ver tech pack'}
-                                </button>
-                              ) : (
-                                <span key={b.id} className="tp-pill tp-pill-falta">{talla ? `talla ${talla} sin tech pack` : 'sin tech pack'}</span>
-                              )
-                            })}
-                            {g.variantes.some((b) => b.ftt?.totalChunks) &&
-                              g.variantes.filter((b) => b.ftt?.totalChunks).map((b) => (
-                                <button key={b.id + '-ftt'} className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
-                                  Ver FTT{b.codigo !== g.base ? ` ${b.codigo.slice(g.base.length + 1)}` : ''}
-                                </button>
-                              ))}
-                          </div>
-                        </div>
-                      ))}
+                    <div className="tp-fila">
+                      {b.techPack?.totalChunks ? (
+                        <button
+                          className="btn-secundario tp-btn-chico"
+                          onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
+                        >
+                          Ver tech pack
+                        </button>
+                      ) : (
+                        <span className="tp-pill tp-pill-falta">sin tech pack</span>
+                      )}
                     </div>
                   </div>
                 ))}
-              </details>
-            ))}
-
-            <details className="tp-oc tp-oc-sin" open={arbol.ocs.length === 0}>
-              <summary>
-                <span className="tp-oc-titulo">Todavia sin orden de trabajo</span>
-                <span className="texto-suave"> · {arbol.sinOrden.length} · desarrollos que aun no son pedido, o que Adrian no ha subido al plan</span>
-              </summary>
-              {arbol.sinOrden.length === 0 ? (
-                <p className="texto-suave" style={{ margin: '8px 0 0 12px' }}>Ninguno: todos los tech packs cuelgan de una OT.</p>
-              ) : (
-                <div className="tp-disenos">
-                  {arbol.sinOrden.map((b) => (
-                    <div key={b.id} className="tp-diseno">
-                      <div>
-                        <span className="tp-codigo">{b.codigo}</span>
-                        {b.descripcion ? <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>{b.descripcion}</span> : null}
-                      </div>
-                      <div className="tp-fila">
-                        {b.techPack?.totalChunks ? (
-                          <button className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}>Ver tech pack</button>
-                        ) : (
-                          <span className="tp-pill tp-pill-falta">sin tech pack</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </details>
-          </div>
-        )}
-      </div>
+              </div>
+            )}
+          </details>
+        </>
+      )}
 
       {/* ------------------------------------------------ la lista completa (plegada) */}
       <details className="tarjeta tp-lista">
