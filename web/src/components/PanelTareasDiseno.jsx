@@ -124,8 +124,13 @@ export default function PanelTareasDiseno() {
     let vivo = true
     ;(async () => {
       const uidsJefas = claveResponsables.split(',')
-      const pares = await Promise.all(uidsJefas.map(async (u) => [u, await equipoDe(u).catch(() => [])]))
-      if (vivo) setEquipoPorJefa(new Map(pares))
+      let fallas = 0
+      const pares = await Promise.all(uidsJefas.map(async (u) => [u, await equipoDe(u).catch(() => { fallas++; return [] })]))
+      if (!vivo) return
+      setEquipoPorJefa(new Map(pares))
+      // Codex (10-sep): sin esto un fallo de lectura dejaba el "equipo
+      // completo" incompleto en silencio.
+      if (fallas) setError(`No se pudo leer el equipo de ${fallas} jefa(s): la tabla por persona esta incompleta. Recarga para reintentar.`)
     })()
     return () => {
       vivo = false
@@ -193,7 +198,7 @@ export default function PanelTareasDiseno() {
         // era el cero de un conjunto vacio. Sin codigos, no hay nada que contar.
         // usuario-real (10-sep): el mismo codigo en dos OT se contaba dos veces;
         // Lety piensa en fichas que pedir, no en renglones: codigos DISTINTOS.
-        { t: 'Codigos sin tech pack', v: codigosMios ? codigosSinTechPack(mias) : '—', tono: codigosMios ? 'aviso' : '', que: 'De los codigos que te tocan, cuantos (distintos) no tienen ni el archivo del tech pack en la biblioteca.' },
+        { t: 'Codigos sin tech pack', v: codigosMios ? codigosSinTechPack(mias) : '—', tono: codigosMios && codigosSinTechPack(mias) ? 'aviso' : '', que: 'De los codigos que te tocan, cuantos (distintos) no tienen ni el archivo del tech pack en la biblioteca.' },
         { t: 'Avance promedio', v: mias.length ? Math.round(mias.reduce((t, a) => t + a.porcentaje, 0) / mias.length) + '%' : '—', que: 'Promedio del checklist de tus codigos (archivo + los 7 rubros).' }
       ]
     }
@@ -206,7 +211,7 @@ export default function PanelTareasDiseno() {
       { t: 'OT en encargos', v: filas.length, que: 'Ordenes de trabajo que suman los encargos abiertos.' },
       { t: 'OT listas', v: listas, tono: listas ? 'ok' : '', que: 'OT en las que todos los codigos ya tienen tech pack con el checklist completo.' },
       { t: 'OT sin asignar', v: filas.filter((f) => !f.asignacion).length, tono: filas.some((f) => !f.asignacion) ? 'aviso' : '', que: 'OT que todavia no le tocan a nadie del equipo.' },
-      { t: 'Codigos sin tech pack', v: codigos ? codigosSinTechPack(filas) : '—', tono: codigos ? 'aviso' : '', que: 'De los codigos de las OT (del plan o tecleados), cuantos (distintos) no tienen ni el archivo del tech pack en la biblioteca. Sin codigos cargados no hay nada que contar.' },
+      { t: 'Codigos sin tech pack', v: codigos ? codigosSinTechPack(filas) : '—', tono: codigos && codigosSinTechPack(filas) ? 'aviso' : '', que: 'De los codigos de las OT (del plan o tecleados), cuantos (distintos) no tienen ni el archivo del tech pack en la biblioteca. Sin codigos cargados no hay nada que contar.' },
       { t: 'Avance promedio', v: filas.length ? Math.round(filas.reduce((t, f) => t + f.porcentaje, 0) / filas.length) + '%' : '—', que: 'Promedio del checklist de los codigos (archivo + los 7 rubros).' }
     ]
   }, [vista, encargos, asignaciones, avances, indice])
@@ -355,7 +360,7 @@ function PorPersona({ asignaciones, indice, equipo }) {
   return (
     <div className="tarjeta" style={{ marginTop: 12 }}>
       <h3 style={{ margin: 0 }}>Cuanto lleva cada quien</h3>
-      <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>Carga y avance de las OT asignadas a cada quien (solo abiertas). El avance sale de los tech packs de esos codigos; la biblioteca es de todos, asi que mide lo asignado, no quien subio cada archivo.</p>
+      <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>Carga y avance de las OT asignadas a cada quien (solo abiertas). El avance es el promedio por OT (cada OT pesa igual, tenga uno o veinte codigos) y sale de los tech packs; la biblioteca es de todos, asi que mide lo asignado, no quien subio cada archivo.</p>
       <div style={{ overflowX: 'auto' }}>
         <table className="tabla-datos">
           <thead>
@@ -562,7 +567,7 @@ function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa,
                     onCerrarEncargo(e, 'cerrado')
                   }}
                 >
-                  Cerrar encargo
+                  {ocupado ? 'Cerrando...' : 'Cerrar encargo'}
                 </button>
                 <button
                   className="btn-secundario tp-btn-chico"
@@ -573,7 +578,7 @@ function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa,
                     onCerrarEncargo(e, 'cancelado')
                   }}
                 >
-                  Cancelar encargo
+                  {ocupado ? 'Un momento...' : 'Cancelar encargo'}
                 </button>
               </span>
             )}
@@ -672,6 +677,7 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
         {a ? (
           <>
             {a.asignadoANombre}
+            {a.estado !== 'abierta' && <span className="tp-pill" style={{ marginLeft: 6 }}>{a.estado}</span>}
             <div className="texto-suave" style={{ fontSize: 12 }}>
               desde {fecha(a.creadoEn)}{a.fechaObjetivo ? ` · para el ${fecha(a.fechaObjetivo)}` : ''}
             </div>
@@ -793,17 +799,25 @@ function HistorialAsignacion({ asignacion }) {
   const [renglones, setRenglones] = useState(null)
   const [error, setError] = useState('')
 
+  const cargar = () => {
+    setCargando(true)
+    historialDeAsignacion(asignacionId)
+      .then((r) => setRenglones(r))
+      .catch((err) => setError(err?.message || 'No se pudo leer el historial.'))
+      .finally(() => setCargando(false))
+  }
   const alAbrir = (e) => {
     const yaAbierto = e.target.open
     setAbierto(yaAbierto)
-    if (yaAbierto && renglones === null && !cargando) {
-      setCargando(true)
-      historialDeAsignacion(asignacionId)
-        .then((r) => setRenglones(r))
-        .catch((err) => setError(err?.message || 'No se pudo leer el historial.'))
-        .finally(() => setCargando(false))
-    }
+    if (yaAbierto && renglones === null && !cargando) cargar()
   }
+  // Codex (10-sep): si el historial ya estaba abierto y la asignacion cambio
+  // (correccion, reasignacion, cierre en cascada), el renglon nuevo no
+  // aparecia hasta recargar la pagina. La revision es la senal.
+  useEffect(() => {
+    if (abierto && renglones !== null) cargar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asignacion.revision])
 
   return (
     <details style={{ marginTop: 4 }} onToggle={alAbrir} open={abierto}>

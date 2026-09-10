@@ -15,7 +15,7 @@ import AjustesCuenta from './AjustesCuenta'
 
 // usuario-real (9 y 10-sep): a Lety le sobraba "Embarques" bajo su nombre.
 // La etiqueta sigue al rol; quien no esta aqui sigue viendo Embarques.
-const ETIQUETA_ROL = {
+export const ETIQUETA_ROL = {
   admin: 'Direccion',
   desarrollo: 'Desarrollo de producto',
   produccion: 'Produccion',

@@ -32,6 +32,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -344,7 +345,13 @@ export async function cerrarEncargoConAsignaciones({ encargo, estado, asignacion
     // Codex (10-sep): la regla ancla asignadoANombre al perfil VIGENTE aunque
     // el uid no cambie; si renombraron a la persona desde que se le asigno,
     // mandar solo {estado} se rechaza. Se manda el nombre actual del equipo.
-    const nombreActual = (equipo || []).find((u) => u.id === a.asignadoAUid)?.nombreCompleto
+    let nombreActual = (equipo || []).find((u) => u.id === a.asignadoAUid)?.nombreCompleto
+    if (!nombreActual) {
+      // Inactiva o movida de equipo: no esta en la lista. Se intenta su perfil;
+      // si la regla no deja leerlo, se manda sin nombre (la regla ya no relee
+      // el perfil cuando ni el uid ni el nombre cambian).
+      try { nombreActual = (await getDoc(doc(db, 'usuarios', a.asignadoAUid))).data()?.nombreCompleto } catch { nombreActual = null }
+    }
     const cambios = { estado: estadoAsig }
     if (nombreActual && nombreActual !== a.asignadoANombre) cambios.asignadoANombre = nombreActual
     try {
@@ -358,6 +365,25 @@ export async function cerrarEncargoConAsignaciones({ encargo, estado, asignacion
   }
   try {
     await cambiarEncargo({ encargo, estado, usuario })
+    // Codex (10-sep): carrera. Mientras se cerraban las de arriba, otra
+    // sesion pudo repartir una OT mas. Con el encargo YA cerrado la regla no
+    // deja crear ni reabrir, asi que una segunda pasada remata lo que se
+    // haya colado (la regla deja cerrar/cancelar bajo encargo cerrado).
+    try {
+      const snap = await getDocs(query(
+        collection(db, COL_ASIGNACIONES),
+        where('esPrueba', '==', encargo.esPrueba === true),
+        where('jefeUid', '==', encargo.responsableUid),
+        where('encargoId', '==', encargo.id),
+        where('estado', '==', 'abierta')
+      ))
+      for (const d of docs(snap)) {
+        await cambiarAsignacion({ asignacion: d, cambios: { estado: estadoAsig }, motivo: `encargo ${estado}`, usuario })
+        hechas++
+      }
+    } catch (e) {
+      console.warn('[Diseno] segunda pasada del cierre:', e)
+    }
   } catch (e) {
     // code-reviewer: si el encargo falla al final, que se sepa que las
     // asignaciones YA quedaron cerradas; reintentar es seguro (no las retoca).
@@ -607,7 +633,10 @@ export function avanceDeOt(codigos, indice) {
  * "casi" de "ni empezado".
  */
 export function avanceDeEncargo(encargo, asignaciones, lineasPorOt, indice) {
-  const abiertas = (asignaciones || []).filter((a) => a.encargoId === encargo.id && a.estado !== 'cancelada')
+  // Codex (10-sep): una asignacion cancelada se oculta SOLO mientras el
+  // encargo esta abierto (la OT vuelve a "sin asignar"). En un encargo
+  // cerrado o cancelado, el reparto es historico y se muestra tal cual.
+  const abiertas = (asignaciones || []).filter((a) => a.encargoId === encargo.id && (encargo.estado !== 'abierto' || a.estado !== 'cancelada'))
   const filas = (encargo.ots || []).map((ot) => {
     const asignacion = abiertas.find((a) => a.ot === ot) || null
     const codigosDelPlan = lineasPorOt?.get(ot) || []

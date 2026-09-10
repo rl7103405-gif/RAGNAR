@@ -12,7 +12,7 @@
 // nada de avios (America y Lindbergh no los tocan: son de Alvaro y el
 // catalogo de Cielo); el admin sigue viendo todo.
 import { useState } from 'react'
-import Layout from '../components/Layout'
+import Layout, { ETIQUETA_ROL } from '../components/Layout'
 import PanelCaptura from '../components/PanelCaptura'
 import CargaRuteo from '../components/CargaRuteo'
 import PanelHistorial from '../components/PanelHistorial'
@@ -260,9 +260,8 @@ export default function Estacion() {
 
   // usuario-real (9-sep): a Lety le sobraba "Embarques" en su cabecera. El
   // titulo sigue al rol: desarrollo y produccion no embarcan nada.
-  const tituloPorRol = { desarrollo: 'RAGNAR - Desarrollo de producto', produccion: 'RAGNAR - Plan maestro', pt: 'RAGNAR - Producto terminado' }
   return (
-    <Layout titulo={tituloPorRol[perfil?.rol] || 'RAGNAR - Embarques'}>
+    <Layout titulo={`RAGNAR - ${ETIQUETA_ROL[perfil?.rol] || 'Embarques'}`}>
       {visibles.length > 1 && (
         <div className="tabs">
           {visibles.map((t) => (

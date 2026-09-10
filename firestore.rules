@@ -3313,16 +3313,23 @@ service cloud.firestore {
              .hasOnly(['asignadoAUid', 'asignadoANombre', 'estado', 'codigos', 'notas', 'fechaObjetivo', 'revision', 'ultimaEdicionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
         && sellosDeEdicionSegun(despues, yo.nombre)
         && despues.revision == antes.revision + 1
-        // Codex (10-sep): REABRIR una asignacion exige que su encargo siga
-        // abierto. Sin esto, el cierre en cascada (cerrarEncargoConAsignaciones)
-        // se podia deshacer por detras y Monica volvia a ver trabajo de un
-        // encargo cerrado. Solo cuesta la lectura cuando se reabre.
-        && (despues.estado != 'abierta' || antes.estado == 'abierta'
-            || get(/databases/$(database)/documents/encargosDiseno/$(antes.encargoId)).data.estado == 'abierto')
-        // El nombre SIEMPRE se ancla al perfil del uid vigente, cambie o no
-        // el destinatario: asi no se puede dejar el uid quieto y solo
-        // renombrar la asignacion para que parezca de otra persona.
-        && despues.asignadoANombre == perfilDe(despues.asignadoAUid).get('nombreCompleto', '')
+        // Codex (10-sep): bajo un encargo que YA NO esta abierto, lo unico que
+        // se puede hacer con una asignacion es cerrarla o cancelarla sin mover
+        // persona ni codigos (para rematar una que quedo abierta por una
+        // carrera con el cierre en cascada). Reabrir, reasignar o corregir
+        // codigos exigen el encargo abierto: el reparto de un encargo cerrado
+        // es historico y se consulta, no se retoca.
+        && (get(/databases/$(database)/documents/encargosDiseno/$(antes.encargoId)).data.estado == 'abierto'
+            || (despues.estado in ['cerrada', 'cancelada']
+                && despues.asignadoAUid == antes.asignadoAUid
+                && despues.codigos == antes.codigos))
+        // El nombre se ancla al perfil del uid vigente cuando CAMBIA (el uid o
+        // el nombre): asi no se puede dejar el uid quieto y solo renombrar la
+        // asignacion para que parezca de otra persona. Si no se toca ninguno
+        // de los dos no se relee el perfil: un renombre del perfil no puede
+        // impedir cerrar o corregir una asignacion (Codex, 10-sep).
+        && ((despues.asignadoAUid == antes.asignadoAUid && despues.asignadoANombre == antes.asignadoANombre)
+            || despues.asignadoANombre == perfilDe(despues.asignadoAUid).get('nombreCompleto', ''))
         && (despues.asignadoAUid == antes.asignadoAUid
             || destinatariaDeDisenoOk(despues, yo.esPrueba))
         && fotoDeAsignacion(despues) != fotoDeAsignacion(antes)

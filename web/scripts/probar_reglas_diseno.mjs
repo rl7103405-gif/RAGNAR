@@ -106,7 +106,7 @@ const ESCENARIOS = {
     que: 'la jefa corrige los codigos de una asignacion (batch con historial)',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_ASIG, time: T, resource: doc(ASIG2) },
     resource: doc(ASIG),
-    functionMocks: [...perfilMocks([JEFA, EQUIPO]), mAfter(P_ASIG + '/historial/HIST0001', HIST_ASIG), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)],
+    functionMocks: [...perfilMocks([JEFA, EQUIPO]), mGet(P_ENC, ENCARGO_DOC), mAfter(P_ASIG + '/historial/HIST0001', HIST_ASIG), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)],
     ancla: 'return (yo.admin || (yo.jefaDiseno && antes.jefeUid == request.auth.uid))'
   },
   'asig-historial': {
@@ -225,12 +225,12 @@ Object.assign(ESCENARIOS, {
   'neg-jefa-baja-corrige': {
     expectation: 'DENY', que: 'NEG: una jefa dada de baja (activo:false) corrige una asignacion suya',
     request: ESCENARIOS['asig-update'].request, resource: doc(ASIG),
-    functionMocks: [...perfilMocks([JEFA_BAJA, EQUIPO]), mAfter(P_ASIG + '/historial/HIST0001', HIST_ASIG), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)]
+    functionMocks: [...perfilMocks([JEFA_BAJA, EQUIPO]), mGet(P_ENC, ENCARGO_DOC), mAfter(P_ASIG + '/historial/HIST0001', HIST_ASIG), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)]
   },
   'neg-corrige-sin-historial': {
     expectation: 'DENY', que: 'NEG: corregir codigos sin el renglon de historial en el batch',
     request: ESCENARIOS['asig-update'].request, resource: doc(ASIG),
-    functionMocks: [...perfilMocks([JEFA, EQUIPO]), sinResultado('getAfter', P_ASIG + '/historial/HIST0001'), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)]
+    functionMocks: [...perfilMocks([JEFA, EQUIPO]), mGet(P_ENC, ENCARGO_DOC), sinResultado('getAfter', P_ASIG + '/historial/HIST0001'), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)]
   },
   'neg-techpack-mixto': {
     expectation: 'DENY', que: 'NEG: un update que sube archivo Y edita datos a la vez',
@@ -261,6 +261,25 @@ Object.assign(ESCENARIOS, {
     resource: doc({ ...ASIG, estado: 'cerrada', revision: 2 }),
     functionMocks: [...perfilMocks([JEFA, EQUIPO]), mGet(P_ENC, { ...ENCARGO_DOC, estado: 'cerrado' }),
       mAfter(P_ASIG + '/historial/HIST0003', { revision: 3, antes: foto({ ...ASIG, estado: 'cerrada' }), despues: foto(ASIG), motivo: null, cuando: T, quienUid: JEFA.uid, quienNombre: JEFA.nombreCompleto })]
+  },
+  'asig-cerrar-bajo-cerrado': {
+    que: 'rematar (cerrar) una asignacion que quedo abierta bajo un encargo ya cerrado',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_ASIG, time: T, resource: doc({ ...ASIG, estado: 'cerrada', revision: 2, ultimaEdicionId: 'HIST0001', ...sellos(JEFA) }) },
+    resource: doc(ASIG),
+    functionMocks: [...perfilMocks([JEFA, EQUIPO]), mGet(P_ENC, { ...ENCARGO_DOC, estado: 'cerrado' }),
+      mAfter(P_ASIG + '/historial/HIST0001', { revision: 2, antes: foto(ASIG), despues: foto({ ...ASIG, estado: 'cerrada' }), motivo: 'encargo cerrado', cuando: T, quienUid: JEFA.uid, quienNombre: JEFA.nombreCompleto })]
+  },
+  'neg-corregir-bajo-cerrado': {
+    expectation: 'DENY', que: 'NEG: corregir codigos de una asignacion cuyo encargo ya esta cerrado',
+    request: ESCENARIOS['asig-update'].request, resource: doc(ASIG),
+    functionMocks: [...perfilMocks([JEFA, EQUIPO]), mGet(P_ENC, { ...ENCARGO_DOC, estado: 'cerrado' }), mAfter(P_ASIG + '/historial/HIST0001', HIST_ASIG), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)]
+  },
+  'neg-renombrar-sin-mover': {
+    expectation: 'DENY', que: 'NEG: cambiar solo el nombre de la destinataria (mismo uid) a uno que no es el de su perfil',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_ASIG, time: T, resource: doc({ ...ASIG, asignadoANombre: 'OTRA PERSONA', revision: 2, ultimaEdicionId: 'HIST0001', ...sellos(JEFA) }) },
+    resource: doc(ASIG),
+    functionMocks: [...perfilMocks([JEFA, EQUIPO]), mGet(P_ENC, ENCARGO_DOC),
+      mAfter(P_ASIG + '/historial/HIST0001', { revision: 2, antes: foto(ASIG), despues: foto({ ...ASIG, asignadoANombre: 'OTRA PERSONA' }), motivo: null, cuando: T, quienUid: JEFA.uid, quienNombre: JEFA.nombreCompleto })]
   },
   'neg-alias-recibe-archivo': {
     expectation: 'DENY', que: 'NEG: subirle un archivo a un ALIAS (apuntaA)',
