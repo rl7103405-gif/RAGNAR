@@ -81,6 +81,14 @@ const conOt = { ...base, ot: '7922', destino: 'Optima RA Enero', fechaRequerida:
 const APARTADO = { asignaciones: { hugo_martinez: TAREA_ID } }
 
 const perfilMocks = [mExists(P_PERFIL), mGet(P_PERFIL, (({ uid, ...r }) => r)(LIN))]
+// El perfil REAL de la maquila y el de quien sube chunks, para medir las dos
+// reglas que hoy fallan: "Ya empece" (Hugo) y pegar el tech pack (Lindbergh).
+const hugoSnap = (await db.collection('usuarios').where('empleadoId', '==', 'hugo_martinez').limit(1).get()).docs[0]
+const HUGO_UID = hugoSnap.id
+const HUGO = plano(hugoSnap.data())
+const P_HUGO = DBPATH + '/usuarios/' + HUGO_UID
+const hugoMocks = [mExists(P_HUGO), mGet(P_HUGO, HUGO), mExists(P_MAQ), mGet(P_MAQ, MAQ)]
+console.log('Hugo     :', HUGO_UID, '| rol:', HUGO.rol, '| maquilaId:', HUGO.maquilaId, '| activo:', HUGO.activo)
 
 const ESCENARIOS = {
   'sin-ot': {
@@ -118,6 +126,26 @@ const ESCENARIOS = {
       iniciadaEn: T, iniciadaPorUid: 'MAQUILAUID', iniciadaPorNombre: 'Hugo Martinez' }),
     functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ),
       { function: 'existsAfter', args: [{ exactValue: DBPATH + '/otsAsignadas/' + hexOt('7922') }], result: { value: false } }]
+  },
+  'maquila-empieza': {
+    que: 'HUGO pica "Ya empece" en una tarea con OT',
+    request: { auth: { uid: HUGO_UID }, method: 'update', path: P_TAREA, time: T,
+      resource: doc({ ...conOt, estado: 'iniciada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto }) },
+    resource: doc({ ...conOt, estado: 'abierta', publicadaEn: T }),
+    functionMocks: hugoMocks
+  },
+  'maquila-termina': {
+    que: 'HUGO declara terminada la tarea',
+    request: { auth: { uid: HUGO_UID }, method: 'update', path: P_TAREA, time: T,
+      resource: doc({ ...conOt, estado: 'declarada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto, declaradaEn: T, declaradaPorUid: HUGO_UID, declaradaPorNombre: HUGO.nombreCompleto }) },
+    resource: doc({ ...conOt, estado: 'iniciada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto }),
+    functionMocks: hugoMocks
+  },
+  'pegar-techpack': {
+    que: 'LINDBERGH sube un pedazo del tech pack a la tarea (en preparando)',
+    request: { auth: { uid: LIN.uid }, method: 'create', path: P_TAREA + '/techPackChunks/00', time: T,
+      resource: doc({ maquilaId: 'hugo_martinez', datos: 'AAECAwQ=' }) },
+    functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ), mGet(P_TAREA, { ...conOt, estado: 'preparando' })]
   },
   'publicar': {
     que: 'Lindbergh PUBLICA la tarea (de borrador a abierta, que es cuando la maquila la ve)',

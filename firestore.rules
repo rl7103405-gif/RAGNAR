@@ -122,6 +122,8 @@ service cloud.firestore {
     //   subeTechPacks == puedeSubirTechPacks()
     //   veTechPacks  == puedeVerTechPacks()
     //   creaTareas   == puedeCrearTareas()
+    //   rol          == rol()            (para la puerta de las maquilas)
+    //   maquila      == maquilaDelPerfil()
     //   esPrueba     == esCuentaDePrueba()
     //   nombre       == perfil().get('nombreCompleto', '')
     // Sin sesion o sin documento de perfil, el mapa vale todo false/'' (no
@@ -139,6 +141,8 @@ service cloud.firestore {
         'subeTechPacks': interno && r in ['admin', 'desarrollo'],
         'veTechPacks': interno && (r in ['admin', 'desarrollo', 'completo'] || p.get('puedeCrearTareas', false) == true),
         'creaTareas': interno && (r == 'admin' || p.get('puedeCrearTareas', false) == true),
+        'rol': activo ? r : '',
+        'maquila': activo ? p.get('maquilaId', '') : '',
         'esPrueba': activo && p.get('esPrueba', false) == true,
         'nombre': p.get('nombreCompleto', '')
       };
@@ -148,6 +152,21 @@ service cloud.firestore {
     // ¿Es el usuario de ESTA maquila, y sigue vigente? Se exige que la maquila
     // este activa en el catalogo: dar de baja una maquila (activo=false) cierra
     // su portal de inmediato, con un solo interruptor.
+    // Igual que esMaquilaDe(mid) pero con el perfil ya resuelto: rol(),
+    // maquilaDelPerfil() y mismoMundoMaquila() lo releian cada una, y el
+    // update de una tarea de ensamble se pasaba del tope de 1,000 expresiones
+    // por peticion. Hugo no podia picar "Ya empece" ni declarar terminado, y
+    // la app se lo mostraba como permiso negado (medido el 2026-09-10 con
+    // web/scripts/probar_regla_tarea_maquila.mjs).
+    function esMaquilaDeSegun(mid, yo) {
+      return yo.rol == 'maquila'
+        && mid is string
+        && mid.size() > 0
+        && yo.maquila == mid
+        && exists(/databases/$(database)/documents/maquilas/$(mid))
+        && get(/databases/$(database)/documents/maquilas/$(mid)).data.activo == true
+        && mismoMundoMaquilaSegun(mid, yo.esPrueba);
+    }
     function esMaquilaDe(mid) {
       return rol() == 'maquila'
         && mid is string
@@ -2760,9 +2779,20 @@ service cloud.firestore {
       // de Quini: dar 'allow update sobre su propio documento' sin acotar deja
       // reescribirlo entero (es la lección que dejaron las tareas internas,
       // donde la persona asignada podía bajarse la meta a 0.01).
-      allow update: if esMaquilaDe(maquilaId)
+      allow update: if puedeReportarLaMaquila(maquilaId);
+      allow delete: if false;
+    }
+    // Lo que la maquila reporta de su avance. El perfil se lee UNA vez.
+    function puedeReportarLaMaquila(maquilaId) {
+      let yo = perfilResumido();
+      return esMaquilaDeSegun(maquilaId, yo)
         && resource.data.get('publicadaEn', null) != null
-        && tareaEnsambleValida(maquilaId)
+        // Sin revalidar las firmas: CADA rama de aqui abajo fija iniciadaEn /
+        // declaradaEn con request.time y el uid de quien escribe, que es mas
+        // estricto que firmaCoherente. Con ellas dentro, declarar terminada
+        // una tarea con OT se pasaba del tope de 1,000 expresiones y Hugo
+        // veia un permiso negado (medido el 2026-09-10).
+        && tareaEnsambleValidaCon(maquilaId, false)
         && (
           // (a) EMPECE. Solo desde 'abierta', y una vez: 'iniciadaEn' nace
           // aqui y ya no se vuelve a mover en toda la vida de la tarea.
@@ -2820,7 +2850,6 @@ service cloud.firestore {
             && request.resource.data.declaradaPorUid == null
             && request.resource.data.declaradaPorNombre == null )
         );
-      allow delete: if false;
     }
 
     match /portalMaquila/{maquilaId}/tareasEnsamble/{tareaId}/techPackChunks/{chunkId} {
@@ -2841,16 +2870,11 @@ service cloud.firestore {
       // no se puede cambiar debajo de una tarea que la maquila ya esta viendo.
       // El ID es de dos digitos 00..16 (tope 17 chunks = 15 MB): el espacio
       // de IDs queda acotado por regex, no por un campo que se pueda mentir.
-      allow create, update: if puedeCrearTareas()
-        && mismoMundoMaquila(maquilaId)
-        && chunkId.matches('^(0[0-9]|1[0-6])$')
-        && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado == 'preparando'
-        && request.resource.data.keys().hasAll(['maquilaId', 'datos'])
-        && request.resource.data.keys().hasOnly(['maquilaId', 'datos'])
-        && request.resource.data.maquilaId == maquilaId
-        && request.resource.data.datos is bytes
-        && request.resource.data.datos.size() > 0
-        && request.resource.data.datos.size() <= 950000;
+      // El perfil se lee UNA vez: con puedeCrearTareas() + mismoMundoMaquila()
+      // cada pedazo pagaba dos recorridos del perfil, y son hasta 17 por
+      // archivo. Roberto, 2026-09-10: "intentamos subirlos, pero se corta la
+      // subida".
+      allow create, update: if puedeEscribirPedazoTechPack(maquilaId, tareaId, chunkId);
       // El barrido post-cierre y la limpieza de sobrantes al re-subir.
       //
       // Acotado por ESTADO: 'preparando' (se esta reemplazando el archivo) o
@@ -2863,6 +2887,20 @@ service cloud.firestore {
         && mismoMundoMaquila(maquilaId)
         && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado
              in ['preparando', 'terminada', 'cancelada'];
+    }
+
+    function puedeEscribirPedazoTechPack(maquilaId, tareaId, chunkId) {
+      let yo = perfilResumido();
+      return yo.creaTareas
+        && mismoMundoMaquilaSegun(maquilaId, yo.esPrueba)
+        && chunkId.matches('^(0[0-9]|1[0-6])$')
+        && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado == 'preparando'
+        && request.resource.data.keys().hasAll(['maquilaId', 'datos'])
+        && request.resource.data.keys().hasOnly(['maquilaId', 'datos'])
+        && request.resource.data.maquilaId == maquilaId
+        && request.resource.data.datos is bytes
+        && request.resource.data.datos.size() > 0
+        && request.resource.data.datos.size() <= 950000;
     }
 
     // Consultas de grupo para las vistas internas de avios. Solo lectura y
