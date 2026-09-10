@@ -311,20 +311,33 @@ table th, table td {
   color: var(--texto-suave);
 }
 
-/* Las pestanas ENVUELVEN, no se desplazan (2026-09-10). Con overflow-x el
-   contenedor se quedaba en 864 px pasara lo que pasara, asi que "Maquilas",
-   "Tech packs" y "Registros" caian fuera de la pantalla en cualquier monitor,
-   sin flecha ni sombra que avisara que habia mas. Lindbergh veia siete
-   pestanas, entraba a la unica que decia "Tareas" (que es otra cosa) y
-   concluia que no tenia permiso para encargarle a las maquilas: por eso
-   habia CERO tareas de ensamble. Con wrap se ven TODAS, en dos renglones si
-   hace falta. */
+/* Las pestanas se DESPLAZAN de lado, no se apilan (Roberto, 2026-09-10:
+   "me gustaba cuando podias escrolear... ahora se hacen como dos chunks y se
+   ve horrible"). Se probo con flex-wrap y en el perfil de direccion, que
+   tiene TODAS las pestanas, quedaban en tres renglones. Se vuelve al scroll,
+   pero con la barra VISIBLE y delgada: el problema que se queria resolver era
+   que nada avisaba que habia mas pestanas a la derecha. */
 .tabs {
   display: flex;
-  flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 16px;
   border-bottom: 1px solid var(--borde);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--borde) transparent;
+}
+
+.tabs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.tabs::-webkit-scrollbar-thumb {
+  background: var(--borde);
+  border-radius: 3px;
+}
+
+.tabs::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .tab {
