@@ -14,7 +14,7 @@ import { sujetoDelPermiso, TIPO_PERMISO_OT } from '../utils/otsAsignadas'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
 import VisorTechPack from './VisorTechPack'
-import { ErrorBiblioteca, pegarTechPackATarea, techPacksDeLaOt } from '../utils/techPacks'
+import { buscarTechPacksComoSea, ErrorBiblioteca, pegarTechPackATarea, techPacksDeLaOt } from '../utils/techPacks'
 import {
   ESTADOS_TAREA_ENSAMBLE,
   ErrorTareaEnsamble,
@@ -46,6 +46,8 @@ export default function PanelTareasMaquila() {
   const [visor, setVisor] = useState(null) // { maquilaId, tareaId, techPack }
   // { tareaId, conTechPack, sinTechPack, codigos } mientras se elige de la biblioteca
   const [biblioteca, setBiblioteca] = useState(null)
+  const [buscaTp, setBuscaTp] = useState('')
+  const [buscandoTp, setBuscandoTp] = useState(false)
   const [mostrarCerradas, setMostrarCerradas] = useState(false)
 
   const [nueva, setNueva] = useState({ maquilaId: '', ot: '', fechaRequerida: '', notas: '' })
@@ -105,22 +107,52 @@ export default function PanelTareasMaquila() {
   // "Pegar de la biblioteca": la OT de la tarea se resuelve a codigos con el
   // plan maestro y se buscan sus tech packs. Si hay uno solo se pega directo;
   // si hay varios, Lindbergh elige (una tarea lleva UN tech pack).
+  // Buscar el tech pack por lo que sea: OC, OT, codigo o folio de ficha.
+  const onBuscarLibre = async () => {
+    const q = buscaTp.trim()
+    if (!q) return
+    setBuscandoTp(true)
+    try {
+      const r = await buscarTechPacksComoSea(q, esPrueba)
+      setBiblioteca((b) => ({
+        ...b,
+        ...r,
+        libre: true,
+        aviso: r.conTechPack.length
+          ? `Encontrado por ${r.por}.`
+          : `No se encontro ningun tech pack para "${q}". Prueba con el codigo del diseno, o subelo a mano.`
+      }))
+    } catch (e) {
+      console.error('[PanelTareasMaquila] busqueda libre:', e)
+      setBiblioteca((b) => ({ ...b, aviso: 'No se pudo buscar: ' + (e?.message || e) }))
+    } finally {
+      setBuscandoTp(false)
+    }
+  }
+
   const onBuscarEnBiblioteca = async (tarea) => {
     setError('')
     setAviso('')
     if (!tarea.ot) {
-      setError('Esta tarea no tiene orden de trabajo: la biblioteca se busca por OT. Sube el archivo a mano.')
+      // Sin OT no hay contra que buscar en automatico, pero si se puede buscar
+      // a mano por orden de compra, por codigo o por folio (Roberto, 10-sep).
+      setBiblioteca({ tareaId: tarea.id, libre: true, conTechPack: [], sinTechPack: [], codigos: [] })
       return
     }
     setTrabajando(tarea.id)
     try {
       const r = await techPacksDeLaOt(tarea.ot, esPrueba)
-      if (!r.codigos.length) {
-        setError(`El plan maestro no conoce la OT ${tarea.ot}: no hay contra que buscar. Sube el archivo a mano o pide a Adrian que suba el plan.`)
-        return
-      }
-      if (!r.conTechPack.length) {
-        setError(`Ninguno de los ${r.codigos.length} codigos de la OT ${tarea.ot} tiene tech pack en la biblioteca (${r.sinTechPack.map((x) => x.codigo).join(', ')}). Falta que Lety lo suba.`)
+      if (!r.codigos.length || !r.conTechPack.length) {
+        // No se cierra la puerta: se abre el buscador para intentarlo por
+        // orden de compra, por codigo o por folio de ficha.
+        setBiblioteca({
+          tareaId: tarea.id,
+          libre: true,
+          ...r,
+          aviso: !r.codigos.length
+            ? `El plan no conoce la OT ${tarea.ot}. Busca por orden de compra, por codigo o por folio de ficha.`
+            : `Ninguno de los ${r.codigos.length} codigos de la OT ${tarea.ot} tiene tech pack todavia (${r.sinTechPack.map((x) => x.codigo).join(', ')}). Prueba por codigo o por orden de compra.`
+        })
         return
       }
       // Mismo criterio de deduplicacion que el flujo automatico: un mismo
@@ -1454,10 +1486,28 @@ export default function PanelTareasMaquila() {
       {visor && <VisorTechPack {...visor} onCerrar={() => setVisor(null)} />}
       {biblioteca && (
         <div className="tarjeta" style={{ position: 'fixed', bottom: 16, right: 16, maxWidth: 520, zIndex: 50, boxShadow: '0 8px 30px rgba(0,0,0,.25)' }}>
-          <h3 style={{ marginTop: 0 }}>Esta OT trae varios tech packs. ¿Cual va?</h3>
+          <h3 style={{ marginTop: 0 }}>
+            {biblioteca.libre ? 'Buscar el tech pack' : 'Esta OT trae varios tech packs. ¿Cual va?'}
+          </h3>
           <p style={{ fontSize: 13, color: '#475569' }}>
             Una tarea lleva UN tech pack. Si la maquila necesita mas de uno, encarga una tarea por codigo.
           </p>
+          {biblioteca.aviso && <p style={{ fontSize: 13, color: '#b45309' }}>{biblioteca.aviso}</p>}
+          {/* Buscar de TODAS las formas (Roberto, 10-sep): por orden de compra,
+              por orden de trabajo, por codigo o por folio de ficha. */}
+          <div className="tp-fila" style={{ gap: 6, marginBottom: 8 }}>
+            <input
+              className="tp-input"
+              style={{ flex: 1 }}
+              value={buscaTp}
+              placeholder="Orden de compra, OT, codigo o folio"
+              onChange={(e) => setBuscaTp(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onBuscarLibre() }}
+            />
+            <button className="btn-secundario tp-btn-chico" disabled={buscandoTp || !buscaTp.trim()} onClick={onBuscarLibre}>
+              {buscandoTp ? 'Buscando...' : 'Buscar'}
+            </button>
+          </div>
           {biblioteca.conTechPack.map((c) => (
             <button
               key={c.codigo}

@@ -42,8 +42,8 @@ import {
   writeBatch
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import { normalizarCodigo } from './planMaestroNucleo'
-import { renglonesDeLaOt } from './planMaestro'
+import { normalizarCodigo, normalizarOt, normalizarOc } from './planMaestroNucleo'
+import { renglonesDeLaOt, otsDeLaOc } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
 import {
   CHUNK_BYTES,
@@ -432,6 +432,79 @@ export function escucharBiblioteca(esPrueba, alRecibir, alFallar) {
  * manifiesto, listos para pegar) y cuales no. Si el plan no conoce la OT,
  * codigos sale vacio y quien llama lo dice en pantalla en vez de adivinar.
  */
+/**
+ * Buscar un tech pack COMO SEA (Roberto, 2026-09-10): "que busques por OC, por
+ * OT y por codigo, de todas las maneras posibles para encontrar el que tu
+ * quieres". Antes solo se podia por OT, y si el plan no conocia esa OT no
+ * habia nada que hacer.
+ *
+ * Se intenta en este orden y se devuelve TODO lo que encuentre:
+ *   1. como ORDEN DE TRABAJO  -> sus codigos del plan y los tech packs de esos
+ *   2. como ORDEN DE COMPRA   -> todas sus OT, y de ahi igual
+ *   3. como CODIGO o FOLIO    -> el documento directo (siguiendo el alias)
+ *   4. como TEXTO            -> lo que traiga ese modelo o esa descripcion
+ */
+export async function buscarTechPacksComoSea(texto, esPrueba) {
+  const q = String(texto || '').trim()
+  if (!q) return { por: '', conTechPack: [], sinTechPack: [], codigos: [] }
+  const juntar = (a, b) => [...new Map([...a, ...b].map((x) => [x.codigo, x])).values()]
+  let conTechPack = []
+  let sinTechPack = []
+  let codigos = []
+  let por = ''
+
+  // 1. como orden de trabajo
+  try {
+    const r = await techPacksDeLaOt(normalizarOt(q) || q, esPrueba)
+    if (r.codigos.length) {
+      por = 'orden de trabajo'
+      conTechPack = juntar(conTechPack, r.conTechPack)
+      sinTechPack = juntar(sinTechPack, r.sinTechPack)
+      codigos = [...new Set([...codigos, ...r.codigos])]
+    }
+  } catch (e) { console.warn('[TechPacks] busqueda por OT:', e) }
+
+  // 2. como orden de compra
+  if (!conTechPack.length) {
+    try {
+      const ots = await otsDeLaOc(normalizarOc(q) || q)
+      if (ots?.length) {
+        por = 'orden de compra'
+        for (const ot of ots.slice(0, 25)) {
+          const r = await techPacksDeLaOt(ot, esPrueba)
+          conTechPack = juntar(conTechPack, r.conTechPack)
+          sinTechPack = juntar(sinTechPack, r.sinTechPack)
+          codigos = [...new Set([...codigos, ...r.codigos])]
+        }
+      }
+    } catch (e) { console.warn('[TechPacks] busqueda por OC:', e) }
+  }
+
+  // 3. como codigo o folio de ficha, directo
+  if (!conTechPack.length) {
+    const id = codigoComoId(q)
+    if (id) {
+      try {
+        const d = await getDoc(refDoc(id))
+        if (d.exists()) {
+          const dato = { id: d.id, ...d.data() }
+          const real = dato.apuntaA ? await getDoc(refDoc(codigoComoId(dato.apuntaA))) : null
+          const fuente = real?.exists() ? { id: real.id, ...real.data() } : dato
+          por = dato.apuntaA ? 'folio de ficha' : 'codigo'
+          codigos = [id]
+          if (fuente.techPack) {
+            conTechPack = [{ codigo: fuente.id, descripcion: fuente.descripcion || '', folio: dato.apuntaA ? id : '', techPack: fuente.techPack }]
+          } else {
+            sinTechPack = [{ codigo: fuente.id, descripcion: fuente.descripcion || '' }]
+          }
+        }
+      } catch (e) { console.warn('[TechPacks] busqueda por codigo:', e) }
+    }
+  }
+
+  return { por, conTechPack, sinTechPack, codigos }
+}
+
 export async function techPacksDeLaOt(ot, esPrueba, renglonesYaLeidos = null) {
   const todosLosRenglones = renglonesYaLeidos || (await renglonesDeLaOt(ot))
   // Deduplicado por codigo (Set), conservando el PRIMER renglon como
