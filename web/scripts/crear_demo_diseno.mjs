@@ -19,7 +19,11 @@ import { DOMINIO, abrirLibro, generarPassword, guardarLibro, ponerEnExcel } from
 
 const CUENTAS = [
   { usuario: 'demo_diseno', nombre: 'PRUEBA - jefa de diseno (como Lety)', flags: { puedeAsignarDiseno: true } },
-  { usuario: 'demo_disenadora', nombre: 'PRUEBA - disenadora (como Monica)', flags: { supervisorDe: 'demo_diseno' } }
+  { usuario: 'demo_disenadora', nombre: 'PRUEBA - disenadora (como Monica)', flags: { supervisorDe: 'demo_diseno' } },
+  // La segunda del equipo (como Maria Fernanda). Sin ella no se puede ver en
+  // pantalla el caso "nada asignado" de la tabla por persona: el corral tenia
+  // una sola disenadora y siempre traia trabajo (usuario-real, 10-sep).
+  { usuario: 'demo_disenadora2', nombre: 'PRUEBA - disenadora 2 (como Maria Fernanda)', flags: { supervisorDe: 'demo_diseno' } }
 ]
 
 initializeApp({ credential: cert(JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))) })

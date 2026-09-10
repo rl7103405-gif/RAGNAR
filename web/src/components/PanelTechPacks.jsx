@@ -615,8 +615,10 @@ export default function PanelTechPacks() {
             </p>
           </div>
           <div className="tp-fila">
-            <span className="tp-pill">{arbol.totalConOrden} con orden</span>
-            <span className={`tp-pill ${arbol.sinOrden.length ? 'tp-pill-aviso' : ''}`}>{arbol.sinOrden.length} todavia sin orden</span>
+            {/* usuario-real (10-sep): "0 con orden / 0 sin orden" no dice nada.
+                Un contador en cero es ruido; solo se pinta si hay que contar. */}
+            {arbol.totalConOrden > 0 && <span className="tp-pill">{arbol.totalConOrden} con orden</span>}
+            {arbol.sinOrden.length > 0 && <span className="tp-pill tp-pill-aviso">{arbol.sinOrden.length} todavia sin orden</span>}
           </div>
         </div>
 
@@ -810,10 +812,11 @@ export default function PanelTechPacks() {
       <div className="tarjeta">
         <div className="tp-fila" style={{ justifyContent: 'space-between' }}>
           <div>
-            <h3 style={{ margin: 0 }}>Ordenes de trabajo del plan sin tech pack</h3>
+            <h3 style={{ margin: 0 }}>Que me falta por subir, segun el plan</h3>
             <p className="texto-suave" style={{ margin: '4px 0 0', fontSize: 13 }}>
-              Por cada OT del plan vigente, los codigos a los que les falta el tech pack de empaque: lo
-              que no se va a poder pegar cuando se encargue esa OT a una maquila.
+              Por cada orden de trabajo del plan vigente, los codigos que todavia no tienen su tech pack
+              de empaque en la biblioteca. Es la lista de pendientes contra lo que la planta ya tiene
+              planeado.
             </p>
           </div>
           <button className="btn-secundario" onClick={onCruzar} disabled={cruce === 'cargando'}>
