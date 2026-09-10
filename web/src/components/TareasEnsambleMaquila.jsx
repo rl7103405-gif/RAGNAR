@@ -299,7 +299,11 @@ export default function TareasEnsambleMaquila() {
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'baseline' }}>
           <strong style={{ fontSize: 15 }}>{t.titulo}</strong>
-          {t.ot && (
+          {/* La etiqueta de la OT solo si el titulo NO la dice ya. Cuando la
+              tarea se trae del plan, el titulo nace como "OT 7945 - Optima
+              Septiembre" y la etiqueta repetia lo mismo palabra por palabra
+              (Roberto, 2026-09-10). */}
+          {t.ot && !String(t.titulo || '').toUpperCase().includes(`OT ${t.ot}`.toUpperCase()) && (
           <span
             style={{ fontSize: 12, background: '#ecfdf5', color: '#065f46', borderRadius: 999, padding: '2px 10px' }}
             title={t.destino ? `Orden de trabajo ${t.ot}, va a ${t.destino}` : `Orden de trabajo ${t.ot}`}
