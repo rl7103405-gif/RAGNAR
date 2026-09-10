@@ -262,7 +262,7 @@ export default function PanelTareasDiseno() {
           onCargar={(datos) =>
             correr(
               () => crearEncargoManual({ ...datos, usuario, esPrueba, existentes: encargos }),
-              (r) => `Cargado ${datos.etiqueta} con ${r.ots.length} ordenes de trabajo.`
+              (r) => `Cargado ${datos.etiqueta} con ${plural(r.ots.length, 'orden de trabajo', 'ordenes de trabajo')}.`
             )
           }
         />
@@ -277,7 +277,7 @@ export default function PanelTareasDiseno() {
           onEncargar={(datos) =>
             correr(
               () => crearEncargo({ ...datos, usuario, esPrueba, existentes: encargos }),
-              (r) => `Encargada la orden ${datos.oc} con ${r.ots.length} ordenes de trabajo.`
+              (r) => `Encargada la orden ${datos.oc} con ${plural(r.ots.length, 'orden de trabajo', 'ordenes de trabajo')}.`
             )
           }
         />
@@ -314,13 +314,13 @@ export default function PanelTareasDiseno() {
               `${verbo} el encargo ${encargo.oc}?\n\n` +
                 `Lleva ${av.listas} de ${av.total} OT listas` +
                 (av.sinAsignar ? ` y ${av.sinAsignar} sin asignar` : '') +
-                `.${abiertas ? `\nLas ${abiertas} asignacion(es) abierta(s) se ${estado === 'cerrado' ? 'cierran' : 'cancelan'} tambien (queda en su historial) y el equipo deja de verlas como pendientes.` : ''}` +
+                `.${abiertas ? `\n${abiertas === 1 ? 'La asignacion abierta se ' + (estado === 'cerrado' ? 'cierra' : 'cancela') : 'Las ' + abiertas + ' asignaciones abiertas se ' + (estado === 'cerrado' ? 'cierran' : 'cancelan')} tambien (queda en su historial) y el equipo deja de verlas como pendientes.` : ''}` +
                 `\n\nEl reparto se sigue pudiendo consultar en el encargo ${estado}.`
             )
             if (!ok) return
             correr(
               () => cerrarEncargoConAsignaciones({ encargo, estado, asignaciones, equipo: equipoPorJefa.get(encargo.responsableUid) ?? equipo, usuario }),
-              (r) => `Encargo ${encargo.oc} ${estado}${r.asignaciones ? ` y ${r.asignaciones} asignacion(es) ${estado === 'cerrado' ? 'cerrada(s)' : 'cancelada(s)'}` : ''}.`
+              (r) => `Encargo ${encargo.oc} ${estado}${r.asignaciones ? ` y ${plural(r.asignaciones, estado === 'cerrado' ? 'asignacion cerrada' : 'asignacion cancelada', estado === 'cerrado' ? 'asignaciones cerradas' : 'asignaciones canceladas')}` : ''}.`
             )
           }}
         />
@@ -342,6 +342,8 @@ export default function PanelTareasDiseno() {
 
 // Codigos DISTINTOS sin archivo de tech pack, a partir de avances (filas de
 // encargo o de asignacion): el mismo codigo en dos OT es UNA ficha que pedir.
+const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`
+
 function codigosSinTechPack(avances) {
   return new Set(avances.flatMap((f) => (f.estados || []).filter((c) => !c.tiene).map((c) => c.codigo))).size
 }
@@ -393,7 +395,7 @@ function PorPersona({ asignaciones, encargosAbiertos, indice, equipo }) {
                   <td>{p.ots.length ? <>{p.ots.length} <span className="texto-suave" style={{ fontSize: 12 }}>({p.ots.join(', ')})</span></> : <span className="texto-suave">nada asignado</span>}</td>
                   <td>{listas}</td>
                   <td>{total ? codigosSinTechPack(p.avances) : <span className="texto-suave">sin codigos</span>}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}><Barra porcentaje={prom} chica /> <span style={{ fontSize: 13 }}>{prom}%</span></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{total ? <><Barra porcentaje={prom} chica /> <span style={{ fontSize: 13 }}>{prom}%</span></> : <span className="texto-suave">—</span>}</td>
                 </tr>
               )
             })}
