@@ -3592,7 +3592,10 @@ service cloud.firestore {
         // Las marcas de quien y cuando se exigen en las DOS ramas.
         && sellosDeEdicionSegun(despues, yo.nombre)
         && ((tocaArchivo && updateDeArchivoTechPack(antes, despues, yo.nombre))
-            || (!tocaArchivo && updateDeDatosTechPack(codigo, antes, despues)));
+            // Editar los DATOS (modelo, codigos, checklist) es SOLO de Lety y
+            // su equipo (Roberto, 11-sep: "serian las unicas personas que lo
+            // podrian estar modificando"). Subir archivo sigue abierto al admin.
+            || (!tocaArchivo && yo.rol == 'desarrollo' && updateDeDatosTechPack(codigo, antes, despues)));
     }
     // El renglon de historial de una edicion. 'antes' tiene que ser el
     // estado real previo del padre, el padre tiene que cambiar en este mismo
@@ -3601,6 +3604,8 @@ service cloud.firestore {
     function puedeCrearHistorialTechPack(h, codigo, edicionId) {
       let yo = perfilResumido();
       return yo.subeTechPacks
+        // El historial solo nace de una edicion de datos: mismo candado.
+        && yo.rol == 'desarrollo'
         && h.keys().hasOnly(['revision', 'antes', 'despues', 'cuando', 'quienUid', 'quienNombre'])
         && h.revision is int
         && h.revision >= 1

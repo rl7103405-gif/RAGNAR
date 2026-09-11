@@ -170,7 +170,7 @@ function PorcentajeHecho({ avance }) {
 // Una orden de compra del arbol, con sus OT y sus disenos. Vive en su propio
 // componente porque ahora se pinta en DOS cuadros: el de las ordenes de compra
 // de verdad y el de las OT que todavia no tienen una (Roberto, 2026-09-10).
-function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe }) {
+function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe, puedeEditar, onEditar }) {
   return (
       <details className="tp-oc" open>
         <summary>
@@ -205,6 +205,13 @@ function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe }) {
                       const talla = b.codigo !== g.base ? b.codigo.slice(g.base.length + 1) : ''
                       return b.techPack?.totalChunks ? (
                         <span key={b.id} className="tp-fila" style={{ gap: 6 }}>
+                          {/* Editar junto a su calificacion (Roberto, 11-sep), solo
+                              para Lety y su equipo. */}
+                          {puedeEditar && (
+                            <button className="btn-primario tp-btn-chico" onClick={() => onEditar(b)}>
+                              Editar
+                            </button>
+                          )}
                           <PorcentajeHecho avance={avanceDe(b)} />
                           <button
                             className="btn-secundario tp-btn-chico"
@@ -235,7 +242,7 @@ function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe }) {
 }
 
 export default function PanelTechPacks() {
-  const { authUser, perfil, esPrueba, puedeSubirTechPacks, puedeAsignarDiseno, esEquipoDiseno } = useAuth()
+  const { authUser, perfil, esPrueba, puedeSubirTechPacks, puedeEditarTechPacks, puedeAsignarDiseno, esEquipoDiseno } = useAuth()
   const [biblioteca, setBiblioteca] = useState([])
   const [error, setError] = useState('')
   const [aviso, setAviso] = useState('')
@@ -689,7 +696,7 @@ export default function PanelTechPacks() {
                         Ver FTT
                       </button>
                     ) : null}
-                    {puedeSubirTechPacks && !b.apuntaA && (
+                    {puedeEditarTechPacks && !b.apuntaA && (
                       <button className="btn-secundario tp-btn-chico" onClick={() => setEditando(b)}>
                         Editar
                       </button>
@@ -855,7 +862,7 @@ export default function PanelTechPacks() {
             ) : (
               <div className="tp-arbol">
                 {arbol.conOc.map((o) => (
-                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} />
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={(b) => setEditando((b.apuntaA && techPackPorId.get(b.apuntaA)) || b)} />
                 ))}
               </div>
             )}
@@ -876,7 +883,7 @@ export default function PanelTechPacks() {
             ) : (
               <div className="tp-arbol">
                 {arbol.sinOc.map((o) => (
-                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} />
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={(b) => setEditando((b.apuntaA && techPackPorId.get(b.apuntaA)) || b)} />
                 ))}
               </div>
             )}
@@ -920,7 +927,7 @@ export default function PanelTechPacks() {
                       {/* Editar AQUI mismo (2026-09-11): este cuadro es donde Lety
                           liga cada tech pack a sus codigos u ordenes, y antes tenia
                           que ir a la lista completa a buscarlo uno por uno. */}
-                      {puedeSubirTechPacks && (
+                      {puedeEditarTechPacks && (
                         <button className="btn-primario tp-btn-chico" onClick={() => setEditando(b)}>
                           Editar
                         </button>
@@ -1009,7 +1016,7 @@ export default function PanelTechPacks() {
                       {b.actualizadoPorNombre ? ` · ${b.actualizadoPorNombre}` : ''}
                     </td>
                     <td>
-                      {puedeSubirTechPacks && !b.apuntaA && (
+                      {puedeEditarTechPacks && !b.apuntaA && (
                         <button className="btn-secundario tp-btn-chico" onClick={() => setEditando(b)}>
                           Editar
                         </button>

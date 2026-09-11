@@ -36,6 +36,16 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-11-03',
+    fecha: '2026-09-11',
+    tipo: 'mejorado',
+    titulo: 'Tech packs: Editar junto a cada uno',
+    detalle:
+      'En las ordenes de compra, junto a la calificacion de cada tech pack, aparece el boton Editar para decir a que '
+      + 'OC u OT pertenece y marcar que le falta. Solo lo ven y lo pueden usar Lety y su equipo de desarrollo; los '
+      + 'demas lo ven pero no lo pueden cambiar.'
+  },
+  {
     id: '2026-09-11-02',
     fecha: '2026-09-11',
     tipo: 'mejorado',

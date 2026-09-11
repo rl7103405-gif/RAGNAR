@@ -56,6 +56,10 @@ const equipoSnap = (await db.collection('usuarios').where('empleadoId', '==', 'd
 if (!jefaSnap || !equipoSnap) { console.error('faltan las cuentas demo de diseno (crear_demo_diseno.mjs)'); process.exit(1) }
 const JEFA = { uid: jefaSnap.id, ...plano(jefaSnap.data()) }
 const EQUIPO = { uid: equipoSnap.id, ...plano(equipoSnap.data()) }
+// El admin del corral: desde el 11-sep NO edita datos de tech packs (solo Lety y su equipo).
+const adminSnap = (await db.collection('usuarios').where('empleadoId', '==', 'demo_admin').limit(1).get()).docs[0]
+if (!adminSnap) { console.error('falta la cuenta demo_admin'); process.exit(1) }
+const ADMIN = { uid: adminSnap.id, ...plano(adminSnap.data()) }
 const encSnap = (await db.collection('encargosDiseno').where('esPrueba', '==', true).limit(1).get()).docs[0]
 const ENCARGO = encSnap
   ? { ...plano(encSnap.data()), id: encSnap.id }
@@ -132,7 +136,7 @@ const ESCENARIOS = {
     que: 'el renglon de historial de esa edicion',
     request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP + '/historial/HIST0002', time: T, resource: doc(HIST_TP) },
     functionMocks: [...perfilMocks([JEFA]), mAfter(P_TP, TP2), mGet(P_TP, TP)],
-    ancla: "return yo.subeTechPacks\n        && h.keys().hasOnly(['revision', 'antes', 'despues', 'cuando', 'quienUid', 'quienNombre'])"
+    ancla: "&& yo.rol == 'desarrollo'\n        && h.keys().hasOnly(['revision', 'antes', 'despues', 'cuando', 'quienUid', 'quienNombre'])"
   }
 }
 
@@ -231,6 +235,29 @@ Object.assign(ESCENARIOS, {
     expectation: 'DENY', que: 'NEG: corregir codigos sin el renglon de historial en el batch',
     request: ESCENARIOS['asig-update'].request, resource: doc(ASIG),
     functionMocks: [...perfilMocks([JEFA, EQUIPO]), mGet(P_ENC, ENCARGO_DOC), sinResultado('getAfter', P_ASIG + '/historial/HIST0001'), mAfter(P_ASIG, ASIG2), mGet(P_ASIG, ASIG)]
+  },
+  // Roberto, 11-sep: editar los DATOS de un tech pack es solo de Lety y su equipo.
+  'neg-admin-edita-techpack': {
+    expectation: 'DENY', que: 'NEG: el admin edita los datos de un tech pack',
+    request: { auth: { uid: ADMIN.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP2, ...sellos(ADMIN) }) },
+    resource: doc(TP),
+    functionMocks: [...perfilMocks([ADMIN]), mAfter(P_TP + '/historial/HIST0002', { ...HIST_TP, quienUid: ADMIN.uid, quienNombre: ADMIN.nombreCompleto }), mAfter(P_TP, { ...TP2, ...sellos(ADMIN) }), mGet(P_TP, TP)]
+  },
+  'neg-admin-historial-techpack': {
+    expectation: 'DENY', que: 'NEG: el admin siembra un renglon de historial de tech pack',
+    request: { auth: { uid: ADMIN.uid }, method: 'create', path: P_TP + '/historial/HIST0002', time: T, resource: doc({ ...HIST_TP, quienUid: ADMIN.uid, quienNombre: ADMIN.nombreCompleto }) },
+    functionMocks: [...perfilMocks([ADMIN]), mAfter(P_TP, { ...TP2, ...sellos(ADMIN) }), mGet(P_TP, TP)]
+  },
+  'neg-admin-mixto': {
+    expectation: 'DENY', que: 'NEG: el admin sube archivo Y edita datos en la misma escritura',
+    request: { auth: { uid: ADMIN.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP2, ...sellos(ADMIN), techPack: { ...manifiesto(1), subidoPorUid: ADMIN.uid, subidoPorNombre: ADMIN.nombreCompleto } }) },
+    resource: doc(TP_SIN),
+    functionMocks: [...perfilMocks([ADMIN]), mAfter(P_TP + '/historial/HIST0002', { ...HIST_TP, quienUid: ADMIN.uid, quienNombre: ADMIN.nombreCompleto }), mAfter(P_TP, { ...TP2, ...sellos(ADMIN) }), mGet(P_TP, TP_SIN)]
+  },
+  'admin-sube-archivo': {
+    que: 'el admin SI sigue pudiendo subir el archivo de un tech pack',
+    request: { auth: { uid: ADMIN.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SIN, techPack: { ...manifiesto(1), subidoPorUid: ADMIN.uid, subidoPorNombre: ADMIN.nombreCompleto }, ...sellos(ADMIN) }) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([ADMIN])]
   },
   'neg-techpack-mixto': {
     expectation: 'DENY', que: 'NEG: un update que sube archivo Y edita datos a la vez',
