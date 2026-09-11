@@ -24,6 +24,7 @@ import { useAuth } from '../context/AuthContext'
 import Maquilas from './Maquilas'
 import PanelPreciosMaquila from './PanelPreciosMaquila'
 import PanelTareasMaquila from './PanelTareasMaquila'
+import PanelAvanceMaquilas from './PanelAvanceMaquilas'
 import PanelSolicitudesAvios from './PanelSolicitudesAvios'
 import PanelEnviarAvios from './PanelEnviarAvios'
 import PanelInventarioAvios from './PanelInventarioAvios'
@@ -93,6 +94,15 @@ export default function PanelMaquilasTodo() {
 
   const secciones = [
     tareas && { id: 'tareas', label: 'Encargar a la maquila', render: () => <PanelTareasMaquila /> },
+    // El avance de lo encargado (Roberto, 2026-09-10). Lo ve quien encarga
+    // (Lindbergh), direccion, quien lleva el control y los pagos (Cielo) y
+    // quien recibe de vuelta (Valeria): los mismos roles que las reglas dejan
+    // leer las tareas de ensamble.
+    (puedeCrearTareas || esAdmin || soloConsulta || soloPT) && {
+      id: 'avance',
+      label: 'Avance de lo encargado',
+      render: () => <PanelAvanceMaquilas />
+    },
     // Va arriba de todo el material a proposito: un bulto rechazado es lo
     // primero que hay que atender del dia, no algo que se busca al final.
     reportes && {

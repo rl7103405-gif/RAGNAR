@@ -36,6 +36,17 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-11-01',
+    fecha: '2026-09-11',
+    tipo: 'nuevo',
+    titulo: 'Maquilas: avance de lo encargado',
+    detalle:
+      'En Maquilas hay un apartado nuevo, "Avance de lo encargado". Muestra cada tarea encargada a una maquila con su '
+      + 'etapa (por publicar, sin empezar, en proceso, por confirmar), si ya se paso de la fecha que se pidio y cuantas '
+      + 'docenas de esa OT ya recibio Producto Terminado, con su barra de avance. Las docenas solo suben cuando Valeria '
+      + 'recibe: si la maquila va adelantada pero no ha entregado, sale en cero.'
+  },
+  {
     id: '2026-09-10-02',
     fecha: '2026-09-10',
     tipo: 'mejorado',
