@@ -40,6 +40,101 @@ const borde = (argb = 'FFD3DBE3') => ({ top: { style: 'thin', color: { argb } },
 const letra = (n) => { let s = ''; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26) } return s }
 const colNum = (s) => [...s].reduce((a, ch) => a * 26 + (ch.charCodeAt(0) - 64), 0)
 
+/** Ancho y alto en pixeles de un PNG/JPEG/GIF (null si no se reconoce). */
+export function medidasDeImagen(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  if (b[0] === 0x89 && b[1] === 0x50) return { w: (b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19], h: (b[20] << 24) | (b[21] << 16) | (b[22] << 8) | b[23] }
+  if (b[0] === 0x47 && b[1] === 0x49) return { w: b[6] | (b[7] << 8), h: b[8] | (b[9] << 8) }
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i++; continue }
+      const m = b[i + 1]
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: (b[i + 5] << 8) | b[i + 6], w: (b[i + 7] << 8) | b[i + 8] }
+      i += 2 + ((b[i + 2] << 8) | b[i + 3])
+    }
+  }
+  return null
+}
+
+const PX_COL = (w) => Math.round((w || 8.43) * 7 + 5)
+const PX_FILA = (h) => Math.round((h || 15) * 96 / 72)
+
+const imagenesValidas = (imagenes) => (imagenes || []).filter((im) => im && im.bytes && ['png', 'jpeg', 'jpg', 'gif'].includes(String(im.extension).toLowerCase()))
+
+/** Cuando TODAS traen su caja de la hoja original, se respeta el acomodo:
+ *  cada hoja de origen es un grupo; se escala a lo ancho y se apilan. */
+function planDeComposicion(imagenes, anchoZona) {
+  const lista = imagenesValidas(imagenes)
+  if (!lista.length || !lista.every((im) => im.caja)) return null
+  const grupos = []
+  for (const im of lista) {
+    let g = grupos.find((x) => x.nombre === im.grupo)
+    if (!g) { g = { nombre: im.grupo, items: [] }; grupos.push(g) }
+    g.items.push(im)
+  }
+  const colocadas = []
+  let y = 12
+  for (const g of grupos) {
+    const minX = Math.min(...g.items.map((i) => i.caja.x))
+    const minY = Math.min(...g.items.map((i) => i.caja.y))
+    const maxX = Math.max(...g.items.map((i) => i.caja.x + i.caja.w))
+    const maxY = Math.max(...g.items.map((i) => i.caja.y + i.caja.h))
+    const esc = Math.min((anchoZona - 24) / (maxX - minX), 1)
+    const offX = (anchoZona - (maxX - minX) * esc) / 2
+    for (const im of g.items) {
+      colocadas.push({ im, x: offX + (im.caja.x - minX) * esc, y: y + (im.caja.y - minY) * esc, w: im.caja.w * esc, h: im.caja.h * esc })
+    }
+    y += (maxY - minY) * esc + 28
+  }
+  return { colocadas, alto: y }
+}
+
+/** Coloca imagenes DENTRO de un rango, sin deformarlas: respetando el
+ *  acomodo original si lo traen, o en cuadricula si no.
+ *  imagenes: [{ bytes, extension, caja?, grupo? }]. Devuelve cuantas coloco. */
+function colocarImagenes(libro, hoja, r, imagenes) {
+  const lista = imagenesValidas(imagenes)
+  if (!lista.length) return 0
+  const cols = lista.length === 1 ? 1 : 2
+  const filasGrid = Math.ceil(lista.length / cols)
+  const anchosCol = []
+  for (let c = r.c1; c <= r.c2; c++) anchosCol.push(PX_COL(hoja.getColumn(c).width))
+  const altosFila = []
+  for (let f = r.f1; f <= r.f2; f++) altosFila.push(PX_FILA(hoja.getRow(f).height))
+  const anchoTotal = anchosCol.reduce((a, x) => a + x, 0)
+  const altoTotal = altosFila.reduce((a, x) => a + x, 0)
+  // pixel -> coordenada fraccionaria de celda (base 0) dentro del rango
+  const aCol = (px) => { let acc = 0; for (let i = 0; i < anchosCol.length; i++) { if (acc + anchosCol[i] >= px) return r.c1 - 1 + i + (px - acc) / anchosCol[i]; acc += anchosCol[i] } return r.c2 }
+  const aFila = (px) => { let acc = 0; for (let i = 0; i < altosFila.length; i++) { if (acc + altosFila[i] >= px) return r.f1 - 1 + i + (px - acc) / altosFila[i]; acc += altosFila[i] } return r.f2 }
+  const plan = planDeComposicion(lista, anchoTotal)
+  if (plan) {
+    for (const c of plan.colocadas) {
+      const ext = String(c.im.extension).toLowerCase() === 'jpg' ? 'jpeg' : String(c.im.extension).toLowerCase()
+      const id = libro.addImage({ buffer: c.im.bytes, extension: ext })
+      hoja.addImage(id, { tl: { col: aCol(c.x), row: aFila(c.y) }, br: { col: aCol(c.x + c.w), row: aFila(Math.min(c.y + c.h, altoTotal)) }, editAs: 'oneCell' })
+    }
+    return plan.colocadas.length
+  }
+  const pad = 8
+  const celdaW = anchoTotal / cols
+  const celdaH = altoTotal / filasGrid
+  lista.forEach((im, i) => {
+    const ext = String(im.extension).toLowerCase() === 'jpg' ? 'jpeg' : String(im.extension).toLowerCase()
+    const id = libro.addImage({ buffer: im.bytes, extension: ext })
+    const med = im.caja ? { w: im.caja.w, h: im.caja.h } : medidasDeImagen(im.bytes) || { w: 4, h: 3 }
+    const maxW = celdaW - pad * 2
+    const maxH = celdaH - pad * 2
+    const escala = Math.min(maxW / med.w, maxH / med.h)
+    const w = med.w * escala
+    const h = med.h * escala
+    const x0 = (i % cols) * celdaW + (celdaW - w) / 2
+    const y0 = Math.floor(i / cols) * celdaH + (celdaH - h) / 2
+    hoja.addImage(id, { tl: { col: aCol(x0), row: aFila(y0) }, br: { col: aCol(x0 + w), row: aFila(y0 + h) }, editAs: 'oneCell' })
+  })
+  return lista.length
+}
+
 /** Pinta una celda de etiqueta (gris chico, mayusculas). */
 function etiqueta(hoja, celda, texto, oscura = false) {
   const c = hoja.getCell(celda)
@@ -136,25 +231,38 @@ function tabla(hoja, nombre, libro, renglonesNecesarios = 0, desplazar = 0) {
       } else if (c.tipo === 'decimal') {
         celda.dataValidation = { type: 'decimal', operator: 'greaterThanOrEqual', formulae: [c.min ?? 0], allowBlank: true, showErrorMessage: true, errorTitle: 'Solo numeros', error: 'Escribe un numero (0.1667 para "1 bolsa cada 6 packs").' }
       }
-      if (c.tipo === 'imagen') hoja.getRow(f).height = 46
+      if (c.tipo === 'imagen') hoja.getRow(f).height = 60
     }
   }
   libro.definedNames.add(`'${HOJAS[t.hoja]}'!$A$${t.filaCab}:$${letra(ancho)}$${t.filaCab + filas}`, nombre)
   return t.filaCab + 1
 }
 
-function zonaFoto(hoja, nombre, libro, desplazar = 0) {
+function zonaFoto(hoja, nombre, libro, desplazar = 0, fotos = null) {
   const z = ZONAS_FOTO[nombre]
   const r = rangoAIndices(z.rango)
   // Si la tabla de arriba crecio, la zona baja lo mismo (nunca se enciman).
   r.f1 += desplazar
   r.f2 += desplazar
+  // Y si las fotos (con su acomodo original) no caben, la zona crece: las
+  // zonas son lo ultimo de su hoja, abajo no hay nada que empujar.
+  if (fotos && fotos.length) {
+    let ancho = 0
+    for (let col = r.c1; col <= r.c2; col++) ancho += PX_COL(hoja.getColumn(col).width)
+    const plan = planDeComposicion(fotos, ancho)
+    if (plan) {
+      const filas = Math.ceil(plan.alto / PX_FILA(15)) + 1
+      if (r.f1 + filas - 1 > r.f2) r.f2 = r.f1 + filas - 1
+    }
+  }
   hoja.mergeCells(r.f1, r.c1, r.f2, r.c2)
   const c = hoja.getCell(r.f1, r.c1)
-  c.value = `${z.etiqueta}\nPega aqui la foto (y las flechas que hagan falta). Zona ${nombre}.`
+  const puestas = fotos && fotos.length ? colocarImagenes(libro, hoja, r, fotos) : 0
+  c.value = puestas ? '' : `${z.etiqueta}\nPega aqui la foto (y las flechas que hagan falta). Zona ${nombre}.`
   c.fill = relleno(ZONA_FOTO)
   c.font = { name: 'Arial', size: 9, color: { argb: GRIS_ETQ } }
   c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+  if (puestas) c.fill = relleno('FFFFFFFF')
   c.border = { top: { style: 'dashed', color: { argb: ZONA_FOTO_BORDE } }, left: { style: 'dashed', color: { argb: ZONA_FOTO_BORDE } }, bottom: { style: 'dashed', color: { argb: ZONA_FOTO_BORDE } }, right: { style: 'dashed', color: { argb: ZONA_FOTO_BORDE } } }
   libro.definedNames.add(`'${HOJAS[z.hoja]}'!$${letra(r.c1)}$${r.f1}:$${letra(r.c2)}$${r.f2}`, nombre)
 }
@@ -199,20 +307,25 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
   for (const clave of ORDEN_HOJAS) {
     const h = libro.addWorksheet(HOJAS[clave], {
       properties: { tabColor: { argb: clave === 'ragnar' ? 'FF999999' : AZUL } },
-      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
-      views: [{ showGridLines: false }]
+      // VERTICAL y a todo lo ancho (Roberto, 11-sep: "que se vea mas vertical,
+      // que tome toda la pantalla"). Carta, ajustado a 1 pagina de ancho.
+      pageSetup: {
+        orientation: 'portrait', paperSize: 1, fitToPage: true, fitToWidth: 1, fitToHeight: 0, horizontalCentered: true,
+        margins: { left: 0.25, right: 0.25, top: 0.35, bottom: 0.35, header: 0.15, footer: 0.15 }
+      },
+      views: [{ showGridLines: false, zoomScale: 100 }]
     })
     hojas[clave] = h
     if (clave === 'ragnar') continue
-    for (let c = 1; c <= BANDA.columnas; c++) h.getColumn(c).width = 13
-    h.getColumn(1).width = 16
+    for (let c = 1; c <= BANDA.columnas; c++) h.getColumn(c).width = 15.5
+    h.getColumn(1).width = 17
     banda(h, clave, libro, logoId)
   }
 
   // ---------------------------------------------------------------- 1 PEDIDO
   const pedido = hojas.pedido
   libro.definedNames.add(referencia('pedido', CAMPOS.TP_PLANTILLA.celda), 'TP_PLANTILLA')
-  const fecha = datos.ahora ? new Date(datos.ahora) : new Date()
+  const fecha = datos.fecha instanceof Date && !isNaN(datos.fecha) ? datos.fecha : datos.ahora ? new Date(datos.ahora) : new Date()
   for (const [nombre, valor] of [
     ['TP_MODELO', datos.modelo], ['TP_OC', datos.oc], ['TP_FECHA', fecha],
     ['TP_CLIENTE', datos.cliente], ['TP_MARCA', datos.marca], ['TP_ELABORO', datos.elaboro]
@@ -224,15 +337,17 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
   }
   pedido.getRow(5).height = 20
   campo(pedido, 'TP_PRENDA', libro, datos.prenda)
-  campo(pedido, 'TP_TEJIDO', libro)
+  campo(pedido, 'TP_TEJIDO', libro, datos.tejido)
   campo(pedido, 'TP_SISTEMA_TALLA', libro, datos.sistemaTalla)
-  campo(pedido, 'TP_VARIANTE', libro)
+  campo(pedido, 'TP_VARIANTE', libro, datos.variante)
   pedido.getRow(7).height = 20
   campo(pedido, 'TP_PACK', libro, datos.paresPorPack)
   const totalDocenas = (datos.renglones || []).reduce((a, r) => a + (Number(r.docenas) || 0), 0)
   // Solo se prellena si la cuenta es exacta: redondear inventaria pares.
   const paresTotales = totalDocenas * 12
-  const packsPrellenados = datos.paresPorPack && paresTotales && paresTotales % datos.paresPorPack === 0 ? paresTotales / datos.paresPorPack : undefined
+  const packsPrellenados = Number.isFinite(Number(datos.packs)) && Number(datos.packs) > 0
+    ? Number(datos.packs)
+    : datos.paresPorPack && paresTotales && paresTotales % datos.paresPorPack === 0 ? paresTotales / datos.paresPorPack : undefined
   campo(pedido, 'TP_PACKS', libro, packsPrellenados)
   const pares = campo(pedido, 'TP_PARES', libro)
   pares.value = { formula: `IF(AND(ISNUMBER(${CAMPOS.TP_PACK.celda}),ISNUMBER(${CAMPOS.TP_PACKS.celda})),${CAMPOS.TP_PACK.celda}*${CAMPOS.TP_PACKS.celda},"")`, result: packsPrellenados && datos.paresPorPack ? packsPrellenados * datos.paresPorPack : '' }
@@ -253,7 +368,7 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
       pedido.getCell(`${c.col}${f}`).value = c.tipo === 'decimal' ? Number(v) : String(v)
     }
   })
-  zonaFoto(pedido, 'FOTO_REFERENCIA', libro, Math.max(0, nRenglones - t.filasReservadas))
+  zonaFoto(pedido, 'FOTO_REFERENCIA', libro, Math.max(0, nRenglones - t.filasReservadas), datos.fotos?.FOTO_REFERENCIA)
 
   // --------------------------------------------------------- 2 CODIGOS Y RUTA
   const codigos = hojas.codigos
@@ -267,58 +382,77 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
     codigos.getCell(`B${primeraCod + i}`).value = { formula: `IF(${ref('A')}="","",${ref('A')})`, result: datos.renglones?.[i]?.talla || '' }
     codigos.getCell(`A${primeraCod + i}`).fill = relleno(FONDO_ETQ)
     codigos.getCell(`B${primeraCod + i}`).fill = relleno(FONDO_ETQ)
+    const cr = datos.codigosRuta?.[i]
+    if (cr) {
+      if (cr.colorCuerpo) codigos.getCell(`C${primeraCod + i}`).value = String(cr.colorCuerpo)
+      if (cr.bordado) codigos.getCell(`E${primeraCod + i}`).value = String(cr.bordado)
+      if (cr.hilo) codigos.getCell(`G${primeraCod + i}`).value = String(cr.hilo)
+    }
   }
   const extraCod = Math.max(0, nRenglones - TABLAS.TP_TABLA_CODIGOS.filasReservadas)
   const primeraRuta = tabla(codigos, 'TP_RUTA', libro, 0, extraCod)
-  const rutaBase = ['TEJIDO', 'CERRADO', 'VOLTEADO', 'HORMADO', 'PAREADO', 'HABILITADO', 'EMBALAJE']
+  const rutaBase = Array.isArray(datos.ruta) && datos.ruta.length ? datos.ruta.slice(0, 7) : ['TEJIDO', 'CERRADO', 'VOLTEADO', 'HORMADO', 'PAREADO', 'HABILITADO', 'EMBALAJE']
   rutaBase.forEach((p, i) => { codigos.getCell(primeraRuta, i + 1).value = p })
 
   // ------------------------------------------------------------------ 3 AVIOS
   const avios = hojas.avios
-  const primeraAv = tabla(avios, 'TP_TABLA_AVIOS', libro)
+  const listaAvios = Array.isArray(datos.avios) ? datos.avios : []
+  const primeraAv = tabla(avios, 'TP_TABLA_AVIOS', libro, listaAvios.length)
   const ta = TABLAS.TP_TABLA_AVIOS
-  for (let i = 0; i < ta.filasReservadas; i++) {
+  const filasAv = Math.max(ta.filasReservadas, listaAvios.length)
+  for (let i = 0; i < filasAv; i++) {
     const f = primeraAv + i
     avios.getCell(`F${f}`).value = { formula: `IF(AND(ISNUMBER(E${f}),ISNUMBER(${referencia('pedido', CAMPOS.TP_PACKS.celda)})),E${f}*${referencia('pedido', CAMPOS.TP_PACKS.celda)},"")`, result: '' }
     avios.getCell(`F${f}`).fill = relleno(FONDO_ETQ)
     avios.getCell(`F${f}`).numFmt = 'General'
-    avios.getCell(`I${f}`).value = i === 0 ? 'TODAS' : undefined
+    const a = listaAvios[i]
+    if (a) {
+      if (a.clave) avios.getCell(`A${f}`).value = String(a.clave)
+      if (a.descripcion) avios.getCell(`B${f}`).value = String(a.descripcion)
+      if (Number.isFinite(Number(a.usa)) && a.usa !== null && a.usa !== '') avios.getCell(`E${f}`).value = Number(a.usa)
+      if (a.comoSeUsa) avios.getCell(`G${f}`).value = String(a.comoSeUsa)
+      avios.getCell(`I${f}`).value = a.talla ? String(a.talla) : 'TODAS'
+      if (a.imagen) colocarImagenes(libro, avios, { c1: 10, c2: 10, f1: f, f2: f }, [a.imagen])
+    } else if (i === 0 && !listaAvios.length) {
+      avios.getCell(`I${f}`).value = 'TODAS'
+    }
   }
-  avios.mergeCells('A28:J30')
-  avios.getCell('A28').value = 'USA POR PACK es un numero: 1 = uno por pack; 3 = tres por pack; 0.1667 = una bolsa cada 6 packs (1/6). La clave tiene que existir en el catalogo de avios de RAGNAR.'
-  avios.getCell('A28').font = { name: 'Arial', size: 9, italic: true, color: { argb: GRIS_ETQ } }
-  avios.getCell('A28').alignment = { wrapText: true, vertical: 'top' }
+  const filaNota = TABLAS.TP_TABLA_AVIOS.filaCab + filasAv + 2
+  avios.mergeCells(`A${filaNota}:J${filaNota + 2}`)
+  avios.getCell(`A${filaNota}`).value = 'USA POR PACK es un numero: 1 = uno por pack; 3 = tres por pack; 0.1667 = una bolsa cada 6 packs (1/6). La clave tiene que existir en el catalogo de avios de RAGNAR.'
+  avios.getCell(`A${filaNota}`).font = { name: 'Arial', size: 9, italic: true, color: { argb: GRIS_ETQ } }
+  avios.getCell(`A${filaNota}`).alignment = { wrapText: true, vertical: 'top' }
 
   // --------------------------------------------- 4 INDIVIDUAL · 5 BOLSA · 6 CAJA
   const individual = hojas.individual
   individual.mergeCells('A5:J7')
   const ci = campo(individual, 'TP_INDIVIDUAL_TEXTO', libro)
-  ci.value = ''
+  ci.value = datos.textos?.individual || ''
   ci.alignment = { wrapText: true, vertical: 'top' }
   ci.font = { name: 'Arial', size: 10 }
   individual.getCell('A4').value = 'COMO SE ARMA EL PAR (donde va cada plastiflecha, caballete, etiqueta):'
   individual.getCell('A4').font = { name: 'Arial', size: 9, bold: true, color: { argb: AZUL } }
-  zonaFoto(individual, 'FOTO_INDIVIDUAL', libro)
+  zonaFoto(individual, 'FOTO_INDIVIDUAL', libro, 0, datos.fotos?.FOTO_INDIVIDUAL)
 
   const bolsa = hojas.bolsa
-  campo(bolsa, 'TP_PACKS_POR_BOLSA', libro)
+  campo(bolsa, 'TP_PACKS_POR_BOLSA', libro, datos.packsPorBolsa)
   bolsa.mergeCells('A7:J9')
   const cb = campo(bolsa, 'TP_BOLSA_TEXTO', libro)
-  cb.value = ''
+  cb.value = datos.textos?.bolsa || ''
   cb.alignment = { wrapText: true, vertical: 'top' }
   bolsa.getCell('A6').value = 'COMO SE ACOMODAN LOS PACKS EN LA BOLSA:'
   bolsa.getCell('A6').font = { name: 'Arial', size: 9, bold: true, color: { argb: AZUL } }
-  zonaFoto(bolsa, 'FOTO_BOLSA', libro)
+  zonaFoto(bolsa, 'FOTO_BOLSA', libro, 0, datos.fotos?.FOTO_BOLSA)
 
   const caja = hojas.caja
-  campo(caja, 'TP_DOCENAS_POR_CAJA', libro)
+  campo(caja, 'TP_DOCENAS_POR_CAJA', libro, datos.docenasPorCaja)
   caja.mergeCells('A7:J9')
   const cc = campo(caja, 'TP_CAJA_TEXTO', libro)
-  cc.value = ''
+  cc.value = datos.textos?.caja || ''
   cc.alignment = { wrapText: true, vertical: 'top' }
   caja.getCell('A6').value = 'COMO SE ACOMODA EN LA CAJA O BULTO:'
   caja.getCell('A6').font = { name: 'Arial', size: 9, bold: true, color: { argb: AZUL } }
-  zonaFoto(caja, 'FOTO_CAJA', libro)
+  zonaFoto(caja, 'FOTO_CAJA', libro, 0, datos.fotos?.FOTO_CAJA)
 
   // ----------------------------------------------------------------- _RAGNAR
   const ragnar = hojas.ragnar
@@ -332,6 +466,8 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
     generadoDesdeOt: datos.ot || '',
     generadoPorUid: datos.generadoPorUid || '',
     generadoPorNombre: datos.generadoPorNombre || '',
+    migradoDe: datos.migradoDe ? JSON.stringify(datos.migradoDe) : '',
+    reporteMigracion: datos.reporteMigracion ? JSON.stringify(datos.reporteMigracion).slice(0, 32000) : '',
     // Los rangos REALES de este libro (las tablas pueden haber crecido).
     manifiesto: JSON.stringify({ ...manifiesto(), nombres: Object.fromEntries((libro.definedNames.model || []).map((d) => [d.name, d.ranges[0]])) })
   }
