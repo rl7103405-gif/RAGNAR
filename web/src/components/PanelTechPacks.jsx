@@ -37,7 +37,7 @@ import {
   quitarDeBiblioteca,
   TIPOS
 } from '../utils/techPacks'
-import { RUBROS_TECH_PACK } from '../utils/completadoTechPack'
+import { avanceDelTechPack, RUBROS_TECH_PACK } from '../utils/completadoTechPack'
 import VisorTechPack from './VisorTechPack'
 
 const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—')
@@ -149,10 +149,28 @@ function Barra({ porcentaje }) {
   )
 }
 
+// "73% hecho" al lado de cada tech pack (Roberto, 11-sep: "que diga setenta y
+// tres por ciento hecho... pon el porcentaje o la calificacion al lado"). Al
+// pasar el mouse dice que le falta.
+function PorcentajeHecho({ avance }) {
+  if (!avance) return null
+  const p = avance.porcentaje
+  const tono = p >= 100 ? { bg: '#dcfce7', fg: '#166534' } : p >= 60 ? { bg: '#fef3c7', fg: '#92400e' } : { bg: '#fee2e2', fg: '#991b1b' }
+  return (
+    <span
+      className="tp-pill"
+      style={{ background: tono.bg, color: tono.fg, fontWeight: 700, whiteSpace: 'nowrap' }}
+      title={avance.faltan.length ? `Falta: ${avance.faltan.join(', ')}` : 'Completo contra el estandar de Lety'}
+    >
+      {p}% hecho
+    </span>
+  )
+}
+
 // Una orden de compra del arbol, con sus OT y sus disenos. Vive en su propio
 // componente porque ahora se pinta en DOS cuadros: el de las ordenes de compra
 // de verdad y el de las OT que todavia no tienen una (Roberto, 2026-09-10).
-function OrdenDeCompra({ o, resumen, mb, setVisor }) {
+function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe }) {
   return (
       <details className="tp-oc" open>
         <summary>
@@ -186,14 +204,16 @@ function OrdenDeCompra({ o, resumen, mb, setVisor }) {
                     {g.variantes.map((b) => {
                       const talla = b.codigo !== g.base ? b.codigo.slice(g.base.length + 1) : ''
                       return b.techPack?.totalChunks ? (
-                        <button
-                          key={b.id}
-                          className="btn-secundario tp-btn-chico"
-                          title={`${b.techPack.formato?.toUpperCase()} · ${mb(b.techPack.tamano)} · v${b.techPack.version || 1}${(resumen.foliosDe.get(b.codigo) || []).length ? ' · folios ' + resumen.foliosDe.get(b.codigo).join(', ') : ''}`}
-                          onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
-                        >
-                          {talla ? `Ver talla ${talla}` : 'Ver tech pack'}
-                        </button>
+                        <span key={b.id} className="tp-fila" style={{ gap: 6 }}>
+                          <PorcentajeHecho avance={avanceDe(b)} />
+                          <button
+                            className="btn-secundario tp-btn-chico"
+                            title={`${b.techPack.formato?.toUpperCase()} · ${mb(b.techPack.tamano)} · v${b.techPack.version || 1}${(resumen.foliosDe.get(b.codigo) || []).length ? ' · folios ' + resumen.foliosDe.get(b.codigo).join(', ') : ''}`}
+                            onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
+                          >
+                            {talla ? `Ver talla ${talla}` : 'Ver tech pack'}
+                          </button>
+                        </span>
                       ) : (
                         <span key={b.id} className="tp-pill tp-pill-falta">{talla ? `talla ${talla} sin tech pack` : 'sin tech pack'}</span>
                       )
@@ -227,6 +247,17 @@ export default function PanelTechPacks() {
   const [filtro, setFiltro] = useState('')
   const [soloSin, setSoloSin] = useState(false)
   const [visor, setVisor] = useState(null) // { codigo, tipo, manifiesto }
+  // El avance de cada tech pack para la etiqueta "73% hecho". Un alias de folio
+  // no tiene archivo ni medicion: se lee el de su codigo real.
+  const techPackPorId = useMemo(() => {
+    const m = new Map()
+    for (const b of biblioteca) {
+      m.set(b.id, b)
+      if (b.codigo && !m.has(b.codigo)) m.set(b.codigo, b)
+    }
+    return m
+  }, [biblioteca])
+  const avanceDe = (b) => avanceDelTechPack(b?.apuntaA ? techPackPorId.get(b.apuntaA) || b : b)
   const [cruce, setCruce] = useState(null) // null | 'cargando' | [...]
   // codigo -> [{ot, oc}] segun el plan vigente; null mientras carga, Map vacio si no hay plan
   const [enPlan, setEnPlan] = useState(null)
@@ -639,6 +670,7 @@ export default function PanelTechPacks() {
                     ) : null}
                   </div>
                   <div className="tp-fila">
+                    <PorcentajeHecho avance={avanceDe(b)} />
                     {b.techPack?.totalChunks ? (
                       <button
                         className="btn-secundario tp-btn-chico"
@@ -823,7 +855,7 @@ export default function PanelTechPacks() {
             ) : (
               <div className="tp-arbol">
                 {arbol.conOc.map((o) => (
-                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} />
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} />
                 ))}
               </div>
             )}
@@ -844,7 +876,7 @@ export default function PanelTechPacks() {
             ) : (
               <div className="tp-arbol">
                 {arbol.sinOc.map((o) => (
-                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} />
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} />
                 ))}
               </div>
             )}
@@ -874,6 +906,7 @@ export default function PanelTechPacks() {
                       ) : null}
                     </div>
                     <div className="tp-fila">
+                      <PorcentajeHecho avance={avanceDe(b)} />
                       {b.techPack?.totalChunks ? (
                         <button
                           className="btn-secundario tp-btn-chico"
@@ -966,7 +999,7 @@ export default function PanelTechPacks() {
                       />
                     </td>
                     <td>
-                      <Documento item={b} tipo="tp" onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} />
+                      <Documento item={b} tipo="tp" avance={avanceDe(b)} onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} />
                     </td>
                     <td>
                       <Documento item={b} tipo="ftt" onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} />
@@ -1072,6 +1105,7 @@ export default function PanelTechPacks() {
       {visor && (
         <VisorTechPack
           techPack={visor.manifiesto}
+          avance={visor.tipo === 'tp' ? avanceDe(techPackPorId.get(visor.codigo)) : null}
           cargar={() => descargarDeBiblioteca({ codigo: visor.codigo, tipo: visor.tipo, manifiesto: visor.manifiesto })}
           onCerrar={() => setVisor(null)}
         />
@@ -1133,6 +1167,9 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
   // (seis "no aplica" y uno "ya esta" tambien darian 100%).
   const porcentaje = cuentan.length ? Math.round((completos / cuentan.length) * 100) : 0
   const evaluado = RUBROS_TECH_PACK.some((r) => checklist[r.id])
+  // El mismo numero que la etiqueta "% hecho" de la lista, con las marcas que
+  // Lety va poniendo en este momento (antes de guardar).
+  const avanceVivo = avanceDelTechPack({ ...item, datosEditables: { ...(item.datosEditables || {}), checklist } })
   const desglose = `${completos} ya ${completos === 1 ? 'esta' : 'estan'} · ${faltan} ${faltan === 1 ? 'falta' : 'faltan'} · ${noAplican} no ${noAplican === 1 ? 'aplica' : 'aplican'}`
 
   // Roberto, 8-sep: "no puede simplemente borrarlo... no le debe dejar guardar
@@ -1216,9 +1253,20 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
         <div className="tp-campo">
           <span>
             Que le falta a este tech pack
-            {evaluado ? (
+            {/* El numero de arriba es el MISMO que la etiqueta "% hecho" de la
+                lista (Roberto, 11-sep): lo que Lety marca manda y lo que no ha
+                marcado lo pone la medicion de la app. Si solo se contara lo
+                marcado, marcar un punto bajaria un 86% a 14%. */}
+            {avanceVivo ? (
               <>
-                <strong style={{ marginLeft: 8 }}>{porcentaje}% completo</strong>
+                <strong style={{ marginLeft: 8 }}>{avanceVivo.porcentaje}% hecho</strong>
+                <span className="texto-suave" style={{ marginLeft: 8, fontSize: 12 }}>
+                  {evaluado ? `(tus marcas: ${desglose})` : '(medido por la app; sin revisar por ti)'}
+                </span>
+              </>
+            ) : evaluado ? (
+              <>
+                <strong style={{ marginLeft: 8 }}>{porcentaje}% hecho</strong>
                 <span className="texto-suave" style={{ marginLeft: 8, fontSize: 12 }}>({desglose})</span>
               </>
             ) : (
@@ -1354,7 +1402,7 @@ function LigueAlPlan({ lista, folios = [], cargando, porTalla = false }) {
   )
 }
 
-function Documento({ item, tipo, onVer, onQuitar, puedeEditar, ocupado }) {
+function Documento({ item, tipo, avance, onVer, onQuitar, puedeEditar, ocupado }) {
   const m = item[TIPOS[tipo].campo]
   if (!m?.totalChunks) {
     return tipo === 'tp' ? (
@@ -1368,6 +1416,7 @@ function Documento({ item, tipo, onVer, onQuitar, puedeEditar, ocupado }) {
       <button className="btn-secundario tp-btn-chico" onClick={() => onVer({ codigo: item.codigo, tipo, manifiesto: m })}>
         Ver
       </button>
+      {tipo === 'tp' && <PorcentajeHecho avance={avance} />}
       <span className="texto-suave" style={{ fontSize: 12 }}>
         v{m.version || 1} · {m.formato?.toUpperCase()} · {mb(m.tamano)} · {fecha(m.subidoEn)}
       </span>

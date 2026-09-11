@@ -36,6 +36,17 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-11-02',
+    fecha: '2026-09-11',
+    tipo: 'mejorado',
+    titulo: 'Tech packs: cada uno dice que tan hecho esta',
+    detalle:
+      'Junto a cada tech pack (en las ordenes de compra, en la busqueda, en los que no tienen orden y en la lista '
+      + 'completa) aparece "86% hecho", en verde, amarillo o rojo. Si pasas el mouse encima dice que le falta, y al '
+      + 'abrir el tech pack sale arriba. La calificacion es contra el tech pack estandar de Lety; lo que ella marque '
+      + 'a mano en Editar manda sobre lo que mide la app.'
+  },
+  {
     id: '2026-09-11-01',
     fecha: '2026-09-11',
     tipo: 'nuevo',

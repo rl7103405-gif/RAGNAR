@@ -105,3 +105,38 @@ export function medirCompletado(contenido) {
     faltan: rubros.filter((r) => !r.tiene).map((r) => r.titulo)
   }
 }
+
+/**
+ * El avance que se ENSEÑA junto a cada tech pack ("73% hecho", Roberto 11-sep).
+ *
+ * Rubro por rubro manda lo que Lety marco a mano en Editar ('completo',
+ * 'pendiente', 'no_aplica'); donde ella no marco nada, cuenta lo que midio el
+ * servidor (`medicion`, ver web/scripts/medir_tech_packs.mjs). Es el mismo
+ * criterio de la tabla "Que tan completos estan".
+ *
+ * @returns {{porcentaje: number, faltan: string[], deLety: boolean} | null}
+ *          null si no hay con que medirlo (PDF sin checklist, o sin medir aun).
+ */
+export function avanceDelTechPack(item) {
+  const suyo = item?.datosEditables?.checklist || {}
+  const medido = item?.medicion?.porcentaje != null ? item.medicion : null
+  const deLety = RUBROS_TECH_PACK.some((r) => suyo[r.id])
+  if (!deLety && !medido) return null
+  let cuentan = 0
+  let completos = 0
+  const faltan = []
+  for (const r of RUBROS_TECH_PACK) {
+    const marca = suyo[r.id]
+    if (marca === 'no_aplica') continue
+    let tiene
+    if (marca === 'completo') tiene = true
+    else if (marca === 'pendiente') tiene = false
+    else if (medido) tiene = !(medido.faltan || []).includes(r.id)
+    else continue
+    cuentan++
+    if (tiene) completos++
+    else faltan.push(r.titulo)
+  }
+  if (!cuentan) return null
+  return { porcentaje: Math.round((completos / cuentan) * 100), faltan, deLety }
+}

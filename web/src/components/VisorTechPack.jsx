@@ -38,7 +38,7 @@ function celdaATexto(valor) {
 
 // `cargar` (opcional): quien tenga el archivo en otro lado (la biblioteca de
 // tech packs) pasa su propia funcion que devuelve el ArrayBuffer ya validado.
-export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, cargar }) {
+export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, cargar, avance = null }) {
   const [estado, setEstado] = useState('cargando') // cargando | listo | error
   const [mensaje, setMensaje] = useState('Bajando el tech pack...')
   const [hojas, setHojas] = useState([]) // xlsx: [{nombre, filas, imagenes, recortada}]
@@ -284,6 +284,24 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
           }}
         >
           <strong style={{ fontSize: 15 }}>{techPack?.nombre || 'Tech pack'}</strong>
+          {/* Que tan hecho esta contra el estandar de Lety (Roberto, 11-sep:
+              "al momento que me quiero meter no me aparece"). Solo llega desde
+              la biblioteca; en el portal de la maquila no se pasa. */}
+          {avance && (
+            <span
+              style={{
+                background: avance.porcentaje >= 100 ? '#dcfce7' : avance.porcentaje >= 60 ? '#fef3c7' : '#fee2e2',
+                color: avance.porcentaje >= 100 ? '#166534' : avance.porcentaje >= 60 ? '#92400e' : '#991b1b',
+                borderRadius: 999,
+                padding: '2px 10px',
+                fontSize: 13,
+                fontWeight: 700
+              }}
+            >
+              {avance.porcentaje}% hecho
+              {avance.faltan.length ? ` · falta: ${avance.faltan.join(', ')}` : ' · completo'}
+            </span>
+          )}
           <span className="texto-suave" style={{ fontSize: 12 }}>
             Solo lectura en pantalla · no se puede descargar
             {techPack?.formato === 'pdf' && paginasPdf > 0 ? ` · ${paginasPdf} pagina${paginasPdf === 1 ? '' : 's'}` : ''}
