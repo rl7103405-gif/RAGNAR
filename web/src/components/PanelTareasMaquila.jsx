@@ -14,6 +14,7 @@ import { sujetoDelPermiso, TIPO_PERMISO_OT } from '../utils/otsAsignadas'
 import { useAuth } from '../context/AuthContext'
 import { useMaquilas } from './Maquilas'
 import VisorTechPack from './VisorTechPack'
+import AviosDeLaTarea from './AviosDeLaTarea'
 import { buscarTechPacksComoSea, ErrorBiblioteca, pegarTechPackATarea, techPacksDeLaOt } from '../utils/techPacks'
 import {
   ESTADOS_TAREA_ENSAMBLE,
@@ -44,6 +45,8 @@ export default function PanelTareasMaquila() {
   const [progreso, setProgreso] = useState('')
   const [trabajando, setTrabajando] = useState(null)
   const [visor, setVisor] = useState(null) // { maquilaId, tareaId, techPack }
+  // La tarea cuyos avios se estan calculando (AviosDeLaTarea).
+  const [aviosDe, setAviosDe] = useState(null)
   // { tareaId, conTechPack, sinTechPack, codigos } mientras se elige de la biblioteca
   const [biblioteca, setBiblioteca] = useState(null)
   const [buscaTp, setBuscaTp] = useState('')
@@ -961,6 +964,17 @@ export default function PanelTareasMaquila() {
             Ver tech pack
           </button>
         )}
+        {/* Solo mientras la tarea esta en manos de la maquila: cerrada o
+            cancelada, las reglas ya no dejan leer el archivo. */}
+        {t.techPack?.formato === 'xlsx' && ['abierta', 'iniciada', 'declarada'].includes(t.estado) && (
+          <button
+            className="btn-secundario"
+            title="Lee la hoja ETIQUETAS del tech pack y la cruza con el inventario de avios de la maquila"
+            onClick={() => setAviosDe(t)}
+          >
+            Avíos que necesita
+          </button>
+        )}
         {t.estado === 'preparando' && (
           <>
             <button
@@ -1484,6 +1498,15 @@ export default function PanelTareasMaquila() {
       </div>
 
       {visor && <VisorTechPack {...visor} onCerrar={() => setVisor(null)} />}
+      {aviosDe && (
+        <AviosDeLaTarea
+          maquilaId={aviosDe.maquilaId}
+          maquilaNombre={maquilas.find((m) => m.id === aviosDe.maquilaId)?.nombre}
+          tareaId={aviosDe.id}
+          tarea={aviosDe}
+          onCerrar={() => setAviosDe(null)}
+        />
+      )}
       {biblioteca && (
         <div className="tarjeta" style={{ position: 'fixed', bottom: 16, right: 16, maxWidth: 520, zIndex: 50, boxShadow: '0 8px 30px rgba(0,0,0,.25)' }}>
           <h3 style={{ marginTop: 0 }}>

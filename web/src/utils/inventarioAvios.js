@@ -128,3 +128,16 @@ export async function leerSaldos(maquilaId, codigos) {
 export function esChoqueDeSaldo(err) {
   return String(err?.code || '') === 'permission-denied'
 }
+
+/** Los saldos con su unidad: { [codigo]: {cantidad, unidad} } (solo los que existen).
+ *  Para cruzar contra lo que pide un tech pack (aviosTechPack.js). */
+export async function leerSaldosConUnidad(maquilaId, codigos) {
+  const saldos = {}
+  await Promise.all(
+    [...new Set(codigos)].map(async (codigo) => {
+      const snap = await getDoc(doc(db, 'portalMaquila', maquilaId, 'saldosAvios', codigo))
+      if (snap.exists()) saldos[codigo] = { cantidad: Number(snap.data().cantidad) || 0, unidad: snap.data().unidad || 'piezas' }
+    })
+  )
+  return saldos
+}

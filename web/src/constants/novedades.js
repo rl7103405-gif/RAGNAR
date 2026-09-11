@@ -36,6 +36,18 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-11-04',
+    fecha: '2026-09-11',
+    tipo: 'nuevo',
+    titulo: 'Tareas a maquilas: "Avios que necesita"',
+    detalle:
+      'En cada tarea encargada con tech pack en Excel hay un boton "Avios que necesita". Lee la hoja ETIQUETAS del '
+      + 'tech pack (la columna USA: cuanto lleva cada pack), lo multiplica por los packs de la tarea y lo compara con '
+      + 'el inventario de avios que esa maquila tiene registrado en RAGNAR: que le falta y cuanto. Es una foto de hoy, '
+      + 'no descuenta lo que otras tareas abiertas tambien van a usar. Solo funciona con tech packs que traigan la '
+      + 'columna USA (el estandar nuevo); si no la traen, lo dice.'
+  },
+  {
     id: '2026-09-11-03',
     fecha: '2026-09-11',
     tipo: 'mejorado',
