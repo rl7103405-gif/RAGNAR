@@ -16,7 +16,7 @@
 // que tiene que hacer es ligar el tech pack con la OT"): primero se dice de
 // que orden de trabajo (o codigo) es, y hasta que el codigo esta elegido se
 // habilitan los botones de subir. Asi no se sube nada "al aire".
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { destinoDeOt, renglonesDeLaOt, versionActiva } from '../utils/planMaestro'
 import { datosDeCodigos } from '../utils/datosDelCatalogo'
@@ -60,7 +60,8 @@ const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`
 // el documento (`medicion`) para no bajar 120 Excel cada vez que alguien abre
 // la pantalla. Si Lety llena el checklist a mano, ESE manda: ella sabe si una
 // hoja esta bien llena y la app solo sabe si existe.
-function AvanceDeTechPacks({ biblioteca }) {
+function AvanceDeTechPacks({ biblioteca, onVer, onEditar, puedeEditar }) {
+  const [abierto, setAbierto] = useState(null)
   const filas = biblioteca.filter((b) => !b.apuntaA && b.techPack)
   const medidos = filas.filter((b) => b.medicion?.porcentaje != null)
   if (!filas.length) return null
@@ -74,7 +75,7 @@ function AvanceDeTechPacks({ biblioteca }) {
       if (suyo === 'pendiente') return true
       return (b.medicion.faltan || []).includes(r.id)
     })
-    return { ...r, faltan: falta.length, ejemplos: falta.slice(0, 3).map((b) => b.codigo) }
+    return { ...r, faltan: falta.length, ejemplos: falta.slice(0, 3).map((b) => b.codigo), lista: falta }
   }).sort((a, b) => b.faltan - a.faltan)
 
   const promedio = medidos.length
@@ -126,14 +127,39 @@ function AvanceDeTechPacks({ biblioteca }) {
           </thead>
           <tbody>
             {rubros.map((r) => (
-              <tr key={r.id}>
-                <td title={r.ayuda}>{r.titulo}</td>
-                <td>{r.faltan === 0 ? <span className="texto-suave">a ninguno</span> : r.faltan}</td>
-                <td style={{ whiteSpace: 'nowrap' }}>
-                  {medidos.length ? <Barra porcentaje={Math.round((r.faltan / medidos.length) * 100)} /> : null}
-                </td>
-                <td className="texto-suave" style={{ fontSize: 12 }}>{r.ejemplos.join(', ')}</td>
-              </tr>
+              <Fragment key={r.id}>
+                <tr>
+                  <td title={r.ayuda}>
+                    {/* Se abre y lista a cuales les falta, con Ver / Editar
+                        (Roberto, 11-sep: "que se puedan abrir y te lleve directo"). */}
+                    {r.faltan > 0 ? (
+                      <button type="button" className="tp-desplegar" onClick={() => setAbierto(abierto === r.id ? null : r.id)}>
+                        {abierto === r.id ? '▾' : '▸'} {r.titulo}
+                      </button>
+                    ) : r.titulo}
+                  </td>
+                  <td>{r.faltan === 0 ? <span className="texto-suave">a ninguno</span> : r.faltan}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {medidos.length ? <Barra porcentaje={Math.round((r.faltan / medidos.length) * 100)} /> : null}
+                  </td>
+                  <td className="texto-suave" style={{ fontSize: 12 }}>{abierto === r.id ? '' : r.ejemplos.join(', ') + (r.faltan > 3 ? '…' : '')}</td>
+                </tr>
+                {abierto === r.id && (
+                  <tr>
+                    <td colSpan={4} style={{ padding: '4px 0 10px 18px' }}>
+                      <div className="tp-lista-falta">
+                        {r.lista.map((b) => (
+                          <span key={b.id} className="tp-lista-falta-item">
+                            <span className="tp-codigo">{b.codigo}</span>
+                            <button className="btn-secundario tp-btn-chico" onClick={() => onVer(b)}>Ver</button>
+                            {puedeEditar && <button className="btn-primario tp-btn-chico" onClick={() => onEditar(b)}>Editar</button>}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -180,10 +206,23 @@ function PorcentajeHecho({ avance }) {
 // Las acciones de UN tech pack, en el MISMO orden y del MISMO ancho en todos
 // los cuadros: Editar · % hecho · Ver (Roberto, 11-sep: "algunos empiezan con
 // hecho, despues ver y despues editar, esta mal... darle simetria").
-function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tech pack', titulo, avance, puedeEditar, onEditar, onVer }) {
+function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tech pack', titulo, avance, puedeEditar, onEditar, onVer, puedeSubir, onReemplazar, onQuitar, ocupado }) {
   const tiene = Boolean(b.techPack?.totalChunks)
   return (
     <div className="tp-acciones">
+      {/* Reemplazar por otro archivo / quitar (Lety, 11-sep: "hay veces que
+          necesitan reemplazar los tech packs"). Sube la version siguiente. */}
+      {puedeSubir && tiene && !b.apuntaA && onReemplazar && (
+        <>
+          <label className="btn-secundario tp-btn-chico" style={{ cursor: ocupado ? 'default' : 'pointer' }} title="Sube otro archivo en lugar de este (queda como version nueva)">
+            Reemplazar
+            <input type="file" accept=".pdf,.xlsx" style={{ display: 'none' }} disabled={ocupado} onChange={(e) => { onReemplazar(b, e.target.files?.[0]); e.target.value = '' }} />
+          </label>
+          <button className="tp-quitar" disabled={ocupado} onClick={() => onQuitar(b, 'tp')} title="Quita el archivo; el codigo se queda sin tech pack">
+            Quitar
+          </button>
+        </>
+      )}
       {puedeEditar && (
         <button className="btn-primario tp-btn-chico" onClick={() => onEditar(b)}>
           Editar
@@ -206,7 +245,7 @@ function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tec
 // Una orden de compra del arbol, con sus OT y sus disenos. Vive en su propio
 // componente porque ahora se pinta en DOS cuadros: el de las ordenes de compra
 // de verdad y el de las OT que todavia no tienen una (Roberto, 2026-09-10).
-function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe, puedeEditar, onEditar }) {
+function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe, puedeEditar, onEditar, puedeSubir, onReemplazar, onQuitar, ocupado }) {
   return (
       <details className="tp-oc" open>
         <summary>
@@ -253,6 +292,10 @@ function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe, puedeEditar, onEdit
                           puedeEditar={puedeEditar}
                           onEditar={onEditar}
                           onVer={(x) => setVisor({ codigo: x.codigo, tipo: 'tp', manifiesto: x.techPack })}
+                          puedeSubir={puedeSubir}
+                          onReemplazar={onReemplazar}
+                          onQuitar={onQuitar}
+                          ocupado={ocupado}
                         />
                       )
                     })}
@@ -491,6 +534,28 @@ export default function PanelTechPacks() {
               ? ` Ligado a ${ligado.length === 1 ? 'la OT' : 'las OT'} ${ligado.map((x) => x.ot).join(', ')}.`
               : '')
       )
+      setCruce(null)
+    } catch (err) {
+      reportar(err)
+    } finally {
+      setProgreso('')
+      setTrabajando(false)
+    }
+  }
+
+  // Reemplazar el archivo de un codigo que YA tiene tech pack, desde su renglon.
+  const onReemplazar = async (item, file) => {
+    if (!file) return
+    setError('')
+    setAviso('')
+    const formato = formatoDeArchivo(file.name)
+    if (!formato) { setError('El archivo tiene que ser .pdf o .xlsx.'); return }
+    if (file.size > MAX_TECHPACK_BYTES) { setError(`El archivo pesa ${mb(file.size)} y el tope son 15 MB.`); return }
+    if (!window.confirm(`¿Reemplazar el tech pack de ${item.codigo} por "${file.name}"? El anterior queda en el historial de versiones.`)) return
+    setTrabajando(true)
+    try {
+      await guardarEnBiblioteca({ codigo: item.codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setProgreso })
+      setAviso(`Tech pack de ${item.codigo} reemplazado (version ${(item.techPack?.version || 1) + 1}).`)
       setCruce(null)
     } catch (err) {
       reportar(err)
@@ -778,7 +843,7 @@ export default function PanelTechPacks() {
                     {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
                   </div>
                   <div className="tp-acciones-lista">
-                    <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} />
+                    <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                     {b.ftt?.totalChunks ? (
                       <div className="tp-acciones">
                         <button className="btn-secundario tp-btn-chico tp-acc-ver" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
@@ -959,7 +1024,7 @@ export default function PanelTechPacks() {
             ) : (
               <div className="tp-arbol">
                 {arbol.conOc.map((o) => (
-                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} />
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                 ))}
               </div>
             )}
@@ -980,7 +1045,7 @@ export default function PanelTechPacks() {
             ) : (
               <div className="tp-arbol">
                 {arbol.sinOc.map((o) => (
-                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} />
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                 ))}
               </div>
             )}
@@ -1010,7 +1075,7 @@ export default function PanelTechPacks() {
                     {/* Editar AQUI mismo (2026-09-11): este cuadro es donde Lety
                         liga cada tech pack a sus codigos u ordenes. */}
                     <div className="tp-acciones-lista">
-                      <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} />
+                      <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                     </div>
                   </div>
                 ))}
@@ -1020,7 +1085,7 @@ export default function PanelTechPacks() {
         </>
       )}
 
-      <AvanceDeTechPacks biblioteca={biblioteca} />
+      <AvanceDeTechPacks biblioteca={biblioteca} onVer={verTechPack} onEditar={editarTechPack} puedeEditar={puedeEditarTechPacks} />
 
       {/* ------------------------------------------------ la lista completa (plegada) */}
       <details className="tarjeta tp-lista">

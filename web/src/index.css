@@ -833,3 +833,8 @@ table th, table td {
 .tpv-pestana.activa .tpv-num { background: rgba(255,255,255,.25); color: #fff; }
 .tpv-foto-grande { height: 260px; }
 .tpv-foto-grande img { max-width: 520px; }
+
+.tp-desplegar { background: none; border: none; padding: 0; font: inherit; color: var(--acento, #1e40af); cursor: pointer; font-weight: 600; }
+.tp-lista-falta { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.tp-lista-falta-item { display: inline-flex; align-items: center; gap: 6px; }
+.tpv-sobrantes summary { cursor: pointer; font-weight: 600; color: #b45309; }

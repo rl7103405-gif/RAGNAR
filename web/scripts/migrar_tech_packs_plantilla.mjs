@@ -58,8 +58,12 @@ for (const d of docs.sort((a, b) => a.id.localeCompare(b.id))) {
   const fila = { codigo, archivo: tp.nombre || '', formato: tp.formato }
   try {
     if (tp.formato !== 'xlsx') { fila.estado = 'PDF: no se migra solo (hay que rehacerlo en la plantilla)'; resumen.push(fila); console.log(`  ${codigo.padEnd(26)} PDF`); continue }
-    const chunks = (await d.ref.collection('chunks').get()).docs.filter((x) => x.id.startsWith('tp-')).sort((a, b) => a.id.localeCompare(b.id))
+    // Si este tech pack ya se reemplazo por la plantilla, el original de Lety
+    // vive en respaldoOriginal (reemplazar_tech_packs_por_plantilla.mjs).
+    const sub = d.data().migracionTpQuini && d.data().techPackAnterior ? 'respaldoOriginal' : 'chunks'
+    const chunks = (await d.ref.collection(sub).get()).docs.filter((x) => x.id.startsWith('tp-')).sort((a, b) => a.id.localeCompare(b.id))
     const buf = Buffer.concat(chunks.map((x) => Buffer.from(x.data().datos)))
+    if (sub === 'respaldoOriginal') fila.origen = 'respaldo'
     const viejo = new ExcelJS.Workbook()
     await viejo.xlsx.load(buf)
 

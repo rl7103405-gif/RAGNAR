@@ -128,7 +128,18 @@ export function leerPlantilla(libro) {
     }
   }
 
-  return { faltaEstructura, campos, tablas, fotos, imagenesZona, imagenesAvios }
+  // Lo que la migracion no supo acomodar (hoja _RAGNAR, clave noMigrado).
+  let noMigrado = []
+  const hr = libro.getWorksheet(HOJAS.ragnar)
+  if (hr) {
+    for (let f = 1; f <= Math.min(hr.rowCount, 20); f++) {
+      if (String(valorPlano(hr.getCell(`A${f}`).value) ?? '') === 'noMigrado') {
+        try { noMigrado = JSON.parse(String(valorPlano(hr.getCell(`B${f}`).value) || '[]')) } catch { noMigrado = [] }
+      }
+    }
+  }
+
+  return { faltaEstructura, campos, tablas, fotos, imagenesZona, imagenesAvios, noMigrado }
 }
 
 /**

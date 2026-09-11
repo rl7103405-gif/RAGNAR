@@ -185,6 +185,20 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe }) {
         <Fotos urls={zona('FOTO_CAJA')} alAbrir={setGrande} vacio="Sin foto de la caja" grandes />
       </section>}
 
+      {/* Datos del Excel anterior que la conversion no supo acomodar: nada se
+          pierde, Lety los pone donde van (Roberto, 11-sep). */}
+      {lectura.noMigrado?.length > 0 && (
+        <details className="tpv-sec tpv-sobrantes">
+          <summary>Datos del archivo anterior sin acomodar ({lectura.noMigrado.length}) · revisar y poner donde van</summary>
+          <div className="tabla-marco">
+            <table className="tpv-tabla">
+              <thead><tr><th>Hoja</th><th>Celda</th><th>Texto</th></tr></thead>
+              <tbody>{lectura.noMigrado.map((x, i) => <tr key={i}><td>{x.hoja}</td><td>{x.celda}</td><td>{x.texto}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </details>
+      )}
+
       {grande && (
         <div className="tpv-lightbox" onClick={() => setGrande(null)}>
           <img src={grande} alt="" />

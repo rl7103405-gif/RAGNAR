@@ -155,10 +155,10 @@ export function extraerTechPackViejo(libro, ctx = {}) {
     return null
   }
   const cliente = leerBloque('CLIENTE')
-  const modelo = leerBloque('MODELO')
+  const modelo = leerBloque('MODELO') || leerBloque('MOIDELO')
   const tallas = leerBloque('TALLAS')
   const prenda = leerBloque('PRENDA')
-  const marca = leerBloque('MARCA')
+  const marca_ = leerBloque('MARCA')
   const tejido = leerBloque('TIPO DE TEJIDO')
   const fecha = leerBloque('FECHA')
   const elaboro = leerBloque('ELABORO')
@@ -166,7 +166,7 @@ export function extraerTechPackViejo(libro, ctx = {}) {
   nota('TP_MODELO', modelo?.valor, modelo?.origen)
   nota('TP_SISTEMA_TALLA', tallas?.valor, tallas?.origen, 'media')
   nota('TP_PRENDA', prenda?.valor, prenda?.origen)
-  nota('TP_MARCA', marca?.valor, marca?.origen)
+  nota('TP_MARCA', marca_?.valor, marca_?.origen)
   nota('TP_TEJIDO', tejido?.valor, tejido?.origen)
   nota('TP_ELABORO', elaboro?.valor, elaboro?.origen)
   let fechaDate = null
@@ -191,11 +191,11 @@ export function extraerTechPackViejo(libro, ctx = {}) {
       paresPorPack = m ? Number(m[1]) : null
       nota('TP_PACK', paresPorPack, pk.origen, typeof pk.valor === 'number' ? 'alta' : 'media')
     }
-    const pcs = debajo(info, buscar(info, ['CANTIDAD DE PACKS'], 20))
+    const pcs = debajo(info, buscar(info, ['CANTIDAD DE PACKS', 'PACKS SOLICITADOS', 'PACKS'], 20))
     if (pcs && numero(pcs.valor) != null) { packs = numero(pcs.valor); nota('TP_PACKS', packs, pcs.origen) }
     const doc = debajo(info, buscar(info, ['TOTAL DE DOCENAS'], 20))
     if (doc && numero(doc.valor) != null) docenasTotal = numero(doc.valor)
-    const dpc = debajo(info, buscar(info, ['DOCENAS POR CODIGO'], 20))
+    const dpc = debajo(info, buscar(info, ['DOCENAS POR CODIGO', 'DOC. POR CODIGO', 'DOC POR CODIGO'], 20))
     if (dpc && numero(dpc.valor) != null) docenasPorCodigo = numero(dpc.valor)
     if (paresPorPack && packs && docenasTotal && Math.abs((paresPorPack * packs) / 12 - docenasTotal) > 0.5) {
       conflictos.push(`las cifras del pedido no cuadran: ${packs} packs x ${paresPorPack} pares = ${(paresPorPack * packs) / 12} docenas, el archivo dice ${docenasTotal}`)
@@ -207,7 +207,8 @@ export function extraerTechPackViejo(libro, ctx = {}) {
   // ------------------------------------------------ tabla Microsip
   const microsip = []
   if (info) {
-    const cab = encabezado(info, ['PEDIDO', 'OT'], ['CLAVE MICROSIP', 'DESCRIPCION MICROSIP', 'UPC', 'DISENO'])
+    const cab = encabezado(info, ['PEDIDO', 'OT'], ['CLAVE MICROSIP', 'DESCRIPCION MICROSIP', 'UPC', 'UPC SKU', 'UPC/SKU', 'DISENO'])
+    if (cab && cab.cols.UPC === undefined) cab.cols.UPC = cab.cols['UPC SKU'] ?? cab.cols['UPC/SKU']
     if (cab) {
       for (let f = cab.fila + 1; f <= Math.min(info.rowCount, cab.fila + 60); f++) {
         const fila = info.getRow(f)
@@ -320,8 +321,10 @@ export function extraerTechPackViejo(libro, ctx = {}) {
   const n = codigosRuta.length || microsip.length
   const docenasCadaUno = docenasPorCodigo ?? (docenasTotal && n ? docenasTotal / n : null)
   const renglones = []
+  const microsipUsados = new Set()
   for (let i = 0; i < n; i++) {
     const ms = codigosRuta.length ? microsipDe(i) : microsip[i] || {}
+    if (ms.fila) microsipUsados.add(ms.fila)
     const cr = codigosRuta[i] || {}
     renglones.push({
       talla: cr.talla || (tallas?.valor ? String(tallas.valor) : ''),
@@ -333,6 +336,16 @@ export function extraerTechPackViejo(libro, ctx = {}) {
       docenas: docenasCadaUno != null ? Math.round(docenasCadaUno * 100) / 100 : ''
     })
   }
+  // Ningun renglon Microsip se tira (Roberto, 11-sep: "no dejes ningun dato
+  // atras"): los que no casaron con un codigo interno entran sin codigo, y
+  // Lety decide si son de este modelo o sobran.
+  let sinCodigoInterno = 0
+  for (const ms of microsip) {
+    if (microsipUsados.has(ms.fila)) continue
+    sinCodigoInterno++
+    renglones.push({ talla: tallas?.valor ? String(tallas.valor) : '', ot: ms.ot || '', codigo: '', claveMicrosip: ms.claveMicrosip || '', descripcion: ms.descripcion || '', upc: ms.upc || '', docenas: docenasCadaUno != null ? Math.round(docenasCadaUno * 100) / 100 : '' })
+  }
+  if (sinCodigoInterno) conflictos.push(`${sinCodigoInterno} renglon(es) Microsip sin codigo interno que les corresponda (¿son de otro modelo?): se conservaron sin codigo`)
   if (porOrden && microsip.length && codigosRuta.length && microsip.length !== codigosRuta.length) {
     conflictos.push(`${codigosRuta.length} codigos internos vs ${microsip.length} renglones Microsip: ${porOrden} se juntaron por orden, revisar`)
   }
@@ -483,11 +496,45 @@ export function extraerTechPackViejo(libro, ctx = {}) {
 
   if (!ctx.destinoDelPlan && !cliente) faltantes.push('cliente')
 
+  // RED DE SEGURIDAD: todo texto de las hojas de datos del original que no
+  // quedo en ningun campo se guarda aparte (va a _RAGNAR y el visor lo ensena),
+  // para que nada se pierda aunque el convertidor no lo haya entendido.
+  const normS = (v) => String(valorPlano(v) ?? '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
+  const ETQ_CONOCIDAS = /^(CLIENTE|MODELO|MOIDELO|TALLAS?|PRENDA|MARCA|TIPO DE TEJIDO|FECHA|ELABORO|PACK|CANTIDAD DE PACKS|PACKS SOLICITADOS|TOTAL DE PARES|TOTAL DE DOCENAS|DOCENAS POR CODIGO|DOC\.? POR CODIGO|IMAGEN DE REFERENCIA|CODIGOS MICROSIP|PEDIDO|CLAVE MICROSIP|DESCRIPCION MICROSIP|OT|UPC|UPC SKU|DISENO|CANTIDAD(ES)? DEL? PEDIDO|CODIGO|DESCRIPCION|COLOR\/CUERPO|BORDADO|IMAGEN|COLOR DE HILO.*|CODIGOS INTERNOS Y COLORES.*|RUTA DE PROCESO.*|PROCESO \d|RECIBE Y AUTORIZA|ENTREGA|COPIA.*|ETIQUETAS? (EXTERNAS|INTERNAS)|CLAVE|CANTIDAD|USA|ENVIAR|PACKS|EMPAQUE|SE EMPACAN.*|N\/A|DP|OC_?\d+|OT_?\d+):?$/
+  const usado = new Set()
+  const marcaUsado = (v) => { const t = normS(v); if (t) usado.add(t) }
+  for (const r of [cliente, modelo, tallas, prenda, marca_, tejido, fecha, elaboro]) if (r) marcaUsado(r.valor)
+  for (const r of renglones) for (const v of Object.values(r)) marcaUsado(v)
+  for (const r of codigosRuta) for (const v of Object.values(r)) marcaUsado(v)
+  for (const a of avios) {
+    marcaUsado(a.clave); marcaUsado(a.descripcion); marcaUsado(a.comoSeUsa); marcaUsado(a.talla)
+    if (a.usa != null) { marcaUsado(a.usa); if (packs) marcaUsado(a.usa * packs) }
+  }
+  if (paresPorPack && packs) marcaUsado(paresPorPack * packs)
+  for (const p of ruta) marcaUsado(p)
+  for (const t of Object.values(textos)) for (const parte of String(t).split(' · ')) marcaUsado(parte)
+  for (const v of [paresPorPack, packs, docenasTotal, docenasPorCodigo, oc, ...ocsArchivo, ...ocsEtiquetas, packsPorBolsa, docenasPorCaja]) if (v != null && v !== '') marcaUsado(v)
+  const usadosLargos = [...usado].filter((u) => u.length > 6)
+  const sobrantes = []
+  for (const h of [info, codigos, ...etiquetasHojas].filter(Boolean)) {
+    const vistos = new Set()
+    h.eachRow((row) => row.eachCell((c) => {
+      const raw = valorPlano(c.value)
+      if (raw instanceof Date) return
+      const t = normS(raw)
+      if (!t || t.length < 2 || ETQ_CONOCIDAS.test(t) || usado.has(t) || vistos.has(t)) return
+      if (usadosLargos.some((u) => u.includes(t) || t.includes(u))) return
+      vistos.add(t)
+      sobrantes.push({ hoja: h.name, celda: c.address, texto: String(raw).replace(/\s+/g, ' ').trim().slice(0, 200) })
+    }))
+  }
+
   const datos = {
     oc,
     ot: renglones.find((r) => r.ot)?.ot || '',
     cliente: cliente?.valor || ctx.destinoDelPlan || '',
-    marca: marca?.valor || '',
+    marca: marca_?.valor || '',
+    sobrantes,
     modelo: modelo?.valor || ctx.codigo || '',
     prenda: prenda?.valor || '',
     tejido: tejido?.valor || '',
@@ -509,6 +556,7 @@ export function extraerTechPackViejo(libro, ctx = {}) {
     campos,
     conflictos,
     faltantes,
+    sobrantes: sobrantes.length,
     conteo: {
       renglones: renglones.length,
       codigosInternos: codigosRuta.length,

@@ -468,6 +468,9 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
     generadoPorNombre: datos.generadoPorNombre || '',
     migradoDe: datos.migradoDe ? JSON.stringify(datos.migradoDe) : '',
     reporteMigracion: datos.reporteMigracion ? JSON.stringify(datos.reporteMigracion).slice(0, 32000) : '',
+    // Textos del original que el convertidor no supo acomodar: se guardan
+    // para que el visor los ensene y Lety los ponga donde van.
+    noMigrado: Array.isArray(datos.sobrantes) && datos.sobrantes.length ? JSON.stringify(datos.sobrantes).slice(0, 32000) : '',
     // Los rangos REALES de este libro (las tablas pueden haber crecido).
     manifiesto: JSON.stringify({ ...manifiesto(), nombres: Object.fromEntries((libro.definedNames.model || []).map((d) => [d.name, d.ranges[0]])) })
   }

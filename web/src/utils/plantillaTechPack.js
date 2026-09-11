@@ -133,7 +133,7 @@ export const ZONAS_FOTO = {
 }
 
 // Lo que se guarda en la hoja oculta _RAGNAR (columna A = clave, B = valor).
-export const CLAVES_RAGNAR = ['plantilla', 'version', 'generadoEn', 'generadoDesdeOt', 'generadoPorUid', 'generadoPorNombre', 'manifiesto', 'migradoDe', 'reporteMigracion']
+export const CLAVES_RAGNAR = ['plantilla', 'version', 'generadoEn', 'generadoDesdeOt', 'generadoPorUid', 'generadoPorNombre', 'manifiesto', 'migradoDe', 'reporteMigracion', 'noMigrado']
 
 const colIdx = (s) => [...s].reduce((a, ch) => a * 26 + (ch.charCodeAt(0) - 64), 0)
 const colLetra = (n) => { let s = ''; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26) } return s }
