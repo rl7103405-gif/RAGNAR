@@ -41,7 +41,7 @@ function celdaATexto(valor) {
 
 // `cargar` (opcional): quien tenga el archivo en otro lado (la biblioteca de
 // tech packs) pasa su propia funcion que devuelve el ArrayBuffer ya validado.
-export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, cargar, avance = null }) {
+export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, cargar, avance = null, pantalla = 1 }) {
   const [estado, setEstado] = useState('cargando') // cargando | listo | error
   const [mensaje, setMensaje] = useState('Bajando el tech pack...')
   const [hojas, setHojas] = useState([]) // xlsx: [{nombre, filas, imagenes, recortada}]
@@ -357,7 +357,7 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
 
         {techPack?.formato === 'xlsx' && estado === 'listo' && plantilla && (
           <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '10px 14px 20px' }}>
-            <VistaPlantillaTechPack lectura={plantilla.lectura} medicion={plantilla.medicion} urlDe={(id) => (id == null ? null : plantilla.urls.get(id) || null)} />
+            <VistaPlantillaTechPack lectura={plantilla.lectura} medicion={plantilla.medicion} urlDe={(id) => (id == null ? null : plantilla.urls.get(id) || null)} pantallaInicial={pantalla} />
           </div>
         )}
 

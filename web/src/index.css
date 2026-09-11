@@ -840,7 +840,11 @@ table th, table td {
 .tpv-sobrantes summary { cursor: pointer; font-weight: 600; color: #b45309; }
 
 .tp-pantallas { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
-.tp-pantalla { border: 1px solid var(--borde); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; border-left-width: 4px; }
+.tp-pantalla { border: 1px solid var(--borde); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; border-left-width: 4px; background: var(--superficie); text-align: left; font: inherit; color: inherit; cursor: pointer; position: relative; }
+.tp-pantalla:hover { background: #eff6ff; border-color: #93c5fd; }
+.tp-pantalla-ir { position: absolute; right: 10px; top: 8px; font-size: 12px; color: #1e40af; font-weight: 600; }
 .tp-pantalla.ok { border-left-color: #16a34a; }
 .tp-pantalla.falta { border-left-color: #dc2626; }
-.tp-archivo-acciones { border-top: 1px solid var(--borde); padding-top: 12px; }
+.tp-archivo-acciones { border: 2px solid #1e40af; border-radius: 10px; background: #eff6ff; padding: 12px 14px; }
+.tp-archivo-acciones > span { font-size: 15px; color: #1e40af; }
+.tp-quitar-fuerte { color: #b91c1c; border-color: #b91c1c; }

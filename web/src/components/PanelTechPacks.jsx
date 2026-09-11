@@ -332,7 +332,7 @@ export default function PanelTechPacks() {
   const avanceDe = (b) => avanceDelTechPack(b?.apuntaA ? techPackPorId.get(b.apuntaA) || b : b)
   // Un alias de folio se edita en su codigo real (el alias no tiene datos propios).
   const editarTechPack = (b) => setEditando((b.apuntaA && techPackPorId.get(b.apuntaA)) || b)
-  const verTechPack = (b) => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })
+  const verTechPack = (b, pantalla = 1) => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack, pantalla })
   const [cruce, setCruce] = useState(null) // null | 'cargando' | [...]
   // codigo -> [{ot, oc}] segun el plan vigente; null mientras carga, Map vacio si no hay plan
   const [enPlan, setEnPlan] = useState(null)
@@ -1233,7 +1233,7 @@ export default function PanelTechPacks() {
           onGuardado={(msg) => { setEditando(null); setAviso(msg) }}
           puedeSubir={puedeSubirTechPacks}
           ocupado={trabajando}
-          onVer={(b) => { setEditando(null); verTechPack(b) }}
+          onVer={(b, pantalla) => { setEditando(null); verTechPack(b, pantalla) }}
           onReemplazar={async (b, f) => { await onReemplazar(b, f); setEditando(null) }}
           onQuitar={async (b) => { setEditando(null); await onQuitar(b, 'tp') }}
 
@@ -1244,6 +1244,7 @@ export default function PanelTechPacks() {
       {visor && (
         <VisorTechPack
           techPack={visor.manifiesto}
+          pantalla={visor.pantalla || 1}
           avance={visor.tipo === 'tp' ? avanceDe(techPackPorId.get(visor.codigo)) : null}
           cargar={() => descargarDeBiblioteca({ codigo: visor.codigo, tipo: visor.tipo, manifiesto: visor.manifiesto })}
           onCerrar={() => setVisor(null)}
@@ -1354,21 +1355,21 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir =
           <div className="tp-campo">
             <span>Las seis pantallas del tech pack</span>
             <div className="tp-pantallas">
-              {[['pedido', '1 Pedido'], ['ruta', '2 Códigos y ruta'], ['etiquetas', '3 Avíos'], ['individual', '4 Empaque individual'], ['bolsa', '5 Packs en bolsa'], ['caja', '6 Caja']].map(([id, titulo]) => {
+              {[['pedido', '1 Pedido'], ['ruta', '2 Códigos y ruta'], ['etiquetas', '3 Avíos'], ['individual', '4 Empaque individual'], ['bolsa', '5 Packs en bolsa'], ['caja', '6 Caja']].map(([id, titulo], i) => {
                 const detalle = item.medicion?.detalle?.[id]
                 const faltaV1 = !item.medicion?.detalle && (item.medicion?.faltan || []).includes(id)
                 const falta = detalle?.length ? detalle : faltaV1 ? ['no está'] : []
                 return (
-                  <div key={id} className={`tp-pantalla ${falta.length ? 'falta' : 'ok'}`}>
+                  <button type="button" key={id} className={`tp-pantalla ${falta.length ? 'falta' : 'ok'}`} onClick={() => onVer?.(item, i + 1)} title="Abrir esta pantalla del tech pack">
                     <strong>{titulo}</strong>
                     <span className="texto-suave" style={{ fontSize: 12 }}>{falta.length ? `falta: ${falta.join(', ')}` : 'completo'}</span>
-                  </div>
+                    <span className="tp-pantalla-ir">abrir ›</span>
+                  </button>
                 )
               })}
             </div>
             <small className="texto-suave">
-              Lo que falta en una pantalla se corrige en el Excel (ábrelo con Ver, edítalo y súbelo con Reemplazar, abajo).
-              {onVer && <> <button type="button" className="tp-desplegar" onClick={() => onVer(item)}>Ver el tech pack</button></>}
+              Pica una pantalla para verla. Lo que le falte se corrige en el Excel y se sube con "Reemplazar por otro archivo", abajo.
             </small>
           </div>
         )}
@@ -1497,16 +1498,16 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir =
 
         {puedeSubir && item.techPack?.totalChunks && (
           <div className="tp-campo tp-archivo-acciones">
-            <span>El archivo</span>
+            <span>El archivo del tech pack</span>
             <small className="texto-suave">
               {item.techPack.nombre} · v{item.techPack.version || 1} · {mb(item.techPack.tamano)}
             </small>
             <div className="tp-fila" style={{ gap: 10 }}>
-              <label className="btn-secundario tp-btn-chico" style={{ cursor: ocupado ? 'default' : 'pointer' }} title="Sube otro archivo en lugar de este (queda como version nueva)">
+              <label className="btn-primario" style={{ cursor: ocupado ? 'default' : 'pointer' }} title="Sube otro archivo en lugar de este (queda como version nueva)">
                 Reemplazar por otro archivo
                 <input type="file" accept=".pdf,.xlsx" style={{ display: 'none' }} disabled={ocupado || guardando} onChange={(e) => { onReemplazar?.(item, e.target.files?.[0]); e.target.value = '' }} />
               </label>
-              <button type="button" className="tp-quitar" disabled={ocupado || guardando} onClick={() => onQuitar?.(item)} title="Quita el archivo; el codigo se queda sin tech pack">
+              <button type="button" className="btn-secundario tp-quitar-fuerte" disabled={ocupado || guardando} onClick={() => onQuitar?.(item)} title="Quita el archivo; el codigo se queda sin tech pack">
                 Quitar el tech pack
               </button>
             </div>

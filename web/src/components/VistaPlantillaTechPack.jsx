@@ -41,11 +41,11 @@ function Fotos({ urls, alAbrir, vacio, grandes = false }) {
   )
 }
 
-export default function VistaPlantillaTechPack({ lectura, medicion, urlDe }) {
+export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, pantallaInicial = 1 }) {
   const [grande, setGrande] = useState(null)
   // Una pantalla por apartado (Roberto, 11-sep: "si me gustarian las diferentes
   // pantallas de uno, dos, tres, cuatro, cinco y seis").
-  const [activa, setActiva] = useState(1)
+  const [activa, setActiva] = useState(Number(pantallaInicial) >= 1 && Number(pantallaInicial) <= 6 ? Number(pantallaInicial) : 1)
   const PESTANAS = [[1, 'Pedido', 'pedido'], [2, 'Códigos y ruta', 'ruta'], [3, 'Avíos', 'etiquetas'], [4, 'Empaque individual', 'individual'], [5, 'Packs en bolsa', 'bolsa'], [6, 'Caja', 'caja']]
   const c = lectura.campos || {}
   const t = lectura.tablas || {}
