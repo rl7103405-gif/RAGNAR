@@ -39,11 +39,12 @@ export const NOVEDADES = [
     id: '2026-09-11-03',
     fecha: '2026-09-11',
     tipo: 'mejorado',
-    titulo: 'Tech packs: Editar junto a cada uno',
+    titulo: 'Tech packs: Editar junto a cada uno, y los renglones parejos',
     detalle:
-      'En las ordenes de compra, junto a la calificacion de cada tech pack, aparece el boton Editar para decir a que '
-      + 'OC u OT pertenece y marcar que le falta. Solo lo ven y lo pueden usar Lety y su equipo de desarrollo; los '
-      + 'demas lo ven pero no lo pueden cambiar.'
+      'Junto a la calificacion de cada tech pack aparece el boton Editar para decir a que OC u OT pertenece y marcar '
+      + 'que le falta. Solo lo ven y lo pueden usar Lety y su equipo de desarrollo. Ademas cada renglon va en el '
+      + 'mismo orden (Editar, % hecho, Ver) y alineado; los PDF dicen "sin medir" en vez de quedar en blanco, y los '
+      + 'nombres largos se recortan con puntos suspensivos (el completo sale al pasar el mouse).'
   },
   {
     id: '2026-09-11-02',

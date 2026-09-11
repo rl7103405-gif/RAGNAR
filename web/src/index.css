@@ -754,3 +754,42 @@ table th, table td {
 }
 
 .tp-cuadro[open] > summary::before { content: '▾'; }
+
+/* Renglon de un tech pack (Roberto, 11-sep: "darle simetria... algunos con el
+   nombre muy largo se barren hasta abajo"). Dos columnas: a la izquierda el
+   codigo y sus datos, recortados con "..." (el texto completo sale al pasar el
+   mouse); a la derecha las acciones, siempre en el mismo orden y con anchos
+   fijos para que queden alineadas renglon con renglon. */
+.tp-diseno {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 12px;
+}
+.tp-diseno-info { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.tp-diseno-info .tp-codigo { flex-shrink: 0; }
+.tp-meta {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--texto-suave);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tp-acciones-lista { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.tp-acciones { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.tp-acc-pill { width: 104px; margin: 0; text-align: center; box-sizing: border-box; }
+.tp-acc-ver { width: 150px; white-space: nowrap; }
+.tp-acc-falta { width: 262px; margin: 0; text-align: center; box-sizing: border-box; }
+.tp-pill-neutro { background: #f1f5f9; color: #64748b; font-weight: 600; }
+
+@media (max-width: 560px) {
+  .tp-diseno { grid-template-columns: 1fr; }
+  .tp-diseno-info { flex-wrap: wrap; }
+  .tp-meta { white-space: normal; }
+  .tp-acciones-lista { align-items: stretch; }
+  .tp-acciones { justify-content: flex-start; flex-wrap: wrap; }
+  .tp-acc-ver { width: auto; flex: 1; }
+  .tp-acc-falta { width: 100%; }
+}

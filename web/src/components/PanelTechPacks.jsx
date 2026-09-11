@@ -151,19 +151,52 @@ function Barra({ porcentaje }) {
 
 // "73% hecho" al lado de cada tech pack (Roberto, 11-sep: "que diga setenta y
 // tres por ciento hecho... pon el porcentaje o la calificacion al lado"). Al
-// pasar el mouse dice que le falta.
+// pasar el mouse dice que le falta. Sin medicion (los PDF) dice "sin medir" en
+// gris: un hueco en blanco se leia como un error.
 function PorcentajeHecho({ avance }) {
-  if (!avance) return null
+  if (!avance) {
+    return (
+      <span className="tp-pill tp-acc-pill tp-pill-neutro" title="Todavia no se mide (los PDF no tienen hojas). Lety lo puede calificar desde Editar.">
+        sin medir
+      </span>
+    )
+  }
   const p = avance.porcentaje
   const tono = p >= 100 ? { bg: '#dcfce7', fg: '#166534' } : p >= 60 ? { bg: '#fef3c7', fg: '#92400e' } : { bg: '#fee2e2', fg: '#991b1b' }
   return (
     <span
-      className="tp-pill"
-      style={{ background: tono.bg, color: tono.fg, fontWeight: 700, whiteSpace: 'nowrap' }}
+      className="tp-pill tp-acc-pill"
+      style={{ background: tono.bg, color: tono.fg, fontWeight: 700 }}
       title={avance.faltan.length ? `Falta: ${avance.faltan.join(', ')}` : 'Completo contra el estandar de Lety'}
     >
       {p}% hecho
     </span>
+  )
+}
+
+// Las acciones de UN tech pack, en el MISMO orden y del MISMO ancho en todos
+// los cuadros: Editar · % hecho · Ver (Roberto, 11-sep: "algunos empiezan con
+// hecho, despues ver y despues editar, esta mal... darle simetria").
+function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tech pack', titulo, avance, puedeEditar, onEditar, onVer }) {
+  const tiene = Boolean(b.techPack?.totalChunks)
+  return (
+    <div className="tp-acciones">
+      {puedeEditar && (
+        <button className="btn-primario tp-btn-chico" onClick={() => onEditar(b)}>
+          Editar
+        </button>
+      )}
+      {tiene ? (
+        <>
+          <PorcentajeHecho avance={avance} />
+          <button className="btn-secundario tp-btn-chico tp-acc-ver" title={titulo} onClick={() => onVer(b)}>
+            {etiqueta}
+          </button>
+        </>
+      ) : (
+        <span className="tp-pill tp-pill-falta tp-acc-falta">{faltaTexto}</span>
+      )}
+    </div>
   )
 }
 
@@ -189,48 +222,46 @@ function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe, puedeEditar, onEdit
             <div className="tp-disenos">
               {t.grupos.map((g) => (
                 <div key={g.base} className="tp-diseno">
-                  <div>
+                  <div className="tp-diseno-info">
                     <span className="tp-codigo">{g.base}</span>
                     {g.variantes.length > 1 || g.variantes[0].codigo !== g.base ? (
-                      <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>
+                      <span className="tp-meta">
                         {g.variantes.length} {g.variantes.length === 1 ? 'talla' : 'tallas'}
                       </span>
                     ) : null}
                     {g.variantes.length === 1 && (resumen.foliosDe.get(g.variantes[0].codigo) || []).length > 0 && (
-                      <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>folios {(resumen.foliosDe.get(g.variantes[0].codigo) || []).join(', ')}</span>
+                      <span className="tp-meta" title={`folios ${(resumen.foliosDe.get(g.variantes[0].codigo) || []).join(', ')}`}>
+                        folios {(resumen.foliosDe.get(g.variantes[0].codigo) || []).join(', ')}
+                      </span>
                     )}
                   </div>
-                  <div className="tp-fila">
+                  {/* Una talla por renglon, apiladas y alineadas a la derecha. */}
+                  <div className="tp-acciones-lista">
                     {g.variantes.map((b) => {
                       const talla = b.codigo !== g.base ? b.codigo.slice(g.base.length + 1) : ''
-                      return b.techPack?.totalChunks ? (
-                        <span key={b.id} className="tp-fila" style={{ gap: 6 }}>
-                          {/* Editar junto a su calificacion (Roberto, 11-sep), solo
-                              para Lety y su equipo. */}
-                          {puedeEditar && (
-                            <button className="btn-primario tp-btn-chico" onClick={() => onEditar(b)}>
-                              Editar
-                            </button>
-                          )}
-                          <PorcentajeHecho avance={avanceDe(b)} />
-                          <button
-                            className="btn-secundario tp-btn-chico"
-                            title={`${b.techPack.formato?.toUpperCase()} · ${mb(b.techPack.tamano)} · v${b.techPack.version || 1}${(resumen.foliosDe.get(b.codigo) || []).length ? ' · folios ' + resumen.foliosDe.get(b.codigo).join(', ') : ''}`}
-                            onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
-                          >
-                            {talla ? `Ver talla ${talla}` : 'Ver tech pack'}
-                          </button>
-                        </span>
-                      ) : (
-                        <span key={b.id} className="tp-pill tp-pill-falta">{talla ? `talla ${talla} sin tech pack` : 'sin tech pack'}</span>
+                      return (
+                        <AccionesTechPack
+                          key={b.id}
+                          b={b}
+                          etiqueta={talla ? `Ver talla ${talla}` : 'Ver tech pack'}
+                          faltaTexto={talla ? `talla ${talla} sin tech pack` : 'sin tech pack'}
+                          titulo={b.techPack ? `${b.techPack.formato?.toUpperCase()} · ${mb(b.techPack.tamano)} · v${b.techPack.version || 1}${(resumen.foliosDe.get(b.codigo) || []).length ? ' · folios ' + resumen.foliosDe.get(b.codigo).join(', ') : ''}` : undefined}
+                          avance={avanceDe(b)}
+                          puedeEditar={puedeEditar}
+                          onEditar={onEditar}
+                          onVer={(x) => setVisor({ codigo: x.codigo, tipo: 'tp', manifiesto: x.techPack })}
+                        />
                       )
                     })}
-                    {g.variantes.some((b) => b.ftt?.totalChunks) &&
-                      g.variantes.filter((b) => b.ftt?.totalChunks).map((b) => (
-                        <button key={b.id + '-ftt'} className="btn-secundario tp-btn-chico" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
-                          Ver FTT{b.codigo !== g.base ? ` ${b.codigo.slice(g.base.length + 1)}` : ''}
-                        </button>
-                      ))}
+                    {g.variantes.some((b) => b.ftt?.totalChunks) && (
+                      <div className="tp-acciones">
+                        {g.variantes.filter((b) => b.ftt?.totalChunks).map((b) => (
+                          <button key={b.id + '-ftt'} className="btn-secundario tp-btn-chico tp-acc-ver" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
+                            Ver FTT{b.codigo !== g.base ? ` ${b.codigo.slice(g.base.length + 1)}` : ''}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -265,6 +296,9 @@ export default function PanelTechPacks() {
     return m
   }, [biblioteca])
   const avanceDe = (b) => avanceDelTechPack(b?.apuntaA ? techPackPorId.get(b.apuntaA) || b : b)
+  // Un alias de folio se edita en su codigo real (el alias no tiene datos propios).
+  const editarTechPack = (b) => setEditando((b.apuntaA && techPackPorId.get(b.apuntaA)) || b)
+  const verTechPack = (b) => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })
   const [cruce, setCruce] = useState(null) // null | 'cargando' | [...]
   // codigo -> [{ot, oc}] segun el plan vigente; null mientras carga, Map vacio si no hay plan
   const [enPlan, setEnPlan] = useState(null)
@@ -669,38 +703,20 @@ export default function PanelTechPacks() {
             <div className="tp-resultados">
               {visibles.slice(0, 30).map((b) => (
                 <div key={b.id} className="tp-diseno">
-                  <div>
+                  <div className="tp-diseno-info">
                     <span className="tp-codigo">{b.codigo}</span>
-                    <span style={{ marginLeft: 6 }}><NombreDelModelo item={b} corto /></span>
-                    {b.descripcion ? (
-                      <div className="texto-suave" style={{ fontSize: 12 }}>{b.descripcion}</div>
-                    ) : null}
+                    <span className="tp-meta"><NombreDelModelo item={b} corto /></span>
+                    {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
                   </div>
-                  <div className="tp-fila">
-                    <PorcentajeHecho avance={avanceDe(b)} />
-                    {b.techPack?.totalChunks ? (
-                      <button
-                        className="btn-secundario tp-btn-chico"
-                        onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
-                      >
-                        Ver tech pack
-                      </button>
-                    ) : (
-                      <span className="tp-pill tp-pill-falta">sin tech pack</span>
-                    )}
+                  <div className="tp-acciones-lista">
+                    <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} />
                     {b.ftt?.totalChunks ? (
-                      <button
-                        className="btn-secundario tp-btn-chico"
-                        onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}
-                      >
-                        Ver FTT
-                      </button>
+                      <div className="tp-acciones">
+                        <button className="btn-secundario tp-btn-chico tp-acc-ver" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
+                          Ver FTT
+                        </button>
+                      </div>
                     ) : null}
-                    {puedeEditarTechPacks && !b.apuntaA && (
-                      <button className="btn-secundario tp-btn-chico" onClick={() => setEditando(b)}>
-                        Editar
-                      </button>
-                    )}
                   </div>
                 </div>
               ))}
@@ -862,7 +878,7 @@ export default function PanelTechPacks() {
             ) : (
               <div className="tp-arbol">
                 {arbol.conOc.map((o) => (
-                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={(b) => setEditando((b.apuntaA && techPackPorId.get(b.apuntaA)) || b)} />
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} />
                 ))}
               </div>
             )}
@@ -883,7 +899,7 @@ export default function PanelTechPacks() {
             ) : (
               <div className="tp-arbol">
                 {arbol.sinOc.map((o) => (
-                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={(b) => setEditando((b.apuntaA && techPackPorId.get(b.apuntaA)) || b)} />
+                  <OrdenDeCompra key={o.oc} o={o} resumen={resumen} mb={mb} setVisor={setVisor} avanceDe={avanceDe} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} />
                 ))}
               </div>
             )}
@@ -906,32 +922,14 @@ export default function PanelTechPacks() {
               <div className="tp-disenos">
                 {arbol.sinOrden.map((b) => (
                   <div key={b.id} className="tp-diseno">
-                    <div>
+                    <div className="tp-diseno-info">
                       <span className="tp-codigo">{b.codigo}</span>
-                      {b.descripcion ? (
-                        <span className="texto-suave" style={{ fontSize: 12, marginLeft: 8 }}>{b.descripcion}</span>
-                      ) : null}
+                      {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
                     </div>
-                    <div className="tp-fila">
-                      <PorcentajeHecho avance={avanceDe(b)} />
-                      {b.techPack?.totalChunks ? (
-                        <button
-                          className="btn-secundario tp-btn-chico"
-                          onClick={() => setVisor({ codigo: b.codigo, tipo: 'tp', manifiesto: b.techPack })}
-                        >
-                          Ver tech pack
-                        </button>
-                      ) : (
-                        <span className="tp-pill tp-pill-falta">sin tech pack</span>
-                      )}
-                      {/* Editar AQUI mismo (2026-09-11): este cuadro es donde Lety
-                          liga cada tech pack a sus codigos u ordenes, y antes tenia
-                          que ir a la lista completa a buscarlo uno por uno. */}
-                      {puedeEditarTechPacks && (
-                        <button className="btn-primario tp-btn-chico" onClick={() => setEditando(b)}>
-                          Editar
-                        </button>
-                      )}
+                    {/* Editar AQUI mismo (2026-09-11): este cuadro es donde Lety
+                        liga cada tech pack a sus codigos u ordenes. */}
+                    <div className="tp-acciones-lista">
+                      <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} />
                     </div>
                   </div>
                 ))}
@@ -1420,10 +1418,10 @@ function Documento({ item, tipo, avance, onVer, onQuitar, puedeEditar, ocupado }
   }
   return (
     <div className="tp-doc">
+      {tipo === 'tp' && <PorcentajeHecho avance={avance} />}
       <button className="btn-secundario tp-btn-chico" onClick={() => onVer({ codigo: item.codigo, tipo, manifiesto: m })}>
         Ver
       </button>
-      {tipo === 'tp' && <PorcentajeHecho avance={avance} />}
       <span className="texto-suave" style={{ fontSize: 12 }}>
         v{m.version || 1} · {m.formato?.toUpperCase()} · {mb(m.tamano)} · {fecha(m.subidoEn)}
       </span>
