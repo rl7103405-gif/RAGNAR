@@ -884,6 +884,14 @@ export default function PanelTechPacks() {
                       ) : (
                         <span className="tp-pill tp-pill-falta">sin tech pack</span>
                       )}
+                      {/* Editar AQUI mismo (2026-09-11): este cuadro es donde Lety
+                          liga cada tech pack a sus codigos u ordenes, y antes tenia
+                          que ir a la lista completa a buscarlo uno por uno. */}
+                      {puedeSubirTechPacks && (
+                        <button className="btn-primario tp-btn-chico" onClick={() => setEditando(b)}>
+                          Editar
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
