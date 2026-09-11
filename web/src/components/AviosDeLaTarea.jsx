@@ -14,6 +14,7 @@ import { descargarTechPack, ErrorTareaEnsamble } from '../utils/tareasEnsamble'
 import { abrirLibro, ErrorLibreriaExcel } from '../utils/excelJs'
 import { leerSaldosConUnidad } from '../utils/inventarioAvios'
 import { aviosDelTechPack, hojasDeLibro, necesidadDeAvios } from '../utils/aviosTechPack'
+import { aviosDesdePlantilla, esPlantilla, leerPlantilla } from '../utils/leerPlantillaTechPack'
 
 const num = (n) => (n == null ? '—' : Number(n).toLocaleString('es-MX'))
 
@@ -30,7 +31,8 @@ export default function AviosDeLaTarea({ maquilaId, maquilaNombre, tareaId, tare
         if (!vivo) return
         setMensaje('Leyendo la hoja de etiquetas...')
         const libro = await abrirLibro(buffer)
-        const lectura = aviosDelTechPack(hojasDeLibro(libro))
+        // Plantilla TP-Quini: se lee por nombres (hoja 3 AVIOS); formato viejo: por etiquetas.
+        const lectura = esPlantilla(libro) ? aviosDesdePlantilla(leerPlantilla(libro)) : aviosDelTechPack(hojasDeLibro(libro))
         if (!vivo) return
         setMensaje('Leyendo lo que tiene la maquila...')
         const claves = [...new Set(lectura.avios.map((a) => a.clave))]
@@ -72,7 +74,7 @@ export default function AviosDeLaTarea({ maquilaId, maquilaNombre, tareaId, tare
         {estado === 'listo' && r && (
           <>
             <p className="texto-suave" style={{ margin: 0, fontSize: 13 }}>
-              Sale de la columna USA de la hoja ETIQUETAS del tech pack (cuánto lleva cada pack), multiplicada por los
+              Sale de la columna USA (hoja 3 AVIOS, o ETIQUETAS en el formato anterior) del tech pack (cuánto lleva cada pack), multiplicada por los
               packs de la tarea{r.packs != null ? ` (${num(r.packs)} packs)` : ''}, y se compara con el inventario de
               avíos que la maquila tiene registrado hoy en RAGNAR. Es una foto de este momento: no descuenta lo que
               otras tareas abiertas de la misma maquila también van a consumir.

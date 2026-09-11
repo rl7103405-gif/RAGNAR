@@ -22,6 +22,7 @@ import { initializeApp, cert } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import ExcelJS from 'exceljs'
 import { RUBROS_TECH_PACK } from '../src/utils/completadoTechPack.js'
+import { esPlantilla, leerPlantilla, medirPlantilla } from '../src/utils/leerPlantillaTechPack.js'
 
 initializeApp({ credential: cert(JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))) })
 const db = getFirestore()
@@ -97,13 +98,17 @@ for (const d of conArchivo) {
   try {
     const buf = await armarArchivo(codigo, dato.techPack)
     if (!buf) { console.log(`  ${codigo.padEnd(24)} le faltan pedazos, no se mide`); fallidos++; continue }
-    const hojas = await hojasDelExcel(buf)
-    const m = medir(hojas)
+    // Plantilla TP-Quini: calificacion v2 por datos (leerPlantillaTechPack.js).
+    const libroP = new ExcelJS.Workbook()
+    await libroP.xlsx.load(buf)
+    const esP = esPlantilla(libroP)
+    const hojas = esP ? libroP.worksheets.map((h) => ({ nombre: h.name, imagenes: [] })) : await hojasDelExcel(buf)
+    const m = esP ? medirPlantilla(leerPlantilla(libroP)) : medir(hojas)
     reparto[m.porcentaje] = (reparto[m.porcentaje] || 0) + 1
     console.log(`  ${codigo.padEnd(24)} ${String(m.porcentaje).padStart(3)}%  (${m.calificacion}/10)  ${m.faltan.length ? 'falta: ' + m.faltan.join(', ') : 'completo'}`)
     if (EJECUTAR) {
       await d.ref.update({
-        medicion: { ...m, hojas: hojas.length, medidoEn: new Date(), version: '2026-09-v1' }
+        medicion: { ...m, hojas: hojas.length, medidoEn: new Date(), version: esP ? '2026-09-v2-plantilla' : '2026-09-v1' }
       })
     }
     medidos++
