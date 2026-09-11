@@ -822,7 +822,9 @@ export default function PanelTechPacks() {
                 <button className="btn-secundario" onClick={onBuscarOt} disabled={trabajando || codigosDeOt === 'buscando'}>
                   {codigosDeOt === 'buscando' ? 'Buscando...' : 'Ver sus codigos'}
                 </button>
-                {puedeEditarTechPacks && (
+                {/* Descargar la plantilla no escribe nada: el admin (Roberto)
+                    tambien puede, para probarla. Editar sigue siendo solo de desarrollo. */}
+                {puedeSubirTechPacks && (
                   <button
                     className="btn-primario"
                     onClick={onNuevaPlantilla}
