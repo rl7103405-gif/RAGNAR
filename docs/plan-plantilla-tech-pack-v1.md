@@ -55,7 +55,7 @@ Roberto y Lety: artifact "Plantilla TP-Quini".
 ## 3. Las hojas
 
 ### 1 PEDIDO
-| Campo | Nombre | Tipo |
+| Campo | Nombre | Tipo (banda: etiqueta en C/F/I, dato en D:E, G:H, J) |
 |---|---|---|
 | Cliente | `TP_CLIENTE` | texto (prellenado del destino del plan) |
 | Marca | `TP_MARCA` | texto |
@@ -93,7 +93,7 @@ Ocultarla evita accidentes, no es seguridad.
 
 ## 4. Calificación v2 (escala aparte de la v1)
 
-Siete rubros con el mismo peso, como la v1 (**[POR CONFIRMAR]** si Roberto quiere pesos).
+Siete rubros con el mismo peso (confirmado por Roberto el 11-sep).
 Cada rubro se cumple solo si pasan TODAS sus comprobaciones:
 
 | Rubro | Comprobaciones |
@@ -153,7 +153,7 @@ mezclan las dos escalas en un mismo promedio.
 | F3 | Validador puro + calificación v2 + estados; se corre al subir y en `medir_tech_packs.mjs` (v2) | `web/src/utils/validarTechPack.js`, `techPacks.js`, `scripts/medir_tech_packs.mjs` |
 | F4 | Reglas: `techPackDocValido` acepta `validacion` y `estado`; `aprobado` solo rol `desarrollo` | `firestore.rules` → **auditoría + arnés `probar_reglas_diseno.mjs` antes del deploy** (tope de 1,000 expresiones) |
 | F5 | `aviosTechPack.js` lee la hoja 3 por nombres cuando el archivo es v1 | `aviosTechPack.js` |
-| F6 (opcional) | Borrador migrado para los 120 | script + pantalla de revisión |
+| F6 | Borrador migrado para los 120 (Roberto: se migran todos) | script + pantalla de revisión |
 
 **Riesgos que F3/F4 deben cubrir:** la calificación la escribe el cliente al subir, así
 que es informativa; la verdad la vuelve a medir el script con Admin SDK. Límites de
@@ -164,12 +164,12 @@ borrar un nombre = "plantilla dañada"; imagen en banda ≠ foto; fórmula sin r
 no rompe nada), y a mano: abrir, llenar, guardar y resubir en Excel Windows, Excel Mac
 y LibreOffice.
 
-## 9. Preguntas para Roberto y Lety
+## 9. Decisiones de Roberto (2026-09-11, misma tarde)
 
-- Logo: ¿zona fija arriba a la izquierda (propuesto) o fuera por completo?
-- ¿Pesos distintos por rubro, o los siete iguales?
-- Listas cerradas de tejido, sistema de talla y procesos: ¿quién las mantiene?
-- ¿Se exige el formato nuevo desde ya para tech packs nuevos, o convive un mes?
+- Logo: **en su zona fija** `A1:B3`.
+- Los siete rubros **pesan igual**.
+- Las listas de tejido, sistema de talla y procesos las mantiene **Lety**.
+- El formato **se exige desde ya** y **se migran los 120** existentes ("sé que vamos a tardar, pero cambiar todos"). F6 deja de ser opcional.
 
 ## Debate con Codex (una ronda)
 

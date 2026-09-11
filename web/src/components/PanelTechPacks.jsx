@@ -18,7 +18,10 @@
 // habilitan los botones de subir. Asi no se sube nada "al aire".
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { renglonesDeLaOt, versionActiva } from '../utils/planMaestro'
+import { destinoDeOt, renglonesDeLaOt, versionActiva } from '../utils/planMaestro'
+import { datosDeCodigos } from '../utils/datosDelCatalogo'
+import { paresPorPack } from '../utils/entregasPL'
+import { nombreDeArchivo } from '../utils/plantillaTechPack'
 import { normalizarOt } from '../utils/planMaestroNucleo'
 import { codigosDeOtAsignada } from '../utils/tareasDiseno'
 import { formatoDeArchivo, MAX_TECHPACK_BYTES } from '../utils/tareasEnsamble'
@@ -342,6 +345,72 @@ export default function PanelTechPacks() {
   const reportar = (err) => {
     console.error('[TechPacks]', err)
     setError(err instanceof ErrorBiblioteca ? err.message : 'Fallo: ' + (err.message || err))
+  }
+
+  // NUEVO TECH PACK EN LA PLANTILLA TP-QUINI (Roberto, 11-sep: "cuando se
+  // crea un nuevo tech pack se genera con ese formato y todo sale igual").
+  // Se arma un Excel NUEVO prellenado con lo que sabe el plan y se descarga;
+  // Lety lo completa en Excel y lo sube como siempre.
+  const [generando, setGenerando] = useState(false)
+  const onNuevaPlantilla = async () => {
+    const limpia = normalizarOt(ot)
+    setError('')
+    setAviso('')
+    if (!limpia) {
+      setError('Escribe la orden de trabajo para prellenar la plantilla (o deja el modelo en el codigo).')
+      return
+    }
+    setGenerando(true)
+    try {
+      const [renglonesPlan, destino] = await Promise.all([renglonesDeLaOt(limpia), destinoDeOt(limpia)])
+      const catalogo = await datosDeCodigos(renglonesPlan.map((r) => r.codigo))
+      const renglones = renglonesPlan.map((r) => {
+        const cat = catalogo.get(r.codigo) || {}
+        return { talla: cat.talla || '', ot: limpia, codigo: r.codigo, descripcion: r.descripcion || cat.descripcion || '', docenas: r.cantidad }
+      })
+      // Un tech pack es de UN modelo con UN pack y UNA OC. Si la OT trae mas de
+      // uno, no se elige por su cuenta: se deja vacio y se avisa (Codex, 11-sep).
+      const unicos = (lista) => [...new Set(lista.filter(Boolean))]
+      const modelos = unicos(renglonesPlan.map((r) => catalogo.get(r.codigo)?.modelo))
+      const modelo = codigo || (modelos.length === 1 ? modelos[0] : '')
+      const packsVistos = unicos(renglones.map((r) => paresPorPack(r.descripcion)))
+      const pares = packsVistos.length === 1 ? packsVistos[0] : undefined
+      const ocs = unicos(renglonesPlan.map((r) => r.oc))
+      const avisosOt = []
+      if (modelos.length > 1) avisosOt.push(`la OT trae ${modelos.length} modelos (${modelos.join(', ')}): un tech pack es de un solo modelo, revisa`)
+      if (packsVistos.length > 1) avisosOt.push(`las descripciones dicen packs distintos (${packsVistos.join(', ')}): el pack se dejo vacio`)
+      if (ocs.length > 1) avisosOt.push(`la OT aparece con ${ocs.length} ordenes de compra (${ocs.join(', ')}): la OC se dejo vacia`)
+      const { cargarWorkbook } = await import('../utils/excelJs.js')
+      const { generarPlantillaTechPack, descargarLibro } = await import('../utils/generarPlantillaTechPack.js')
+      const { LOGO_QUINI_PNG_BASE64 } = await import('../assets/logoQuini.js')
+      const Workbook = await cargarWorkbook()
+      const libro = generarPlantillaTechPack({
+        Workbook,
+        logoBase64: LOGO_QUINI_PNG_BASE64,
+        datos: {
+          ot: limpia,
+          oc: ocs.length === 1 ? ocs[0] : '',
+          cliente: destino || renglonesPlan.find((r) => r.destino)?.destino || '',
+          modelo,
+          paresPorPack: pares,
+          elaboro: perfil?.nombre || perfil?.nombreCompleto || '',
+          renglones,
+          generadoPorUid: authUser?.uid || '',
+          generadoPorNombre: perfil?.nombre || perfil?.nombreCompleto || ''
+        }
+      })
+      await descargarLibro(libro, nombreDeArchivo(modelo || `OT ${limpia}`))
+      setAviso(
+        renglones.length
+          ? `Plantilla de la OT ${limpia} descargada con ${renglones.length} ${renglones.length === 1 ? 'codigo' : 'codigos'} del plan${pares ? ` y pack de ${pares}` : ''}. Completala en Excel y subela aqui mismo.${avisosOt.length ? ' OJO: ' + avisosOt.join('; ') + '.' : ''}`
+          : `Plantilla descargada. La OT ${limpia} no esta en el plan: la tabla del pedido va vacia, llenala en Excel.`
+      )
+    } catch (err) {
+      console.error('[TechPacks] plantilla:', err)
+      setError('No se pudo armar la plantilla: ' + (err?.message || String(err)))
+    } finally {
+      setGenerando(false)
+    }
   }
 
   const onBuscarOt = async () => {
@@ -753,6 +822,16 @@ export default function PanelTechPacks() {
                 <button className="btn-secundario" onClick={onBuscarOt} disabled={trabajando || codigosDeOt === 'buscando'}>
                   {codigosDeOt === 'buscando' ? 'Buscando...' : 'Ver sus codigos'}
                 </button>
+                {puedeEditarTechPacks && (
+                  <button
+                    className="btn-primario"
+                    onClick={onNuevaPlantilla}
+                    disabled={trabajando || generando}
+                    title="Descarga un Excel nuevo en el formato TP-Quini, prellenado con lo que el plan sabe de esta OT"
+                  >
+                    {generando ? 'Armando...' : 'Nuevo tech pack (plantilla)'}
+                  </button>
+                )}
                 <span className="texto-suave">o</span>
                 <input
                   className="tp-input"

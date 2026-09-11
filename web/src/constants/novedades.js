@@ -36,6 +36,17 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-11-05',
+    fecha: '2026-09-11',
+    tipo: 'nuevo',
+    titulo: 'Tech packs: plantilla unica TP-Quini',
+    detalle:
+      'En Tech packs, junto a "Ver sus codigos", el boton "Nuevo tech pack (plantilla)" descarga un Excel nuevo en el '
+      + 'formato unico de Quini, ya prellenado con lo que el plan sabe de esa OT (cliente, OC, codigos, docenas, pares por '
+      + 'pack). Siempre las mismas 6 hojas en el mismo orden, con listas desplegables y zonas marcadas para las fotos. '
+      + 'Se completa en Excel y se sube aqui mismo. Solo lo ve el equipo de desarrollo.'
+  },
+  {
     id: '2026-09-11-04',
     fecha: '2026-09-11',
     tipo: 'nuevo',
