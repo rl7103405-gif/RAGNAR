@@ -42,6 +42,7 @@ import {
 } from '../utils/techPacks'
 import { avanceDelTechPack, RUBROS_TECH_PACK } from '../utils/completadoTechPack'
 import VisorTechPack from './VisorTechPack'
+import EditorPlantillaTechPack from './EditorPlantillaTechPack'
 
 const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—')
 // "WKD225T401-4-6" -> "WKD225T401": el plan trae el codigo base y una OT por
@@ -315,6 +316,8 @@ export default function PanelTechPacks() {
   const [trabajando, setTrabajando] = useState(false)
   // El tech pack que se esta editando (null = el modal cerrado).
   const [editando, setEditando] = useState(null)
+  // El editor del contenido (plantilla): datos, tablas, avios y fotos.
+  const [editandoContenido, setEditandoContenido] = useState(null)
   const [codigo, setCodigo] = useState('')
   const [filtro, setFiltro] = useState('')
   const [soloSin, setSoloSin] = useState(false)
@@ -1234,11 +1237,23 @@ export default function PanelTechPacks() {
           puedeSubir={puedeSubirTechPacks}
           ocupado={trabajando}
           onVer={(b, pantalla) => { setEditando(null); verTechPack(b, pantalla) }}
+          onEditarContenido={(b) => { setEditando(null); setEditandoContenido(b) }}
           onReemplazar={async (b, f) => { await onReemplazar(b, f); setEditando(null) }}
           onQuitar={async (b) => { setEditando(null); await onQuitar(b, 'tp') }}
 
         />
 
+      )}
+
+      {editandoContenido && (
+        <EditorPlantillaTechPack
+          key={editandoContenido.codigo}
+          item={editandoContenido}
+          usuario={{ uid: authUser?.uid || '', nombre: perfil?.nombreCompleto || '' }}
+          esPrueba={esPrueba}
+          onCerrar={() => setEditandoContenido(null)}
+          onGuardado={(msg) => { setEditandoContenido(null); setAviso(msg); setCruce(null) }}
+        />
       )}
 
       {visor && (
@@ -1273,7 +1288,7 @@ function NombreDelModelo({ item, corto = false }) {
 
 // EDITAR UN TECH PACK. Todo lo que Lety pidio teclear, en una sola pantalla, y
 // el historial de quien lo toco debajo.
-function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir = false, ocupado = false, onVer, onReemplazar, onQuitar }) {
+function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir = false, ocupado = false, onVer, onReemplazar, onQuitar, onEditarContenido }) {
   const inicial = datosDelTechPack(item)
   const [modelo, setModelo] = useState(inicial.modelo)
   const [talla, setTalla] = useState(inicial.talla)
@@ -1369,7 +1384,10 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir =
               })}
             </div>
             <small className="texto-suave">
-              Pica una pantalla para verla. Lo que le falte se corrige en el Excel y se sube con "Reemplazar por otro archivo", abajo.
+              Pica una pantalla para verla.
+              {onEditarContenido && item.techPack?.formato === 'xlsx' && (
+                <> <button type="button" className="btn-primario tp-btn-chico" style={{ marginLeft: 6 }} onClick={() => onEditarContenido(item)}>Editar el contenido (datos, avíos, fotos)</button></>
+              )}
             </small>
           </div>
         )}
