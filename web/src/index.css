@@ -838,3 +838,9 @@ table th, table td {
 .tp-lista-falta { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .tp-lista-falta-item { display: inline-flex; align-items: center; gap: 6px; }
 .tpv-sobrantes summary { cursor: pointer; font-weight: 600; color: #b45309; }
+
+.tp-pantallas { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.tp-pantalla { border: 1px solid var(--borde); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; border-left-width: 4px; }
+.tp-pantalla.ok { border-left-color: #16a34a; }
+.tp-pantalla.falta { border-left-color: #dc2626; }
+.tp-archivo-acciones { border-top: 1px solid var(--borde); padding-top: 12px; }

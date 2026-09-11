@@ -210,19 +210,7 @@ function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tec
   const tiene = Boolean(b.techPack?.totalChunks)
   return (
     <div className="tp-acciones">
-      {/* Reemplazar por otro archivo / quitar (Lety, 11-sep: "hay veces que
-          necesitan reemplazar los tech packs"). Sube la version siguiente. */}
-      {puedeSubir && tiene && !b.apuntaA && onReemplazar && (
-        <>
-          <label className="btn-secundario tp-btn-chico" style={{ cursor: ocupado ? 'default' : 'pointer' }} title="Sube otro archivo en lugar de este (queda como version nueva)">
-            Reemplazar
-            <input type="file" accept=".pdf,.xlsx" style={{ display: 'none' }} disabled={ocupado} onChange={(e) => { onReemplazar(b, e.target.files?.[0]); e.target.value = '' }} />
-          </label>
-          <button className="tp-quitar" disabled={ocupado} onClick={() => onQuitar(b, 'tp')} title="Quita el archivo; el codigo se queda sin tech pack">
-            Quitar
-          </button>
-        </>
-      )}
+
       {puedeEditar && (
         <button className="btn-primario tp-btn-chico" onClick={() => onEditar(b)}>
           Editar
@@ -1238,16 +1226,16 @@ export default function PanelTechPacks() {
       {editando && (
 
         <ModalEditarTechPack
-
           key={editando.codigo}
-
           item={editando}
-
           usuario={{ uid: authUser?.uid || '', nombre: perfil?.nombreCompleto || '' }}
-
           onCerrar={() => setEditando(null)}
-
           onGuardado={(msg) => { setEditando(null); setAviso(msg) }}
+          puedeSubir={puedeSubirTechPacks}
+          ocupado={trabajando}
+          onVer={(b) => { setEditando(null); verTechPack(b) }}
+          onReemplazar={async (b, f) => { await onReemplazar(b, f); setEditando(null) }}
+          onQuitar={async (b) => { setEditando(null); await onQuitar(b, 'tp') }}
 
         />
 
@@ -1284,7 +1272,7 @@ function NombreDelModelo({ item, corto = false }) {
 
 // EDITAR UN TECH PACK. Todo lo que Lety pidio teclear, en una sola pantalla, y
 // el historial de quien lo toco debajo.
-function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
+function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir = false, ocupado = false, onVer, onReemplazar, onQuitar }) {
   const inicial = datosDelTechPack(item)
   const [modelo, setModelo] = useState(inicial.modelo)
   const [talla, setTalla] = useState(inicial.talla)
@@ -1356,6 +1344,34 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
           <h3 style={{ margin: 0 }}>Editar <span className="tp-codigo">{item.codigo}</span></h3>
           <button className="btn-secundario tp-btn-chico" onClick={onCerrar}>Cerrar</button>
         </div>
+
+        {/* Las seis pantallas de la plantilla y que le falta a cada una
+            (Roberto, 11-sep: "que te diga que pantalla quieres editar"). El
+            contenido de cada pantalla (fotos, OT, avios) se edita en Excel y se
+            vuelve a subir con Reemplazar; lo de abajo (nombre, codigos, checklist)
+            se edita aqui mismo. */}
+        {item.techPack?.totalChunks && (
+          <div className="tp-campo">
+            <span>Las seis pantallas del tech pack</span>
+            <div className="tp-pantallas">
+              {[['pedido', '1 Pedido'], ['ruta', '2 Códigos y ruta'], ['etiquetas', '3 Avíos'], ['individual', '4 Empaque individual'], ['bolsa', '5 Packs en bolsa'], ['caja', '6 Caja']].map(([id, titulo]) => {
+                const detalle = item.medicion?.detalle?.[id]
+                const faltaV1 = !item.medicion?.detalle && (item.medicion?.faltan || []).includes(id)
+                const falta = detalle?.length ? detalle : faltaV1 ? ['no está'] : []
+                return (
+                  <div key={id} className={`tp-pantalla ${falta.length ? 'falta' : 'ok'}`}>
+                    <strong>{titulo}</strong>
+                    <span className="texto-suave" style={{ fontSize: 12 }}>{falta.length ? `falta: ${falta.join(', ')}` : 'completo'}</span>
+                  </div>
+                )
+              })}
+            </div>
+            <small className="texto-suave">
+              Lo que falta en una pantalla se corrige en el Excel (ábrelo con Ver, edítalo y súbelo con Reemplazar, abajo).
+              {onVer && <> <button type="button" className="tp-desplegar" onClick={() => onVer(item)}>Ver el tech pack</button></>}
+            </small>
+          </div>
+        )}
 
         <label className="tp-campo">
           <span>Nombre del modelo</span>
@@ -1478,6 +1494,24 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado }) {
             {guardando ? 'Guardando...' : 'Guardar'}
           </button>
         </div>
+
+        {puedeSubir && item.techPack?.totalChunks && (
+          <div className="tp-campo tp-archivo-acciones">
+            <span>El archivo</span>
+            <small className="texto-suave">
+              {item.techPack.nombre} · v{item.techPack.version || 1} · {mb(item.techPack.tamano)}
+            </small>
+            <div className="tp-fila" style={{ gap: 10 }}>
+              <label className="btn-secundario tp-btn-chico" style={{ cursor: ocupado ? 'default' : 'pointer' }} title="Sube otro archivo en lugar de este (queda como version nueva)">
+                Reemplazar por otro archivo
+                <input type="file" accept=".pdf,.xlsx" style={{ display: 'none' }} disabled={ocupado || guardando} onChange={(e) => { onReemplazar?.(item, e.target.files?.[0]); e.target.value = '' }} />
+              </label>
+              <button type="button" className="tp-quitar" disabled={ocupado || guardando} onClick={() => onQuitar?.(item)} title="Quita el archivo; el codigo se queda sin tech pack">
+                Quitar el tech pack
+              </button>
+            </div>
+          </div>
+        )}
 
         <details className="tp-historial">
           <summary>Quien lo ha modificado</summary>
