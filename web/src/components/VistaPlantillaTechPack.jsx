@@ -28,12 +28,12 @@ function Dato({ etiqueta, valor, ancho }) {
   )
 }
 
-function Fotos({ urls, alAbrir, vacio }) {
+function Fotos({ urls, alAbrir, vacio, grandes = false }) {
   if (!urls.length) return <div className="tpv-sinfoto">{vacio}</div>
   return (
     <div className="tpv-fotos">
       {urls.map((u, i) => (
-        <button key={u + i} type="button" className="tpv-foto" onClick={() => alAbrir(u)} title="Ver en grande">
+        <button key={u + i} type="button" className={`tpv-foto ${grandes ? 'tpv-foto-grande' : ''}`} onClick={() => alAbrir(u)} title="Ver en grande">
           <img src={u} alt="" loading="lazy" />
         </button>
       ))}
@@ -43,6 +43,10 @@ function Fotos({ urls, alAbrir, vacio }) {
 
 export default function VistaPlantillaTechPack({ lectura, medicion, urlDe }) {
   const [grande, setGrande] = useState(null)
+  // Una pantalla por apartado (Roberto, 11-sep: "si me gustarian las diferentes
+  // pantallas de uno, dos, tres, cuatro, cinco y seis").
+  const [activa, setActiva] = useState(1)
+  const PESTANAS = [[1, 'Pedido', 'pedido'], [2, 'Códigos y ruta', 'ruta'], [3, 'Avíos', 'etiquetas'], [4, 'Empaque individual', 'individual'], [5, 'Packs en bolsa', 'bolsa'], [6, 'Caja', 'caja']]
   const c = lectura.campos || {}
   const t = lectura.tablas || {}
   const zona = (n) => (lectura.imagenesZona?.[n] || []).map((im) => urlDe(im.imageId)).filter(Boolean)
@@ -70,8 +74,16 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe }) {
         </div>
       )}
 
+      <div className="tpv-pestanas">
+        {PESTANAS.map(([n, titulo, id]) => (
+          <button key={n} type="button" className={`tpv-pestana ${activa === n ? 'activa' : ''} ${(falta[id] || []).length ? 'con-falta' : ''}`} onClick={() => setActiva(n)}>
+            <span className="tpv-num">{n}</span> {titulo}
+          </button>
+        ))}
+      </div>
+
       {/* ---------------------------------------------------- 1 PEDIDO */}
-      <section className="tpv-sec">
+      {activa === 1 && <section className="tpv-sec">
         <h4>1 · Pedido {seccion('pedido')}</h4>
         <div className="tpv-grid">
           <Dato etiqueta="Modelo" valor={c.TP_MODELO} />
@@ -101,10 +113,10 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe }) {
           </table>
         </div>
         <Fotos urls={zona('FOTO_REFERENCIA')} alAbrir={setGrande} vacio="Sin foto de referencia" />
-      </section>
+      </section>}
 
       {/* ------------------------------------------------ 2 CODIGOS Y RUTA */}
-      <section className="tpv-sec">
+      {activa === 2 && <section className="tpv-sec">
         <h4>2 · Códigos y ruta {seccion('ruta')}</h4>
         <div className="tabla-marco">
           <table className="tpv-tabla">
@@ -122,10 +134,10 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe }) {
         <div className="tpv-ruta">
           {ruta.length ? ruta.map((p, i) => <span key={i} className="tpv-paso">{i + 1}. {p}</span>) : <span className="tpv-vacio">sin ruta de proceso</span>}
         </div>
-      </section>
+      </section>}
 
       {/* ------------------------------------------------------- 3 AVIOS */}
-      <section className="tpv-sec">
+      {activa === 3 && <section className="tpv-sec">
         <h4>3 · Avíos {seccion('etiquetas')}</h4>
         <div className="tabla-marco">
           <table className="tpv-tabla">
@@ -152,26 +164,26 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe }) {
             </tbody>
           </table>
         </div>
-      </section>
+      </section>}
 
       {/* ---------------------------------------------------- 4 5 6 EMPAQUE */}
-      <section className="tpv-sec">
+      {activa === 4 && <section className="tpv-sec">
         <h4>4 · Empaque individual {seccion('individual')}</h4>
         {lleno(c.TP_INDIVIDUAL_TEXTO) && <p className="tpv-texto">{c.TP_INDIVIDUAL_TEXTO}</p>}
-        <Fotos urls={zona('FOTO_INDIVIDUAL')} alAbrir={setGrande} vacio="Sin fotos de cómo se arma el par" />
-      </section>
-      <section className="tpv-sec">
+        <Fotos urls={zona('FOTO_INDIVIDUAL')} alAbrir={setGrande} vacio="Sin fotos de cómo se arma el par" grandes />
+      </section>}
+      {activa === 5 && <section className="tpv-sec">
         <h4>5 · Packs en bolsa {seccion('bolsa')}</h4>
         <div className="tpv-grid"><Dato etiqueta="Packs por bolsa" valor={numero(c.TP_PACKS_POR_BOLSA)} /></div>
         {lleno(c.TP_BOLSA_TEXTO) && <p className="tpv-texto">{c.TP_BOLSA_TEXTO}</p>}
-        <Fotos urls={zona('FOTO_BOLSA')} alAbrir={setGrande} vacio="Sin foto de la bolsa" />
-      </section>
-      <section className="tpv-sec">
+        <Fotos urls={zona('FOTO_BOLSA')} alAbrir={setGrande} vacio="Sin foto de la bolsa" grandes />
+      </section>}
+      {activa === 6 && <section className="tpv-sec">
         <h4>6 · Caja {seccion('caja')}</h4>
         <div className="tpv-grid"><Dato etiqueta="Docenas por caja" valor={numero(c.TP_DOCENAS_POR_CAJA)} /></div>
         {lleno(c.TP_CAJA_TEXTO) && <p className="tpv-texto">{c.TP_CAJA_TEXTO}</p>}
-        <Fotos urls={zona('FOTO_CAJA')} alAbrir={setGrande} vacio="Sin foto de la caja" />
-      </section>
+        <Fotos urls={zona('FOTO_CAJA')} alAbrir={setGrande} vacio="Sin foto de la caja" grandes />
+      </section>}
 
       {grande && (
         <div className="tpv-lightbox" onClick={() => setGrande(null)}>
