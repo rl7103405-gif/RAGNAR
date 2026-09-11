@@ -19,6 +19,9 @@ import { ErrorBiblioteca } from '../utils/techPacks'
 
 // Topes del render de XLSX: un Excel chico puede descomprimirse enorme y
 // congelar la pestana. Lo que pase del tope se avisa, no se truena.
+import VistaPlantillaTechPack from './VistaPlantillaTechPack'
+import { esPlantilla, leerPlantilla, medirPlantilla } from '../utils/leerPlantillaTechPack'
+
 const MAX_FILAS_POR_HOJA = 400
 const MAX_COLS = 40
 const MAX_IMAGENES_POR_HOJA = 30
@@ -42,6 +45,8 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
   const [estado, setEstado] = useState('cargando') // cargando | listo | error
   const [mensaje, setMensaje] = useState('Bajando el tech pack...')
   const [hojas, setHojas] = useState([]) // xlsx: [{nombre, filas, imagenes, recortada}]
+  // Plantilla TP-Quini: { lectura, medicion, urls: Map imageId -> blob url }
+  const [plantilla, setPlantilla] = useState(null)
   const [hojaActiva, setHojaActiva] = useState(0)
   const [paginasPdf, setPaginasPdf] = useState(0)
   const contenedorPdf = useRef(null)
@@ -118,6 +123,24 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
       const libro = new Workbook()
       await libro.xlsx.load(buffer)
       if (cancelado) return
+      // Plantilla TP-Quini: se lee por nombres y se pinta compacta; la hoja
+      // _RAGNAR no se ensena. El visor de tablas queda para el formato libre.
+      if (esPlantilla(libro)) {
+        const lectura = leerPlantilla(libro)
+        const urls = new Map()
+        const ids = new Set([...Object.values(lectura.imagenesZona || {}).flat().map((x) => x.imageId), ...Object.values(lectura.imagenesAvios || {})])
+        for (const id of ids) {
+          const media = libro.model.media?.[id] || libro.getImage?.(id)
+          if (!media?.buffer) continue
+          const url = URL.createObjectURL(new Blob([media.buffer], { type: `image/${media.extension || 'png'}` }))
+          urlsCreadas.current.push(url)
+          urls.set(id, url)
+        }
+        setPlantilla({ lectura, medicion: medirPlantilla(lectura), urls })
+        setHojas([])
+        return
+      }
+      setPlantilla(null)
       const resultado = []
       for (const hoja of libro.worksheets) {
         const filas = []
@@ -332,7 +355,13 @@ export default function VisorTechPack({ maquilaId, tareaId, techPack, onCerrar, 
           />
         )}
 
-        {techPack?.formato === 'xlsx' && estado === 'listo' && (
+        {techPack?.formato === 'xlsx' && estado === 'listo' && plantilla && (
+          <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '10px 14px 20px' }}>
+            <VistaPlantillaTechPack lectura={plantilla.lectura} medicion={plantilla.medicion} urlDe={(id) => (id == null ? null : plantilla.urls.get(id) || null)} />
+          </div>
+        )}
+
+        {techPack?.formato === 'xlsx' && estado === 'listo' && !plantilla && (
           <>
             <div className="alerta-error" style={{ margin: '10px 14px 0', fontSize: 13 }}>
               Esto es una <strong>extraccion</strong> del Excel, no una copia fiel: las fotos van

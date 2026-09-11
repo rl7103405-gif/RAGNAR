@@ -89,12 +89,16 @@ export function leerPlantilla(libro) {
 
   // Imagenes por zona: cuenta si su rectangulo se cruza con la zona. La banda
   // (filas 1-3, logo en A1:B3) nunca cuenta como foto.
+  // Ademas se devuelven los imageId por zona y por renglon de avios, para
+  // que el visor las pinte en su lugar (VistaPlantillaTechPack).
   const fotos = {}
+  const imagenesZona = {}
   for (const [n, def] of Object.entries(ZONAS_FOTO)) {
     const r = parsearRango(nombres.get(n))
     const h = r && libro.getWorksheet(r.hoja)
-    if (!h) { fotos[n] = 0; continue }
+    if (!h) { fotos[n] = 0; imagenesZona[n] = []; continue }
     let cuenta = 0
+    imagenesZona[n] = []
     for (const im of h.getImages?.() || []) {
       const tl = im.range?.tl || {}
       const br = im.range?.br || null
@@ -104,12 +108,27 @@ export function leerPlantilla(libro) {
       const c1 = br ? br.nativeCol ?? Math.floor(br.col ?? c0) : c0
       if (f0 < BANDA.filas && c0 < 2) continue
       const cruza = f0 <= r.f2 - 1 && f1 >= r.f1 - 1 && c0 <= r.c2 - 1 && c1 >= r.c1 - 1
-      if (cruza) cuenta++
+      if (cruza) { cuenta++; imagenesZona[n].push({ imageId: im.imageId, x: tl.col ?? c0, y: tl.row ?? f0 }) }
     }
+    imagenesZona[n].sort((a, b) => a.y - b.y || a.x - b.x)
     fotos[n] = cuenta
   }
+  // La imagen de cada avio: la anclada en la fila de ese renglon (columna J).
+  const imagenesAvios = {}
+  {
+    const r = parsearRango(nombres.get('TP_TABLA_AVIOS'))
+    const h = r && libro.getWorksheet(r.hoja)
+    if (h) {
+      for (const im of h.getImages?.() || []) {
+        const tl = im.range?.tl || {}
+        const f0 = (tl.nativeRow ?? Math.floor(tl.row ?? 0)) + 1
+        const idx = f0 - (r.f1 + 1)
+        if (idx >= 0 && imagenesAvios[idx] === undefined) imagenesAvios[idx] = im.imageId
+      }
+    }
+  }
 
-  return { faltaEstructura, campos, tablas, fotos }
+  return { faltaEstructura, campos, tablas, fotos, imagenesZona, imagenesAvios }
 }
 
 /**
