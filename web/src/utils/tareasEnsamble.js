@@ -549,6 +549,26 @@ export async function prepararCambioDeTechPack(maquilaId, tareaId) {
   await updateDoc(refTarea(maquilaId, tareaId), { estado: 'preparando' })
 }
 
+/**
+ * Si la subida del archivo FALLO en una tarea que ya estaba publicada, la
+ * devuelve a 'abierta' tal como estaba (con su tech pack anterior, si tenia)
+ * para que la maquila la siga viendo. Sin esto, cada intento fallido dejaba
+ * la tarea en 'preparando' — invisible para la maquila — y en la tarjeta solo
+ * decia "se corto la subida" (lo reprodujo el usuario-real el 14-sep).
+ * Nunca lanza: es un remiendo de emergencia, no la operacion principal.
+ */
+export async function reabrirTrasFalloDeSubida(maquilaId, tareaId) {
+  try {
+    const actual = await getDoc(refTarea(maquilaId, tareaId))
+    if (!actual.exists() || actual.data().publicadaEn == null || actual.data().estado !== 'preparando') return false
+    await updateDoc(refTarea(maquilaId, tareaId), { estado: 'abierta' })
+    return true
+  } catch (err) {
+    console.warn('[tareasEnsamble] No se pudo reabrir la tarea tras el fallo:', err?.code || err)
+    return false
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Lo que reporta LA MAQUILA
 // ---------------------------------------------------------------------------

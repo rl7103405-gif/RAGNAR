@@ -2475,9 +2475,15 @@ service cloud.firestore {
         // OT en el arbol — la fase que la junta dejo para despues.
         // Las ramas de update de la maquila usan affectedKeys().hasOnly() con
         // listas que NO incluyen estos campos: la maquila no puede tocarlos.
+        // En un update, la OT y la fecha que NO cambiaron ya se validaron
+        // cuando entraron: revalidarlas gasta presupuesto (fechaDeCalendario
+        // sola son ~40 expresiones) y el 14-sep eso rebasaba el tope de 1,000
+        // al pegar el tech pack. En create se validan siempre.
         && (d.get('ot', null) == null
+            || (request.method == 'update' && d.get('ot', null) == resource.data.get('ot', null))
             || (d.get('ot', '') is string && d.get('ot', '').size() > 0 && d.get('ot', '').size() <= 40))
         && (d.get('destino', null) == null
+            || (request.method == 'update' && d.get('destino', null) == resource.data.get('destino', null))
             || (d.get('destino', '') is string
                 && d.get('destino', '').size() > 0
                 && d.get('destino', '').size() <= 120))
@@ -2487,6 +2493,7 @@ service cloud.firestore {
         // ordena y se compara sin pasar por zonas horarias — una fecha 'sin
         // hora' convertida a Date se corre un dia en Mexico (regla dura 3).
         && (d.get('fechaRequerida', null) == null
+            || (request.method == 'update' && d.get('fechaRequerida', null) == resource.data.get('fechaRequerida', null))
             || (d.get('fechaRequerida', '') is string
                 && fechaDeCalendario(d.get('fechaRequerida', ''))))
         // Sin OT no hay destino que amarrar: el destino sale del plan VIA la
@@ -2671,23 +2678,26 @@ service cloud.firestore {
           ( resource.data.estado in ['preparando', 'abierta']
             // Esta rama reescribe el documento entero (es la de reedicion),
             // asi que lo que NO se puede tocar hay que blindarlo a mano.
-            && reporteDeLaMaquilaIntacto()
-            && request.resource.data.creadoPorUid == resource.data.creadoPorUid
-            && request.resource.data.creadoPorNombre == resource.data.creadoPorNombre
-            && request.resource.data.creadoEn == resource.data.creadoEn
-            // La PRIORIDAD no se toca por aqui aunque esta rama reescriba el
-            // documento entero: tiene su propia rama, que la sella con nombre.
-            // Si se pudiera cambiar tambien aqui, bastaria reeditar la tarea
-            // para mover la fecha sin dejar rastro de quien fue.
-            // La ORDEN DE TRABAJO tampoco se cambia despues de creada: su
-            // apartado se escribio con esa orden, y cambiarla aqui dejaria
-            // apartada una orden que la tarea ya no trabaja mientras la nueva
-            // queda sin apartar. El candado dejaria de significar nada.
-            && request.resource.data.get('ot', null) == resource.data.get('ot', null)
-            && request.resource.data.get('fechaRequerida', null) == resource.data.get('fechaRequerida', null)
-            && request.resource.data.get('fechaRequeridaCambiadaEn', null) == resource.data.get('fechaRequeridaCambiadaEn', null)
-            && request.resource.data.get('fechaRequeridaCambiadaPorUid', null) == resource.data.get('fechaRequeridaCambiadaPorUid', null)
-            && request.resource.data.get('fechaRequeridaCambiadaPorNombre', null) == resource.data.get('fechaRequeridaCambiadaPorNombre', null)
+            //
+            // 2026-09-14: UN solo diff en vez de 19 comparaciones get()==get().
+            // Con las comparaciones, PUBLICAR una tarea con OT + fecha + el
+            // manifiesto del tech pack se pasaba del tope de 1,000 expresiones
+            // y Firestore lo devolvia como "permiso negado": el archivo subia
+            // completo y la tarea se quedaba en 'preparando', invisible para
+            // la maquila (lo reprodujo el usuario-real con demo_tareas y se
+            // midio con el motor real). Todas las escrituras de Quini son
+            // updateDoc parciales, asi que affectedKeys dice exactamente lo
+            // que se toco. Lo intocable: el reporte de la maquila (sus firmas,
+            // su nota y el motivo de devolucion), quien creo la tarea, la
+            // ORDEN DE TRABAJO (su apartado se escribio con ella) y la
+            // PRIORIDAD (tiene su propia rama, que la sella con nombre).
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(
+                 ['iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre',
+                  'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila',
+                  'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion',
+                  'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'ot',
+                  'fechaRequerida', 'fechaRequeridaCambiadaEn', 'fechaRequeridaCambiadaPorUid',
+                  'fechaRequeridaCambiadaPorNombre'])
             // 'publicadaEn' se fija UNA vez (al publicar) y ya no se borra:
             // si se pudiera quitar, una tarea ya entregada desapareceria del
             // portal de la maquila sin rastro.

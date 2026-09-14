@@ -27,6 +27,7 @@ import {
   formatoDeArchivo,
   limpiarTechPack,
   prepararCambioDeTechPack,
+  reabrirTrasFalloDeSubida,
   subirTechPack,
   terminarTareaEnsamble,
   devolverTareaEnsamble,
@@ -86,6 +87,30 @@ export default function PanelTareasMaquila() {
 
   const usuario = () => ({ uid: authUser?.uid, nombre: perfil?.nombreCompleto || '' })
   const nombreMaquila = (id) => maquilas.find((m) => m.id === id)?.nombre || id
+
+  /**
+   * La subida del tech pack fallo A MEDIAS o al final. Antes esto solo
+   * cambiaba la etiqueta del boton a "se corto la subida" y la tarea se
+   * quedaba en 'preparando', invisible para la maquila, sin que nadie lo
+   * dijera (usuario-real, 14-sep). Ahora: se intenta devolverla a como
+   * estaba y se dice con todas sus letras que paso y que sigue.
+   */
+  const reportarFalloDeSubida = async (tarea, err) => {
+    console.error('[PanelTareasMaquila] fallo la subida del tech pack:', err)
+    const reabierta = tarea.publicadaEn ? await reabrirTrasFalloDeSubida(tarea.maquilaId, tarea.id) : false
+    const motivo =
+      err?.code === 'permission-denied'
+        ? 'el servidor rechazo la publicacion (no es tu internet). Avisale a Roberto con el nombre de la tarea.'
+        : (err?.message || String(err))
+    setError(
+      `No se pudo subir el tech pack de "${tarea.titulo}": ${motivo} ` +
+        (reabierta
+          ? 'La tarea volvio a quedar como estaba y la maquila la sigue viendo (con el tech pack anterior, si tenia).'
+          : tarea.publicadaEn
+            ? 'OJO: la tarea quedo SIN PUBLICAR y la maquila no la ve hasta que la subida termine bien.'
+            : 'La tarea sigue sin publicar: la maquila no la ve hasta que el tech pack suba bien.')
+    )
+  }
 
   const reportar = (err) => {
     console.error('[PanelTareasMaquila]', err)
@@ -203,7 +228,7 @@ export default function PanelTareasMaquila() {
       setAviso(`Tech pack de ${elegido.codigo} pegado a "${tarea.titulo}": la maquila ya lo puede ver.`)
     } catch (err) {
       if (err instanceof ErrorBiblioteca) setError(err.message)
-      else reportar(err)
+      else await reportarFalloDeSubida(tarea, err)
     } finally {
       setProgreso('')
       setTrabajando(null)
@@ -557,7 +582,7 @@ export default function PanelTareasMaquila() {
       })
       setAviso(`Tech pack de "${tarea.titulo}" subido: la maquila ya lo puede ver.`)
     } catch (err) {
-      reportar(err)
+      await reportarFalloDeSubida(tarea, err)
     } finally {
       setProgreso('')
       setTrabajando(null)
@@ -839,7 +864,14 @@ export default function PanelTareasMaquila() {
         )}
 
         <span className="texto-suave" style={{ fontSize: 13 }}>
-          {ESTADOS_TAREA_ENSAMBLE[t.estado] || t.estado} · pedida el {fechaDe(t.creadoEn)}
+          {ESTADOS_TAREA_ENSAMBLE[t.estado] || t.estado}
+          {/* Se publico y se regreso a 'preparando' para cambiarle el archivo, y
+              esa subida no termino: la maquila NO la ve. Antes esto se veia
+              igual que "subiendo" (usuario-real, 14-sep). */}
+          {t.estado === 'preparando' && t.publicadaEn && trabajando !== t.id && (
+            <strong style={{ color: '#a52218' }}> · SIN PUBLICAR: la maquila no la ve hasta que el tech pack suba bien</strong>
+          )}
+          {' '}· pedida el {fechaDe(t.creadoEn)}
           {t.fechaRequerida ? (
             <>
               {' · '}
@@ -986,7 +1018,7 @@ export default function PanelTareasMaquila() {
               Pegar de la biblioteca
             </button>
             <label className="btn-secundario" style={{ cursor: 'pointer' }}>
-              {trabajando === t.id ? 'Subiendo...' : 'Subir el tech pack (se corto la subida)'}
+              {trabajando === t.id ? 'Subiendo...' : 'Subir el tech pack'}
               <input
                 type="file"
                 accept=".pdf,.xlsx"

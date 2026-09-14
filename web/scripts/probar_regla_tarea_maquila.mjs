@@ -147,6 +147,25 @@ const ESCENARIOS = {
       resource: doc({ maquilaId: 'hugo_martinez', datos: 'AAECAwQ=' }) },
     functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ), mGet(P_TAREA, { ...conOt, estado: 'preparando' })]
   },
+  'publicar-techpack-ot-fecha': {
+    que: 'Lindbergh PEGA el tech pack a una tarea con OT y fecha ya publicada (el paso que el 14-sep rebasaba el tope de 1000)',
+    request: { auth: { uid: LIN.uid }, method: 'update', path: P_TAREA, time: T,
+      resource: doc({ ...conOt, estado: 'abierta', publicadaEn: T, techPack: { nombre: 'TECH PACK PRUEBA.xlsx', formato: 'xlsx', tamano: 6902043, totalChunks: 8, sha256: 'a'.repeat(64), subidoEn: T } }) },
+    resource: doc({ ...conOt, estado: 'preparando', publicadaEn: T }),
+    functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ)]
+  },
+  'neg-reeditar-toca-ot': {
+    expectation: 'DENY', que: 'NEG: reeditar la tarea cambiando la OT (el apartado se escribio con la original)',
+    request: { auth: { uid: LIN.uid }, method: 'update', path: P_TAREA, time: T, resource: doc({ ...conOt, estado: 'abierta', publicadaEn: T, ot: '7999' }) },
+    resource: doc({ ...conOt, estado: 'abierta', publicadaEn: T }),
+    functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ)]
+  },
+  'neg-reeditar-siembra-inicio': {
+    expectation: 'DENY', que: 'NEG: reeditar sembrando la firma de inicio de la maquila',
+    request: { auth: { uid: LIN.uid }, method: 'update', path: P_TAREA, time: T, resource: doc({ ...conOt, estado: 'abierta', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: 'MAQUILAUID', iniciadaPorNombre: 'Hugo Martinez' }) },
+    resource: doc({ ...conOt, estado: 'abierta', publicadaEn: T }),
+    functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ)]
+  },
   'publicar': {
     que: 'Lindbergh PUBLICA la tarea (de borrador a abierta, que es cuando la maquila la ve)',
     request: { auth: { uid: LIN.uid }, method: 'update', path: P_TAREA, time: T, resource: doc({ ...base, estado: 'abierta', publicadaEn: T }) },
@@ -164,7 +183,7 @@ async function correr(nombre, pad = 0) {
     const arbol = (n) => (n <= 1 ? 'true' : '(' + arbol(Math.floor(n / 2)) + ' && ' + arbol(Math.ceil(n / 2)) + ')')
     rules = rules.replace(ancla, ancla + ' && ' + arbol(pad))
   }
-  const caso = { expectation: 'ALLOW', expressionReportLevel: 'FULL', request: esc.request, functionMocks: esc.functionMocks }
+  const caso = { expectation: esc.expectation || 'ALLOW', expressionReportLevel: 'FULL', request: esc.request, functionMocks: esc.functionMocks }
   if (esc.resource) caso.resource = esc.resource
   const body = { source: { files: [{ name: 'firestore.rules', content: rules }] }, testSuite: { testCases: [caso] } }
   const resp = await fetch(`https://firebaserules.googleapis.com/v1/projects/${PROJECT}:test`, {
@@ -210,7 +229,7 @@ for (const nombre of Object.keys(ESCENARIOS)) {
       console.log('        L' + m.ln + ': ' + (LINEAS[m.ln - 1] || '').trim().slice(0, 100) + '  => ' + m.vals.join(','))
     }
   }
-  if (process.env.MARGEN === '1' && ok && nombre.startsWith('sin') === false && nombre !== 'publicar') {
+  if (process.env.MARGEN === '1' && ok && !esc.expectation && nombre.startsWith('sin') === false && nombre !== 'publicar') {
     let lo = 0, hi = 600
     while (hi - lo > 8) {
       const mid = Math.floor((lo + hi) / 2)
