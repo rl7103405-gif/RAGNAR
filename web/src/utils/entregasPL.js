@@ -40,6 +40,8 @@ import {
 import { db } from '../firebase/config'
 import { lineasDeOc, normalizarOc, versionActiva } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
+import { resolverPacksDeCodigos } from './packsFuentes'
+import { PARES_MAX, PARES_MIN, packsDeDocenas } from './packsPorCodigo'
 
 export class ErrorEntregaPL extends Error {}
 
@@ -113,7 +115,7 @@ export function packsPorDocena(articulo) {
  * el cierre siempre diria "sin convertir". El catalogo si tiene descripcion y
  * modelo por codigo, y es el mismo que usa la captura.
  */
-export async function renglonesDeLaOc(oc) {
+export async function renglonesDeLaOc(oc, { esPrueba } = {}) {
   const version = await versionActiva()
   if (!version) {
     throw new ErrorEntregaPL(
@@ -157,22 +159,41 @@ export async function renglonesDeLaOc(oc) {
   // sabe convertir, que es la verdad).
   const delCatalogo = await datosDeCodigos([...porCodigo.keys()])
 
+  // Los PARES POR PACK de cada codigo (packsPorCodigo.js): Microsip, el pedido
+  // de Adrian, el tech pack o lo capturado a mano. Si la resolucion falla por
+  // red, el renglon sale sin equivalencia, como antes: nunca se inventa.
+  let packs = new Map()
+  try {
+    packs = await resolverPacksDeCodigos(
+      [...porCodigo.values()].map((r) => ({
+        codigo: r.codigo,
+        ots: [...r.ots],
+        modelo: delCatalogo.get(r.codigo)?.modelo || ''
+      })),
+      esPrueba === true
+    )
+  } catch (err) {
+    console.warn('[PL] No se pudo resolver el pack de los codigos:', err?.message || err)
+  }
+
   return [...porCodigo.values()]
     .map((r) => {
       const cat = delCatalogo.get(r.codigo) || {}
       // La descripcion del plan manda si existe; si no, la del catalogo.
       const descripcion = r.descripcion || cat.descripcion || ''
-      // Para el tamano del pack se miran las dos: el modelo del catalogo
-      // tambien suele traerlo ("SFT106 3PACK...").
-      const factor = packsPorDocena(descripcion) ?? packsPorDocena(cat.modelo)
+      const pack = packs.get(r.codigo.toUpperCase()) || null
+      // Exacto, sin redondear: 10 docenas de un 5 pack son 24 packs, pero 1
+      // docena son 2.4 y eso no se "arregla" a 2 — se avisa (packsPlanEntero).
+      const conv = pack?.pares != null && r.cantidadPlan > 0 ? packsDeDocenas(r.cantidadPlan, pack.pares) : null
       return {
         ...r,
         descripcion,
         modelo: cat.modelo || '',
         ots: [...r.ots].sort(),
         ot: [...r.ots].sort().join(' / '),
-        packsPlan:
-          factor != null && r.cantidadPlan > 0 ? Math.round(r.cantidadPlan * factor) : null
+        pack,
+        packsPlan: conv ? Math.round(conv.packs * 100) / 100 : null,
+        packsPlanEntero: conv ? conv.entero : null
       }
     })
     .sort((a, b) => a.codigo.localeCompare(b.codigo))
@@ -234,7 +255,13 @@ export async function registrarEntregaPL({ encabezado, renglones, usuario, esPru
         // para el cliente la "pieza" ES el pack. Se guardan las dos por si
         // algun cliente las separa, pero por defecto van iguales.
         piezas: r.piezas === '' || r.piezas == null ? packs : entero(r.piezas),
-        importe: Math.round(packs * precio * 100) / 100
+        importe: Math.round(packs * precio * 100) / 100,
+        // CON QUE PACK SE REGISTRO. Para auditar despues: si mas tarde se
+        // corrige el pack de este codigo, el acta sigue diciendo que se sabia
+        // el dia de la entrega. El inventario cuenta con el pack vigente.
+        paresPorPack: Number.isInteger(r.paresPorPack) && r.paresPorPack >= PARES_MIN && r.paresPorPack <= PARES_MAX ? r.paresPorPack : null,
+        packEstado: ['resuelto', 'conflicto', 'supuesto'].includes(r.packEstado) ? r.packEstado : null,
+        packOrigen: texto(r.packOrigen, 20)
       }
     })
     .filter((r) => r.clave && (r.packs > 0 || r.bultos > 0))

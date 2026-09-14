@@ -60,6 +60,12 @@ const EQUIPO = { uid: equipoSnap.id, ...plano(equipoSnap.data()) }
 const adminSnap = (await db.collection('usuarios').where('empleadoId', '==', 'demo_admin').limit(1).get()).docs[0]
 if (!adminSnap) { console.error('falta la cuenta demo_admin'); process.exit(1) }
 const ADMIN = { uid: adminSnap.id, ...plano(adminSnap.data()) }
+// Producto Terminado y consulta del corral: deciden los pares por pack a mano (14-sep).
+const ptSnap = (await db.collection('usuarios').where('empleadoId', '==', 'demo_pt').limit(1).get()).docs[0]
+const consultaSnap = (await db.collection('usuarios').where('empleadoId', '==', 'demo_consulta').limit(1).get()).docs[0]
+if (!ptSnap || !consultaSnap) { console.error('faltan las cuentas demo_pt / demo_consulta'); process.exit(1) }
+const PT = { uid: ptSnap.id, ...plano(ptSnap.data()) }
+const CONSULTA = { uid: consultaSnap.id, ...plano(consultaSnap.data()) }
 const encSnap = (await db.collection('encargosDiseno').where('esPrueba', '==', true).limit(1).get()).docs[0]
 const ENCARGO = encSnap
   ? { ...plano(encSnap.data()), id: encSnap.id }
@@ -98,6 +104,9 @@ const { id: _idEnc, ...ENCARGO_DOC } = { ...ENCARGO, estado: 'abierto' }
 const P_ENC = DBPATH + '/encargosDiseno/' + ENCARGO.id
 const P_ASIG = DBPATH + '/asignacionesDiseno/' + ASIG_ID
 const P_TP = DBPATH + '/techPacks/' + TP.codigo
+const P_PACK = DBPATH + '/packsManuales/7736-J__prueba'
+const PACK_NUEVO = (u) => ({ codigo: '7736-J', modelo: 'WKD225T401', pares: 3, nota: 'lo dice Microsip y el pedido', porUid: u.uid, porNombre: u.nombreCompleto, en: T, esPrueba: true, anterior: null })
+const PACK_PREVIO = { ...PACK_NUEVO(PT), en: '2026-09-09T20:00:00Z' }
 
 const ESCENARIOS = {
   'asig-create': {
@@ -365,6 +374,54 @@ Object.assign(ESCENARIOS, {
     expectation: 'DENY', que: 'NEG: crear desde el cliente un documento con apuntaA',
     request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc({ ...TP_NUEVO, apuntaA: 'ZZTEST-REAL' }) },
     functionMocks: [...perfilMocks([JEFA])]
+  },
+  'pack-manual-pt': {
+    que: 'Producto Terminado decide a mano el pack de un codigo (corral)',
+    request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc(PACK_NUEVO(PT)) },
+    functionMocks: [...perfilMocks([PT])]
+  },
+  'pack-manual-consulta-corrige': {
+    que: 'consulta corrige ese pack, dejando el valor anterior anotado',
+    request: { auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(CONSULTA), pares: 6, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }) },
+    resource: doc(PACK_PREVIO),
+    functionMocks: [...perfilMocks([CONSULTA])]
+  },
+  'neg-pack-manual-diseno': {
+    expectation: 'DENY', que: 'NEG: alguien de diseno decide un pack',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_PACK, time: T, resource: doc(PACK_NUEVO(JEFA)) },
+    functionMocks: [...perfilMocks([JEFA])]
+  },
+  'neg-pack-manual-corral': {
+    expectation: 'DENY', que: 'NEG: una cuenta de prueba escribe el pack REAL (sin __prueba)',
+    request: { auth: { uid: PT.uid }, method: 'create', path: DBPATH + '/packsManuales/7736-J', time: T, resource: doc(PACK_NUEVO(PT)) },
+    functionMocks: [...perfilMocks([PT])]
+  },
+  'neg-pack-manual-historial': {
+    expectation: 'DENY', que: 'NEG: corregir inventando el valor anterior',
+    request: { auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(CONSULTA), pares: 6, anterior: { pares: 6, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }) },
+    resource: doc(PACK_PREVIO),
+    functionMocks: [...perfilMocks([CONSULTA])]
+  },
+  'neg-pack-manual-pares': {
+    expectation: 'DENY', que: 'NEG: un pack de 30 pares',
+    request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(PT), pares: 30 }) },
+    functionMocks: [...perfilMocks([PT])]
+  },
+  'neg-pack-manual-nombre': {
+    expectation: 'DENY', que: 'NEG: firmar el pack con otro nombre',
+    request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(PT), porNombre: 'Roberto Linares' }) },
+    functionMocks: [...perfilMocks([PT])]
+  },
+  'neg-pack-manual-crear-con-anterior': {
+    expectation: 'DENY', que: 'NEG: crear un pack con un historial inventado',
+    request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(PT), anterior: { pares: 6, porNombre: 'X', en: T } }) },
+    functionMocks: [...perfilMocks([PT])]
+  },
+  'neg-pack-manual-borrar': {
+    expectation: 'DENY', que: 'NEG: borrar un pack decidido',
+    request: { auth: { uid: PT.uid }, method: 'delete', path: P_PACK, time: T },
+    resource: doc(PACK_PREVIO),
+    functionMocks: [...perfilMocks([PT])]
   },
   'neg-create-nombre-falso': {
     expectation: 'DENY', que: 'NEG: dar de alta un codigo firmando el creador con otro nombre',

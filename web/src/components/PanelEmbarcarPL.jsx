@@ -24,6 +24,7 @@ import { generarExcelPL } from '../utils/excelPL'
 import { generarPdfPL } from '../utils/pdfPL'
 import { descargarPdf } from '../utils/pdf'
 import { descargarArchivo } from '../utils/excelSalida'
+import { textoPack } from '../utils/packsPorCodigo'
 
 export default function PanelEmbarcarPL() {
   const { authUser, perfil, esPrueba } = useAuth()
@@ -82,7 +83,7 @@ export default function PanelEmbarcarPL() {
     }
     setCargando(true)
     try {
-      const r = await renglonesDeLaOc(limpia)
+      const r = await renglonesDeLaOc(limpia, { esPrueba })
       setRenglones(r)
       setAviso(`La orden ${limpia} tiene ${r.length} codigo(s) en el plan. Captura lo que va en esta entrega.`)
     } catch (err) {
@@ -222,7 +223,10 @@ export default function PanelEmbarcarPL() {
           empaque: f.empaque,
           bultos: f.bultos,
           packs: f.packs,
-          piezas: f.packs
+          piezas: f.packs,
+          paresPorPack: f.pack?.pares ?? null,
+          packEstado: f.pack?.estado || null,
+          packOrigen: f.pack?.origen || ''
         })),
         usuario: { uid: authUser.uid, nombre: perfil?.nombreCompleto || '' },
         esPrueba
@@ -417,7 +421,26 @@ export default function PanelEmbarcarPL() {
                         onChange={(e) => pon(f.codigo, 'clave', e.target.value)}
                       />
                     </td>
-                    <td style={{ fontSize: 13 }}>{f.descripcion || '-'}</td>
+                    <td style={{ fontSize: 13 }}>
+                      {f.descripcion || '-'}
+                      {f.pack && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: f.pack.estado === 'conflicto' ? '#a52218' : f.pack.estado === 'supuesto' ? '#8a5a00' : '#555'
+                          }}
+                          title={
+                            f.pack.estado === 'conflicto'
+                              ? 'Las fuentes no coinciden. Se decide en Inventario de PT > Detalle de la orden.'
+                              : f.pack.estado === 'supuesto'
+                              ? 'Ninguna fuente dice el pack: se cuenta como suelto. Se confirma en Inventario de PT > Detalle.'
+                              : undefined
+                          }
+                        >
+                          {textoPack(f.pack)}
+                        </div>
+                      )}
+                    </td>
                     <td>
                       <input
                         type="text"
@@ -475,9 +498,9 @@ export default function PanelEmbarcarPL() {
                       {f.cierre.sinEquivalencia ? (
                         <span
                           className="texto-suave"
-                          title="El plan esta en docenas y la descripcion no dice de cuantos pares es el pack: convertirlo seria inventarlo"
+                          title="El plan esta en docenas y las fuentes no coinciden en cuantos pares trae el pack: convertirlo seria inventarlo"
                         >
-                          {f.cantidadPlan > 0 ? f.cantidadPlan + ' doc. sin convertir' : 'sin plan'}
+                          {f.cantidadPlan > 0 ? f.cantidadPlan + ' doc. sin convertir (pack en conflicto)' : 'sin plan'}
                         </span>
                       ) : f.cierre.porcentaje == null ? (
                         <span className="texto-suave">sin plan</span>

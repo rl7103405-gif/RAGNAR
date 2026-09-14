@@ -36,6 +36,18 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-14-02',
+    fecha: '2026-09-14',
+    tipo: 'mejorado',
+    titulo: 'Inventario de PT y PL: ya se pasa de packs a docenas',
+    detalle:
+      'RAGNAR ya sabe cuántos pares trae el pack de cada código: lo toma del artículo de Microsip, del pedido del plan '
+      + 'o del tech pack. Por eso Embarcado, Pendiente y En bodega ya salen en docenas. Si las fuentes no coinciden, dice '
+      + '"pack en conflicto" y no convierte; si ninguna lo dice, lo cuenta como suelto (1 par) y lo marca como supuesto. '
+      + 'Valeria y Cielo lo deciden o lo confirman en Inventario de PT > Detalle de la orden > columna Pack, y se puede '
+      + 'aplicar a todos los códigos del mismo modelo de una vez.'
+  },
+  {
     id: '2026-09-14-01',
     fecha: '2026-09-14',
     tipo: 'mejorado',

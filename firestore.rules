@@ -1466,6 +1466,40 @@ service cloud.firestore {
         && d.esPrueba == esCuentaDePrueba();
     }
 
+    // PARES POR PACK decididos A MANO (Roberto, 14-sep): cuando Microsip, el
+    // pedido y el tech pack no coinciden, o ninguno dice pack y el "suelto"
+    // supuesto esta mal. Lo decide Producto Terminado (Valeria) o consulta
+    // (Cielo); admin tambien. Se corrige, no se borra: cada escritura deja el
+    // valor anterior en 'anterior'. ID = codigo (+ '__prueba' en el corral).
+    match /packsManuales/{id} {
+      allow read: if esInterno();
+      allow create: if packManualValido(id) && request.resource.data.anterior == null;
+      allow update: if packManualValido(id)
+        && request.resource.data.anterior is map
+        && request.resource.data.anterior.keys().hasOnly(['pares', 'porNombre', 'en'])
+        && request.resource.data.anterior.pares == resource.data.pares
+        && request.resource.data.anterior.porNombre == resource.data.porNombre
+        && request.resource.data.anterior.en == resource.data.en;
+      allow delete: if false;
+    }
+
+    function packManualValido(id) {
+      let yo = perfilResumido();
+      let d = request.resource.data;
+      return yo.interno && yo.rol in ['pt', 'consulta', 'admin']
+        && d.keys().hasAll(['codigo', 'modelo', 'pares', 'nota', 'porUid', 'porNombre', 'en', 'esPrueba', 'anterior'])
+        && d.keys().hasOnly(['codigo', 'modelo', 'pares', 'nota', 'porUid', 'porNombre', 'en', 'esPrueba', 'anterior'])
+        && d.codigo is string && d.codigo.matches('^[A-Z0-9][A-Z0-9._ -]{0,59}$')
+        && id == d.codigo + (yo.esPrueba ? '__prueba' : '')
+        && d.modelo is string && d.modelo.size() <= 80
+        && d.pares is int && d.pares >= 1 && d.pares <= 24
+        && d.nota is string && d.nota.size() <= 200
+        && d.porUid == request.auth.uid
+        && d.porNombre is string && d.porNombre.size() > 0 && d.porNombre == yo.nombre
+        && d.en == request.time
+        && d.esPrueba == yo.esPrueba;
+    }
+
     match /recepcionesPT/{recepcionId} {
       allow read: if esInterno();
       allow create: if esInterno()
