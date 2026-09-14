@@ -2531,7 +2531,13 @@ service cloud.firestore {
         && d.notas is string
         && d.notas.size() <= 300
         && d.estado in ['preparando', 'abierta', 'iniciada', 'declarada', 'terminada', 'cancelada']
-        && (d.techPack == null || (
+        // El manifiesto se revalida solo cuando CAMBIA: en un update que no lo
+        // toca (la maquila declarando, Quini cerrando) ya se valido al
+        // escribirse, y estas ~20 expresiones eran las que dejaban la ruta de
+        // la maquila a ~26 del tope (pentester, 14-sep).
+        && (d.techPack == null
+            || (request.method == 'update' && d.techPack == resource.data.get('techPack', null))
+            || (
               d.techPack.keys().hasAll(['nombre', 'formato', 'tamano', 'totalChunks', 'sha256', 'subidoEn'])
               && d.techPack.keys().hasOnly(['nombre', 'formato', 'tamano', 'totalChunks', 'sha256', 'subidoEn'])
               && d.techPack.nombre is string
@@ -2686,7 +2692,12 @@ service cloud.firestore {
                   'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion',
                   'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'ot',
                   'fechaRequerida', 'fechaRequeridaCambiadaEn', 'fechaRequeridaCambiadaPorUid',
-                  'fechaRequeridaCambiadaPorNombre'])
+                  'fechaRequeridaCambiadaPorNombre',
+                  // Lo que la maquila DECLARO entregar es suyo (de ahi cuelga
+                  // lo que cobra): Quini no lo siembra ni lo pone en ceros
+                  // (pentester, 14-sep). Y el sello del barrido del archivo
+                  // tiene su propia rama, que lo fija con la hora del servidor.
+                  'entregaDeclarada', 'techPackBorradoEn'])
             // 'publicadaEn' se fija UNA vez (al publicar) y ya no se borra:
             // si se pudiera quitar, una tarea ya entregada desapareceria del
             // portal de la maquila sin rastro.
@@ -2849,14 +2860,18 @@ service cloud.firestore {
       // una de prueba a una maquila real seria filtrarle el documento de un
       // cliente. Solo a la ficticia.
       allow create: if puedeCrearTareaEnsamble(maquilaId, tareaId);
-      // ---- Lo que hace QUINI (Lindbergh o el admin) ----
-      allow update: if puedeEditarTareaEnsambleQuini(maquilaId, tareaId);
       // ---- Lo que hace la MAQUILA: reportar su avance ----
       // Tres transiciones, cada una con su diff exacto. La maquila NUNCA toca
       // el encargo (titulo, renglones, notas), ni el tech pack, ni las firmas
       // de Quini: dar 'allow update sobre su propio documento' sin acotar deja
       // reescribirlo entero (es la lección que dejaron las tareas internas,
       // donde la persona asignada podía bajarse la meta a 0.01).
+      // ⚠️ ORDEN MEDIDO (14-sep): el motor evalua los allow en orden y el que
+      // falla primero le cobra al otro sus expresiones (perfilResumido se
+      // relee). Con Quini primero: maquila declara ~30 de margen, Quini
+      // publica ~68. Con la maquila primero: 69 y 12. Se deja Quini primero;
+      // el margen real esta en adelgazar perfilResumido, no en el orden.
+      allow update: if puedeEditarTareaEnsambleQuini(maquilaId, tareaId);
       allow update: if puedeReportarLaMaquila(maquilaId);
       allow delete: if false;
     }
