@@ -44,7 +44,9 @@ export function paresEnTexto(texto) {
   if (!t) return null
   // El numero no puede venir pegado a otro digito ("12345PACK" no es un pack)
   // y PACK/PAK/PK no puede seguir de otra letra ("PKG", "PACKING").
-  const m = /(?:^|[^0-9])(\d{1,2})\s*-?\s*(?:PACK|PAK|PK)(?![A-Z])/.exec(t)
+  // Tampoco puede venir tras un punto ("3.5 PACK" no son 5 pares). "PACKS"
+  // en plural cuenta igual.
+  const m = /(?:^|[^0-9.])(\d{1,2})\s*-?\s*(?:PACK|PAK|PK)S?(?![A-Z])/.exec(t)
   if (m) {
     const n = Number(m[1])
     return paresValidos(n) ? n : null

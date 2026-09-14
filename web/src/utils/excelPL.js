@@ -114,6 +114,12 @@ export async function generarExcelPL({ oc, entregas, plan }) {
   // El porcentaje como porcentaje, no como 0.96875.
   const colPct = 7 + numeros.length
   for (let i = primeraFila; i <= ultimaFila; i++) h.getCell(i, colPct).numFmt = '0.0%'
+  // TOTAL PEDIDO y FALTANTE vienen exactos (docenas x 12 / pares por pack):
+  // cuando no dan packs completos se ven con dos decimales, no con quince.
+  for (let i = primeraFila; i <= ultimaFila; i++) {
+    h.getCell(i, 4).numFmt = '0.##'
+    h.getCell(i, colPct - 1).numFmt = '0.##'
+  }
 
   // ---- TOTALES por fórmula, con su resultado guardado ---------------------
   //
