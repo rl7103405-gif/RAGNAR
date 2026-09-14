@@ -70,6 +70,13 @@ const techPacksPrueba = await db.collection('techPacks').where('esPrueba', '==',
 // documento, no por uid de quien lo creo.
 const encargosDisenoPrueba = await db.collection('encargosDiseno').where('esPrueba', '==', true).get()
 const asignacionesDisenoPrueba = await db.collection('asignacionesDiseno').where('esPrueba', '==', true).get()
+// packsManuales (2026-09-14): pares por pack decididos a mano; el corral va en el
+// campo esPrueba Y en el sufijo __prueba del id (las reglas exigen los dos). Cada
+// documento trae la subcoleccion historial (recursiveDelete).
+const packsManualesPrueba = (await db.collection('packsManuales').where('esPrueba', '==', true).get()).docs.filter((d) => d.id.endsWith('__prueba'))
+// entregasPL (2026-09-02): actas del PL al cliente; corral por campo esPrueba y
+// sufijo __prueba en el id.
+const entregasPlPrueba = (await db.collection('entregasPL').where('esPrueba', '==', true).get()).docs.filter((d) => d.id.endsWith('__prueba'))
 if (
   perfilesPrueba.empty &&
   maquilasPrueba.empty &&
@@ -416,6 +423,14 @@ if (apartadosPrueba.length) {
   total += apartadosPrueba.length
   console.log(`  ${String(apartadosPrueba.length).padStart(5)}  apartados de ordenes de trabajo del mundo de prueba (otsAsignadas)`)
 }
+if (packsManualesPrueba.length) {
+  total += packsManualesPrueba.length
+  console.log(`  ${String(packsManualesPrueba.length).padStart(5)}  pares por pack decididos a mano en el corral, con su historial (packsManuales)`)
+}
+if (entregasPlPrueba.length) {
+  total += entregasPlPrueba.length
+  console.log(`  ${String(entregasPlPrueba.length).padStart(5)}  entregas al cliente de prueba (entregasPL)`)
+}
 
 console.log('\nSE LISTA PERO NO SE BORRA (decide tu):')
 console.log(`  ${String(cargasRuteoDudosas.length).padStart(5)}  registros de carga de Excel firmados por una cuenta de prueba (cargasRuteo)`)
@@ -613,6 +628,13 @@ for (const d of asignacionesDisenoPrueba.docs) {
 
 // encargosDiseno de prueba: sin subcoleccion propia, se van en lote.
 await borrar(encargosDisenoPrueba.docs, 'encargo(s) de diseno de prueba (encargosDiseno)')
+
+// packsManuales del corral: recursiveDelete se lleva el historial.
+for (const d of packsManualesPrueba) {
+  await db.recursiveDelete(d.ref)
+}
+if (packsManualesPrueba.length) console.log(`  ${packsManualesPrueba.length} pack(s) decididos a mano borrados con su historial (packsManuales)`)
+await borrar(entregasPlPrueba, 'entregas al cliente de prueba (entregasPL)')
 
 // Los apartados de prueba. Van DESPUES del portal: si se borraran antes, las
 // tareas de prueba todavia vivas quedarian un instante sin su apartado.
