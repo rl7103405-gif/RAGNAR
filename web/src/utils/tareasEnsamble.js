@@ -596,12 +596,44 @@ export async function iniciarTareaEnsamble({ maquilaId, tareaId, usuario }) {
  * La alternativa seria obligar a picar "empece" antes, y eso deja atorada a
  * quien se le olvido.
  */
-export async function declararTareaEnsambleTerminada({ maquilaId, tarea, usuario, nota }) {
+/**
+ * Lo que la maquila dice que entrega, limpio y acotado para guardarse en la
+ * tarea: { bultos, renglones: [{ codigo, packs, docenas, caja, observaciones }] }.
+ * Numeros invalidos quedan en null (nunca en 0: un cero diria "no entregue").
+ */
+export function limpiarEntregaDeclarada({ renglones, entrega, bultos }) {
+  const num = (v) => {
+    if (v === '' || v == null) return null
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+  return {
+    bultos: num(bultos) == null ? null : Math.trunc(num(bultos)),
+    renglones: (renglones || []).slice(0, 60).map((r) => {
+      const cap = (entrega || {})[r.codigo] || {}
+      return {
+        codigo: String(r.codigo || '').slice(0, 60),
+        packs: num(cap.packs) == null ? null : Math.trunc(num(cap.packs)),
+        docenas: num(cap.docenas),
+        caja: String(cap.caja || '').trim().slice(0, 10),
+        observaciones: String(cap.observaciones || '').trim().slice(0, 60)
+      }
+    })
+  }
+}
+
+export async function declararTareaEnsambleTerminada({ maquilaId, tarea, usuario, nota, entregaDeclarada }) {
   if (!usuario?.nombre) throw new ErrorTareaEnsamble('Tu cuenta no tiene nombre configurado.')
+  if (tarea.estado === 'declarada') {
+    throw new ErrorTareaEnsamble('Esta tarea ya la declaraste terminada: solo puedes volver a imprimir tu remision o retirar el aviso.')
+  }
   const notaLimpia = String(nota || '').trim().slice(0, 300)
   const sinIniciar = tarea.estado === 'abierta'
   await updateDoc(refTarea(maquilaId, tarea.id), {
     estado: 'declarada',
+    // Se guarda lo declarado (antes solo iba al PDF): Quini lo ve y la
+    // maquila puede reimprimir sin recapturar. Las reglas exigen el mapa.
+    entregaDeclarada: entregaDeclarada && typeof entregaDeclarada === 'object' ? entregaDeclarada : { bultos: null, renglones: [] },
     ...(sinIniciar
       ? {
           iniciadaEn: serverTimestamp(),
@@ -628,7 +660,8 @@ export async function retirarDeclaracionTareaEnsamble({ maquilaId, tareaId }) {
     declaradaEn: null,
     declaradaPorUid: null,
     declaradaPorNombre: null,
-    notaMaquila: null
+    notaMaquila: null,
+    entregaDeclarada: null
   })
 }
 

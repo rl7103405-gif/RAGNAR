@@ -36,6 +36,19 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-14-03',
+    fecha: '2026-09-14',
+    tipo: 'corregido',
+    titulo: 'Maquilas: pegar el tech pack ya no deja la tarea invisible; la maquila puede reimprimir su remisión',
+    detalle:
+      'Al pegar o subir el tech pack a una tarea que ya tenía orden de trabajo y fecha, el servidor rechazaba el '
+      + 'último paso sin decir nada y la tarea quedaba sin publicar (la maquila dejaba de verla). Ya no pasa, y si '
+      + 'una subida falla, la tarea vuelve a quedar como estaba y la pantalla lo dice. En el portal de la maquila: '
+      + 'lo que anota al terminar (packs, docenas, bultos) ahora se guarda en la tarea, "Volver a imprimir mi '
+      + 'remisión" ya no truena, el avance se compara en la misma unidad en que se pidió (docenas o packs) y el '
+      + 'formulario cabe en pantallas chicas.'
+  },
+  {
     id: '2026-09-14-02',
     fecha: '2026-09-14',
     tipo: 'mejorado',

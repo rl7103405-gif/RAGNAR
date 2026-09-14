@@ -2401,21 +2401,9 @@ service cloud.firestore {
     // firmarlo a nombre de la maquila -- y de esa fecha sale cuanto tardo en
     // armar, que es lo que despues va a pagar. Que nadie pueda fabricar el
     // numero que le conviene es justo el punto de medirlo.
-    function reporteDeLaMaquilaIntacto() {
-      let n = request.resource.data;
-      let v = resource.data;
-      return n.get('iniciadaEn', null) == v.get('iniciadaEn', null)
-        && n.get('iniciadaPorUid', null) == v.get('iniciadaPorUid', null)
-        && n.get('iniciadaPorNombre', null) == v.get('iniciadaPorNombre', null)
-        && n.get('declaradaEn', null) == v.get('declaradaEn', null)
-        && n.get('declaradaPorUid', null) == v.get('declaradaPorUid', null)
-        && n.get('declaradaPorNombre', null) == v.get('declaradaPorNombre', null)
-        && n.get('notaMaquila', null) == v.get('notaMaquila', null)
-        && n.get('devueltaEn', null) == v.get('devueltaEn', null)
-        && n.get('devueltaPorUid', null) == v.get('devueltaPorUid', null)
-        && n.get('devueltaPorNombre', null) == v.get('devueltaPorNombre', null)
-        && n.get('motivoDevolucion', null) == v.get('motivoDevolucion', null);
-    }
+    // (2026-09-14: la funcion reporteDeLaMaquilaIntacto() que vivia aqui se
+    // sustituyo por el diff().affectedKeys().hasAny([...]) de la rama (1) de
+    // puedeEditarTareaEnsambleQuini: mismo candado, una fraccion del costo.)
 
     // ¿La terna quien/cuando de una firma esta COMPLETA o completamente
     // vacia? Nunca a medias: una firma con fecha y sin nombre (o al reves) es
@@ -2449,8 +2437,8 @@ service cloud.firestore {
     // de las 1,000 expresiones que Firestore permite por peticion, y por eso
     // Lindbergh no podia ponerle fecha ni CANCELAR una tarea con orden de
     // trabajo (se veia como "insufficient permissions"). En el update de Quini
-    // que reedita la tarea NO hacen falta: reporteDeLaMaquilaIntacto() ya
-    // exige que esas mismas firmas queden IDENTICAS a como estaban, y el
+    // que reedita la tarea NO hacen falta: el diff().affectedKeys() de esa
+    // rama exige que esas mismas firmas queden IDENTICAS a como estaban, y el
     // documento anterior ya paso por aqui cuando se escribio. Las dos ramas de
     // Quini que SI mueven una firma (devolver y cambiar la fecha) fijan cada
     // campo a mano, que es mas estricto; la maquila sigue pasando por aqui con
@@ -2466,7 +2454,7 @@ service cloud.firestore {
       // habria obligado a migrar todos los documentos ANTES de poder tocar
       // ninguno.
       return d.keys().hasAll(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn'])
-        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion', 'ot', 'destino', 'fechaRequerida', 'fechaRequeridaCambiadaEn', 'fechaRequeridaCambiadaPorUid', 'fechaRequeridaCambiadaPorNombre'])
+        && d.keys().hasOnly(['maquilaId', 'titulo', 'renglones', 'notas', 'estado', 'techPack', 'publicadaEn', 'creadoPorUid', 'creadoPorNombre', 'creadoEn', 'terminadaEn', 'terminadaPorUid', 'terminadaPorNombre', 'techPackBorradoEn', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'devueltaEn', 'devueltaPorUid', 'devueltaPorNombre', 'motivoDevolucion', 'ot', 'destino', 'fechaRequerida', 'fechaRequeridaCambiadaEn', 'fechaRequeridaCambiadaPorUid', 'fechaRequeridaCambiadaPorNombre', 'entregaDeclarada'])
         // El amarre con el plan maestro (2026-08-18): 'ot' es la orden de
         // trabajo que esta tarea trabaja y 'destino' a quien va ('Modular
         // Walmart Jun-Sep'). Opcionales y leidos con get(...,null): las tareas
@@ -2685,9 +2673,10 @@ service cloud.firestore {
             // y Firestore lo devolvia como "permiso negado": el archivo subia
             // completo y la tarea se quedaba en 'preparando', invisible para
             // la maquila (lo reprodujo el usuario-real con demo_tareas y se
-            // midio con el motor real). Todas las escrituras de Quini son
-            // updateDoc parciales, asi que affectedKeys dice exactamente lo
-            // que se toco. Lo intocable: el reporte de la maquila (sus firmas,
+            // midio con el motor real). affectedKeys son las llaves que
+            // CAMBIAN en el resultado (agregadas, quitadas o con otro valor);
+            // escribir el mismo valor no cuenta, y agregar una llave con null
+            // donde no habia SI cuenta (mas estricto que antes). Lo intocable: el reporte de la maquila (sus firmas,
             // su nota y el motivo de devolucion), quien creo la tarea, la
             // ORDEN DE TRABAJO (su apartado se escribio con ella) y la
             // PRIORIDAD (tiene su propia rama, que la sella con nombre).
@@ -2901,8 +2890,13 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['estado', 'iniciadaEn', 'iniciadaPorUid', 'iniciadaPorNombre',
                            'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila',
-                           'motivoDevolucion'])
+                           'motivoDevolucion', 'entregaDeclarada'])
             && request.resource.data.estado == 'declarada'
+            // LO QUE DICE QUE ENTREGA (packs, docenas, bultos por renglon) se
+            // guarda en la tarea, no solo en el PDF: asi Quini lo ve y la
+            // maquila puede volver a imprimir su remision sin recapturar.
+            // Antes solo viajaba al papel (usuario-real, 14-sep).
+            && request.resource.data.get('entregaDeclarada', null) is map
             // Al volver a declarar se SALDA la devolucion anterior: el motivo
             // deja de estar pendiente porque ya se respondio. Solo se puede
             // limpiar (nunca escribir otro), y el rastro de QUIEN la devolvio
@@ -2933,11 +2927,12 @@ service cloud.firestore {
           // la haya confirmado ni devuelto. El 'iniciadaEn' se conserva.
           ( resource.data.estado == 'declarada'
             && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['estado', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila'])
+                 .hasOnly(['estado', 'declaradaEn', 'declaradaPorUid', 'declaradaPorNombre', 'notaMaquila', 'entregaDeclarada'])
             && request.resource.data.estado == 'iniciada'
             && request.resource.data.declaradaEn == null
             && request.resource.data.declaradaPorUid == null
-            && request.resource.data.declaradaPorNombre == null )
+            && request.resource.data.declaradaPorNombre == null
+            && request.resource.data.get('entregaDeclarada', null) == null )
         );
     }
 

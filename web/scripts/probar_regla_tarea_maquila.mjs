@@ -137,14 +137,28 @@ const ESCENARIOS = {
   'maquila-termina': {
     que: 'HUGO declara terminada la tarea',
     request: { auth: { uid: HUGO_UID }, method: 'update', path: P_TAREA, time: T,
-      resource: doc({ ...conOt, estado: 'declarada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto, declaradaEn: T, declaradaPorUid: HUGO_UID, declaradaPorNombre: HUGO.nombreCompleto }) },
+      resource: doc({ ...conOt, estado: 'declarada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto, declaradaEn: T, declaradaPorUid: HUGO_UID, declaradaPorNombre: HUGO.nombreCompleto, entregaDeclarada: { bultos: 2, renglones: [{ codigo: '6813-K', packs: 120, docenas: 30, caja: 'C-01', observaciones: '' }] } }) },
     resource: doc({ ...conOt, estado: 'iniciada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto }),
+    functionMocks: hugoMocks
+  },
+  'maquila-retira': {
+    que: 'HUGO retira su declaracion ("me equivoque, sigo trabajando"): lo declarado se limpia',
+    request: { auth: { uid: HUGO_UID }, method: 'update', path: P_TAREA, time: T,
+      resource: doc({ ...conOt, estado: 'iniciada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto, declaradaEn: null, declaradaPorUid: null, declaradaPorNombre: null, entregaDeclarada: null }) },
+    resource: doc({ ...conOt, estado: 'declarada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto, declaradaEn: T, declaradaPorUid: HUGO_UID, declaradaPorNombre: HUGO.nombreCompleto, entregaDeclarada: { bultos: 2, renglones: [] } }),
+    functionMocks: hugoMocks
+  },
+  'neg-maquila-redeclara': {
+    expectation: 'DENY', que: 'NEG: HUGO vuelve a declarar una tarea ya declarada (la app ahora solo reimprime)',
+    request: { auth: { uid: HUGO_UID }, method: 'update', path: P_TAREA, time: T,
+      resource: doc({ ...conOt, estado: 'declarada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto, declaradaEn: T, declaradaPorUid: HUGO_UID, declaradaPorNombre: HUGO.nombreCompleto, entregaDeclarada: { bultos: 3, renglones: [] } }) },
+    resource: doc({ ...conOt, estado: 'declarada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto, declaradaEn: '2026-09-10T17:00:00Z', declaradaPorUid: HUGO_UID, declaradaPorNombre: HUGO.nombreCompleto, entregaDeclarada: { bultos: 2, renglones: [] } }),
     functionMocks: hugoMocks
   },
   'pegar-techpack': {
     que: 'LINDBERGH sube un pedazo del tech pack a la tarea (en preparando)',
     request: { auth: { uid: LIN.uid }, method: 'create', path: P_TAREA + '/techPackChunks/00', time: T,
-      resource: doc({ maquilaId: 'hugo_martinez', datos: 'AAECAwQ=' }) },
+      resource: doc({ maquilaId: 'hugo_martinez', datos: { bytesValue: 'AAECAwQ=' } }) },
     functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ), mGet(P_TAREA, { ...conOt, estado: 'preparando' })]
   },
   'publicar-techpack-ot-fecha': {

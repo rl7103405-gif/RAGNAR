@@ -19,6 +19,7 @@ import {
   ESTADOS_EN_LA_MAQUILA,
   declararTareaEnsambleTerminada,
   escucharTareasEnsambleDeMaquila,
+  limpiarEntregaDeclarada,
   iniciarTareaEnsamble,
   retirarDeclaracionTareaEnsamble
 } from '../utils/tareasEnsamble'
@@ -179,7 +180,21 @@ export default function TareasEnsambleMaquila() {
     setAviso('')
     setTrabajando(t.id)
     try {
-      await declararTareaEnsambleTerminada({ maquilaId, tarea: t, usuario: usuario(), nota })
+      // Ya declarada: solo se REIMPRIME con lo que se ve en el formulario. No
+      // se toca la base (las reglas tampoco lo dejarian).
+      if (t.estado === 'declarada') {
+        onDescargarRemision(t)
+        setAviso(`Se volvio a descargar la remision de "${t.titulo}".`)
+        setDeclarando(null)
+        return
+      }
+      await declararTareaEnsambleTerminada({
+        maquilaId,
+        tarea: t,
+        usuario: usuario(),
+        nota,
+        entregaDeclarada: limpiarEntregaDeclarada({ renglones: t.renglones, entrega, bultos })
+      })
       // La remision sale JUNTO con el aviso: es el papel que viaja con la
       // mercancia. Si falla el PDF, la tarea YA quedo declarada — se avisa y
       // se puede volver a descargar desde la tarjeta.
@@ -418,12 +433,24 @@ export default function TareasEnsambleMaquila() {
             <button
               className="btn-secundario"
               onClick={() => {
+                // Lo declarado ya esta guardado en la tarea: se precarga tal
+                // cual y solo se vuelve a imprimir, sin reescribir nada (las
+                // reglas no dejan declarar dos veces, y antes esto tronaba con
+                // "permisos" y le echaba la culpa a Quini).
+                const e = t.entregaDeclarada || {}
+                const precarga = {}
+                for (const r of e.renglones || []) {
+                  precarga[r.codigo] = { packs: r.packs ?? '', docenas: r.docenas ?? '', caja: r.caja || '', observaciones: r.observaciones || '' }
+                }
+                setEntrega(precarga)
+                setBultos(e.bultos == null ? '' : String(e.bultos))
+                setNota(t.notaMaquila || '')
                 setDeclarando(t)
-                setAviso('Vuelve a anotar lo que entregaste y descarga la remision otra vez.')
+                setAviso('')
               }}
               style={{ marginRight: 8 }}
             >
-              Volver a generar mi remision
+              Volver a imprimir mi remision
             </button>
           )}
           {t.estado === 'declarada' && (
@@ -503,10 +530,18 @@ export default function TareasEnsambleMaquila() {
               padding: 20,
               width: '100%',
               maxWidth: 460,
+              // En una laptop chica el formulario no cabia y el boton de
+              // guardar quedaba fuera de la pantalla sin forma de llegarle
+              // (Lindbergh tuvo que hacer ctrl + rueda, junta 14-sep).
+              maxHeight: '92vh',
+              overflowY: 'auto',
               boxShadow: '0 10px 40px rgba(0,0,0,.25)'
             }}
           >
-            <h3 style={{ marginTop: 0 }}>Ya termine: {declarando.titulo}</h3>
+            <h3 style={{ marginTop: 0 }}>
+              {declarando.estado === 'declarada' ? 'Volver a imprimir: ' : 'Ya termine: '}
+              {declarando.titulo}
+            </h3>
             <p className="texto-suave" style={{ fontSize: 13 }}>
               Anota <strong>lo que de verdad vas a entregar</strong>. Con esto se genera tu remision
               (el papel que va con la mercancia y con el que cobras), y Quini la confirma al recibir.
@@ -520,14 +555,20 @@ export default function TareasEnsambleMaquila() {
               // Avance del CONJUNTO: es lo que Roberto pidio ver — "el
               // porcentaje de lo que te pidieron". Suma packs capturados
               // contra packs pedidos de toda la tarea.
+              // Se compara EN LA UNIDAD EN QUE SE PIDIO: si la tarea vino en
+              // docenas se suman las docenas anotadas, si vino en packs, los
+              // packs. Antes sumaba siempre packs contra una meta en docenas
+              // y pintaba "300 de 134 · 224 %" en verde (usuario-real, 14-sep).
+              const enDocenas = (r) => String(r.unidad || '').toLowerCase().startsWith('doc')
               const pedidos = (declarando.renglones || []).reduce(
                 (a, r) => a + (Number(r.cantidad) || 0),
                 0
               )
               const puestos = (declarando.renglones || []).reduce(
-                (a, r) => a + (Number(entrega[r.codigo]?.packs) || 0),
+                (a, r) => a + (Number(entrega[r.codigo]?.[enDocenas(r) ? 'docenas' : 'packs']) || 0),
                 0
               )
+              const unidad = (declarando.renglones || []).some(enDocenas) ? 'docenas' : 'packs'
               if (pedidos <= 0) return null
               const pct = Math.round((puestos / pedidos) * 100)
               return (
@@ -540,7 +581,7 @@ export default function TareasEnsambleMaquila() {
                   }}
                 >
                   <div style={{ fontSize: 15 }}>
-                    Vas a entregar <strong>{puestos}</strong> de <strong>{pedidos}</strong>{' '}
+                    Vas a entregar <strong>{puestos}</strong> de <strong>{pedidos}</strong> {unidad}{' '}
                     · <strong style={{ color: pct >= 100 ? '#1a7a3a' : '#8a5a00' }}>{pct}%</strong>
                   </div>
                   <div
@@ -588,7 +629,9 @@ export default function TareasEnsambleMaquila() {
                         le falto una caja. Comparar packs contra lo pedido solo
                         tiene sentido si la tarea se pidio en packs. */}
                     {(() => {
-                      const puestos = Number(entrega[r.codigo]?.packs)
+                      // Misma unidad que lo pedido (docenas o packs).
+                      const campo = String(r.unidad || '').toLowerCase().startsWith('doc') ? 'docenas' : 'packs'
+                      const puestos = Number(entrega[r.codigo]?.[campo])
                       const pedidos = Number(r.cantidad)
                       if (!Number.isFinite(puestos) || puestos <= 0) return null
                       if (!Number.isFinite(pedidos) || pedidos <= 0) return null
@@ -681,7 +724,11 @@ export default function TareasEnsambleMaquila() {
                 onClick={onDeclarar}
                 style={{ background: '#16a34a' }}
               >
-                {trabajando === declarando.id ? 'Guardando...' : 'Ya termine y generar remision'}
+                {trabajando === declarando.id
+                  ? 'Guardando...'
+                  : declarando.estado === 'declarada'
+                    ? 'Descargar la remision otra vez'
+                    : 'Ya termine y generar remision'}
               </button>
             </div>
           </div>
