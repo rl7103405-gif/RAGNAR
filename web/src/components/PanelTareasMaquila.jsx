@@ -101,7 +101,9 @@ export default function PanelTareasMaquila() {
     const motivo =
       err?.code === 'permission-denied'
         ? 'el servidor rechazo la publicacion (no es tu internet). Avisale a Roberto con el nombre de la tarea.'
-        : (err?.message || String(err))
+        : ['unavailable', 'deadline-exceeded', 'cancelled'].includes(err?.code) || /offline|network/i.test(err?.message || '')
+          ? 'se corto la conexion a internet a medio subir. Vuelve a intentarlo cuando tengas senal.'
+          : (err?.message || String(err))
     setError(
       `No se pudo subir el tech pack de "${tarea.titulo}": ${motivo} ` +
         (reabierta

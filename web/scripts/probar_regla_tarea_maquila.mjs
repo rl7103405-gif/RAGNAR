@@ -155,10 +155,21 @@ const ESCENARIOS = {
     resource: doc({ ...conOt, estado: 'declarada', publicadaEn: T, iniciadaEn: T, iniciadaPorUid: HUGO_UID, iniciadaPorNombre: HUGO.nombreCompleto, declaradaEn: '2026-09-10T17:00:00Z', declaradaPorUid: HUGO_UID, declaradaPorNombre: HUGO.nombreCompleto, entregaDeclarada: { bultos: 2, renglones: [] } }),
     functionMocks: hugoMocks
   },
-  'pegar-techpack': {
-    que: 'LINDBERGH sube un pedazo del tech pack a la tarea (en preparando)',
+  // ⚠️ La API :test NO puede representar un campo `bytes` (probado el 14-sep con
+  // string, {bytesValue}, Buffer y arreglo: todos llegan como string y
+  // `datos is bytes` da false). El positivo de subir un pedazo NO se puede
+  // probar por aqui (en vivo si sube: el SDK manda Bytes de verdad). Se
+  // cubre la autorizacion con dos negativos que no dependen del tipo.
+  'neg-pegar-techpack-abierta': {
+    expectation: 'DENY', que: 'NEG: subir un pedazo del tech pack a una tarea que NO esta en preparando',
     request: { auth: { uid: LIN.uid }, method: 'create', path: P_TAREA + '/techPackChunks/00', time: T,
-      resource: doc({ maquilaId: 'hugo_martinez', datos: { bytesValue: 'AAECAwQ=' } }) },
+      resource: doc({ maquilaId: 'hugo_martinez' }) },
+    functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ), mGet(P_TAREA, { ...conOt, estado: 'abierta', publicadaEn: T })]
+  },
+  'neg-pegar-techpack-sin-datos': {
+    expectation: 'DENY', que: 'NEG: un pedazo sin el campo datos (en preparando)',
+    request: { auth: { uid: LIN.uid }, method: 'create', path: P_TAREA + '/techPackChunks/00', time: T,
+      resource: doc({ maquilaId: 'hugo_martinez' }) },
     functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ), mGet(P_TAREA, { ...conOt, estado: 'preparando' })]
   },
   'publicar-techpack-ot-fecha': {
