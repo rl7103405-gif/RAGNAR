@@ -1520,6 +1520,10 @@ service cloud.firestore {
         && h.porUid == request.auth.uid && p.porUid == request.auth.uid
         && h.porNombre == p.porNombre
         && h.en == request.time
+        // El padre tiene que haberse escrito EN ESTA transaccion (su 'en' es
+        // la hora del servidor): sin esto, quien firmo la ultima revision
+        // podria sembrar aparte un renglon copiado del estado vigente.
+        && p.en == request.time
         && h.esPrueba == p.esPrueba;
     }
 

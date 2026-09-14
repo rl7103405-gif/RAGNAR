@@ -484,6 +484,11 @@ Object.assign(ESCENARIOS, {
     request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc(PACK_NUEVO(PT)) },
     functionMocks: [...perfilMocks([{ ...PT, maquilaId: 'MAQ1' }]), ...conHistorial(P_PACK)]
   },
+  'neg-pack-historial-huerfano': {
+    expectation: 'DENY', que: 'NEG: sembrar aparte un renglon de historial copiado del padre vigente (padre NO escrito en esta transaccion)',
+    request: { auth: { uid: CONSULTA.uid }, method: 'create', path: P_PACK + '/historial/2', time: T, resource: doc(HIST_PACK({ ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } })) },
+    functionMocks: [...perfilMocks([CONSULTA]), mAfter(P_PACK, { ...{ ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }, en: '2026-09-09T20:00:00Z' })]
+  },
   'neg-create-nombre-falso': {
     expectation: 'DENY', que: 'NEG: dar de alta un codigo firmando el creador con otro nombre',
     request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc({ ...TP_NUEVO, creadoPorNombre: 'Roberto Linares' }) },
