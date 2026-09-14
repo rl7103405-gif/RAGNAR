@@ -49,6 +49,7 @@ const doc = (d) => ({ data: d })
 const mGet = (path, d) => ({ function: 'get', args: [{ exactValue: path }], result: { value: doc(d) } })
 const mAfter = (path, d) => ({ function: 'getAfter', args: [{ exactValue: path }], result: { value: doc(d) } })
 const mExists = (path, si = true) => ({ function: 'exists', args: [{ exactValue: path }], result: { value: si } })
+const mExistsAfter = (path, si = true) => ({ function: 'existsAfter', args: [{ exactValue: path }], result: { value: si } })
 
 // ---------- datos reales del corral (solo lectura)
 const jefaSnap = (await db.collection('usuarios').where('empleadoId', '==', 'demo_diseno').limit(1).get()).docs[0]
@@ -105,8 +106,13 @@ const P_ENC = DBPATH + '/encargosDiseno/' + ENCARGO.id
 const P_ASIG = DBPATH + '/asignacionesDiseno/' + ASIG_ID
 const P_TP = DBPATH + '/techPacks/' + TP.codigo
 const P_PACK = DBPATH + '/packsManuales/7736-J__prueba'
-const PACK_NUEVO = (u) => ({ codigo: '7736-J', modelo: 'WKD225T401', pares: 3, nota: 'lo dice Microsip y el pedido', porUid: u.uid, porNombre: u.nombreCompleto, en: T, esPrueba: true, anterior: null })
+const PACK_NUEVO = (u) => ({ codigo: '7736-J', modelo: 'WKD225T401', pares: 3, nota: 'lo dice Microsip y el pedido', porUid: u.uid, porNombre: u.nombreCompleto, en: T, esPrueba: true, anterior: null, revision: 1 })
 const PACK_PREVIO = { ...PACK_NUEVO(PT), en: '2026-09-09T20:00:00Z' }
+// El renglon de historial que acompana cada escritura (packsManuales/{id}/historial/{revision}).
+const HIST_PACK = (d) => ({ revision: d.revision, codigo: d.codigo, pares: d.pares, nota: d.nota, porUid: d.porUid, porNombre: d.porNombre, en: T, esPrueba: d.esPrueba })
+const conHistorial = (path) => [mExistsAfter(path + '/historial/1'), mExistsAfter(path + '/historial/2')]
+const PT_REAL = { ...PT, esPrueba: false }
+const P_PACK_REAL = DBPATH + '/packsManuales/7736-J'
 
 const ESCENARIOS = {
   'asig-create': {
@@ -378,13 +384,13 @@ Object.assign(ESCENARIOS, {
   'pack-manual-pt': {
     que: 'Producto Terminado decide a mano el pack de un codigo (corral)',
     request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc(PACK_NUEVO(PT)) },
-    functionMocks: [...perfilMocks([PT])]
+    functionMocks: [...perfilMocks([PT]), ...conHistorial(P_PACK)]
   },
   'pack-manual-consulta-corrige': {
     que: 'consulta corrige ese pack, dejando el valor anterior anotado',
-    request: { auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(CONSULTA), pares: 6, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }) },
+    request: { auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }) },
     resource: doc(PACK_PREVIO),
-    functionMocks: [...perfilMocks([CONSULTA])]
+    functionMocks: [...perfilMocks([CONSULTA]), ...conHistorial(P_PACK)]
   },
   'neg-pack-manual-diseno': {
     expectation: 'DENY', que: 'NEG: alguien de diseno decide un pack',
@@ -394,34 +400,89 @@ Object.assign(ESCENARIOS, {
   'neg-pack-manual-corral': {
     expectation: 'DENY', que: 'NEG: una cuenta de prueba escribe el pack REAL (sin __prueba)',
     request: { auth: { uid: PT.uid }, method: 'create', path: DBPATH + '/packsManuales/7736-J', time: T, resource: doc(PACK_NUEVO(PT)) },
-    functionMocks: [...perfilMocks([PT])]
+    functionMocks: [...perfilMocks([PT]), ...conHistorial(P_PACK)]
   },
   'neg-pack-manual-historial': {
     expectation: 'DENY', que: 'NEG: corregir inventando el valor anterior',
-    request: { auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(CONSULTA), pares: 6, anterior: { pares: 6, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }) },
+    request: { auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: 6, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }) },
     resource: doc(PACK_PREVIO),
-    functionMocks: [...perfilMocks([CONSULTA])]
+    functionMocks: [...perfilMocks([CONSULTA]), ...conHistorial(P_PACK)]
   },
   'neg-pack-manual-pares': {
     expectation: 'DENY', que: 'NEG: un pack de 30 pares',
     request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(PT), pares: 30 }) },
-    functionMocks: [...perfilMocks([PT])]
+    functionMocks: [...perfilMocks([PT]), ...conHistorial(P_PACK)]
   },
   'neg-pack-manual-nombre': {
     expectation: 'DENY', que: 'NEG: firmar el pack con otro nombre',
     request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(PT), porNombre: 'Roberto Linares' }) },
-    functionMocks: [...perfilMocks([PT])]
+    functionMocks: [...perfilMocks([PT]), ...conHistorial(P_PACK)]
   },
   'neg-pack-manual-crear-con-anterior': {
     expectation: 'DENY', que: 'NEG: crear un pack con un historial inventado',
     request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(PT), anterior: { pares: 6, porNombre: 'X', en: T } }) },
-    functionMocks: [...perfilMocks([PT])]
+    functionMocks: [...perfilMocks([PT]), ...conHistorial(P_PACK)]
   },
   'neg-pack-manual-borrar': {
     expectation: 'DENY', que: 'NEG: borrar un pack decidido',
     request: { auth: { uid: PT.uid }, method: 'delete', path: P_PACK, time: T },
     resource: doc(PACK_PREVIO),
-    functionMocks: [...perfilMocks([PT])]
+    functionMocks: [...perfilMocks([PT]), ...conHistorial(P_PACK)]
+  },
+  'neg-pack-manual-update-corral': {
+    // El resto de las clausulas del update pasan (mismo pares/porNombre/en en
+    // 'anterior' que el documento previo): lo unico que puede tumbar esto es
+    // la defensa nueva del corral (esPrueba antes == esPrueba despues).
+    expectation: 'DENY', que: 'NEG: un update saca un pack del corral (antes esPrueba:false, el nuevo trae esPrueba:true)',
+    request: {
+      auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK, time: T,
+      resource: doc({ ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: PACK_PREVIO.pares, porNombre: PACK_PREVIO.porNombre, en: PACK_PREVIO.en } })
+    },
+    resource: doc({ ...PACK_PREVIO, esPrueba: false }),
+    functionMocks: [...perfilMocks([CONSULTA]), ...conHistorial(P_PACK)]
+  },
+  'pack-manual-real': {
+    que: 'una cuenta REAL de PT decide un pack (ID sin sufijo)',
+    request: { auth: { uid: PT_REAL.uid }, method: 'create', path: P_PACK_REAL, time: T, resource: doc({ ...PACK_NUEVO(PT_REAL), esPrueba: false }) },
+    functionMocks: [...perfilMocks([PT_REAL]), ...conHistorial(P_PACK_REAL)]
+  },
+  'pack-historial-create': {
+    que: 'el renglon de historial que acompana la correccion de consulta',
+    request: { auth: { uid: CONSULTA.uid }, method: 'create', path: P_PACK + '/historial/2', time: T, resource: doc(HIST_PACK({ ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } })) },
+    functionMocks: [...perfilMocks([CONSULTA]), mAfter(P_PACK, { ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } })]
+  },
+  'neg-pack-lavado-misma-revision': {
+    expectation: 'DENY', que: 'NEG: volver a guardar sin subir la revision (lavar el historial)',
+    request: { auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(CONSULTA), revision: 1, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }) },
+    resource: doc(PACK_PREVIO),
+    functionMocks: [...perfilMocks([CONSULTA]), ...conHistorial(P_PACK)]
+  },
+  'neg-pack-sin-historial': {
+    expectation: 'DENY', que: 'NEG: corregir un pack sin dejar el renglon de historial',
+    request: { auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK, time: T, resource: doc({ ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }) },
+    resource: doc(PACK_PREVIO),
+    functionMocks: [...perfilMocks([CONSULTA]), mExistsAfter(P_PACK + '/historial/2', false)]
+  },
+  'neg-pack-historial-editar': {
+    expectation: 'DENY', que: 'NEG: reescribir un renglon del historial',
+    request: { auth: { uid: CONSULTA.uid }, method: 'update', path: P_PACK + '/historial/1', time: T, resource: doc(HIST_PACK({ ...PACK_PREVIO, pares: 24 })) },
+    resource: doc(HIST_PACK(PACK_PREVIO)),
+    functionMocks: [...perfilMocks([CONSULTA])]
+  },
+  'neg-pack-historial-pares-distintos': {
+    expectation: 'DENY', que: 'NEG: un renglon de historial que no dice lo mismo que la escritura',
+    request: { auth: { uid: CONSULTA.uid }, method: 'create', path: P_PACK + '/historial/2', time: T, resource: doc({ ...HIST_PACK({ ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } }), pares: 3 }) },
+    functionMocks: [...perfilMocks([CONSULTA]), mAfter(P_PACK, { ...PACK_NUEVO(CONSULTA), pares: 6, revision: 2, anterior: { pares: 3, porNombre: PT.nombreCompleto, en: '2026-09-09T20:00:00Z' } })]
+  },
+  'neg-pack-manual-captura': {
+    expectation: 'DENY', que: 'NEG: un capturista decide un pack',
+    request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc(PACK_NUEVO(PT)) },
+    functionMocks: [...perfilMocks([{ ...PT, rol: 'captura' }]), ...conHistorial(P_PACK)]
+  },
+  'neg-pack-manual-hibrido': {
+    expectation: 'DENY', que: 'NEG: un perfil de PT con maquilaId (hibrido) decide un pack',
+    request: { auth: { uid: PT.uid }, method: 'create', path: P_PACK, time: T, resource: doc(PACK_NUEVO(PT)) },
+    functionMocks: [...perfilMocks([{ ...PT, maquilaId: 'MAQ1' }]), ...conHistorial(P_PACK)]
   },
   'neg-create-nombre-falso': {
     expectation: 'DENY', que: 'NEG: dar de alta un codigo firmando el creador con otro nombre',

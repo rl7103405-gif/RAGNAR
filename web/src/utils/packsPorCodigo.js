@@ -24,6 +24,8 @@
 // La llave es el CODIGO, no el modelo: el PL y las entregas ya van por codigo,
 // y un modelo puede agrupar presentaciones distintas (lo sugirio Codex).
 
+import { normalizarCodigo } from './planMaestroNucleo.js'
+
 export const PARES_MIN = 1
 export const PARES_MAX = 24
 
@@ -87,7 +89,7 @@ export function tokensDeModelo(texto) {
  * @returns {Array<{fuente, pares, detalle}>}
  */
 export function evidenciasDeCodigo({ codigo, modeloCatalogo, pedidosDeSusOts, fuentes }) {
-  const cod = String(codigo || '').trim().toUpperCase()
+  const cod = normalizarCodigo(codigo)
   const evid = []
   const tokensCatalogo = tokensDeModelo(modeloCatalogo)
   // El modelo del catalogo tambien se prueba completo ("DZ-005" -> "DZ005"
@@ -172,6 +174,7 @@ export function resolverPack({ manual, evidencias }) {
  *  conflicto: Microsip 3, tech pack 6" */
 export function textoPack(res) {
   if (!res) return 'sin dato del pack'
+  if (res.estado === 'indisponible') return 'pack no disponible (no se cargaron las fuentes)'
   if (res.estado === 'conflicto') {
     const porFuente = new Map()
     for (const e of res.evidencias) {
@@ -206,10 +209,10 @@ export function docenasDePacks(packs, pares) {
 
 /** Codigos que se pueden guardar como ID de documento del valor manual (las
  *  reglas exigen lo mismo). */
-export const PATRON_CODIGO_MANUAL = /^[A-Z0-9][A-Z0-9._ -]{0,59}$/
+export const PATRON_CODIGO_MANUAL = /^[A-Z0-9][A-Z0-9._-]{0,59}$/
 
 export function idPackManual(codigo, esPrueba) {
-  const cod = String(codigo || '').trim().toUpperCase()
+  const cod = normalizarCodigo(codigo)
   if (!PATRON_CODIGO_MANUAL.test(cod)) return null
   return cod + (esPrueba ? '__prueba' : '')
 }

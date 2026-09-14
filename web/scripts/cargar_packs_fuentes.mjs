@@ -25,6 +25,7 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 import ExcelJS from 'exceljs'
 import { esPlantilla, leerPlantilla } from '../src/utils/leerPlantillaTechPack.js'
 import { PARES_MAX, PARES_MIN, paresEnTexto, tokensDeModelo } from '../src/utils/packsPorCodigo.js'
+import { normalizarCodigo } from '../src/utils/planMaestroNucleo.js'
 
 initializeApp({ credential: cert(JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))) })
 const db = getFirestore()
@@ -65,18 +66,34 @@ console.log(`Microsip: ${nombresConPack} articulos con pack, ${Object.keys(micro
 for (const [k, v] of choquesMicrosip) console.log(`   choque interno ${k}: ${v.join(' y ')}`)
 
 // ---------- Tech packs
-/** Junta los pedazos del archivo tal como los guarda la app (igual que medir_tech_packs.mjs). */
+/**
+ * Junta los pedazos del archivo tal como los guarda la app (igual que
+ * medir_tech_packs.mjs), verificando que sean EXACTAMENTE los que dice el
+ * manifiesto: los IDs 'tp-00'..'tp-NN' en orden y en esa cantidad, y si el
+ * manifiesto trae tamano o sha256, que el archivo armado cuadre con ellos.
+ * Sin esto, un chunk faltante o repetido armaria un archivo corrupto en
+ * silencio (y con el, un "pares por pack" leido de la mitad de un Excel).
+ * Devuelve { buf } o { error }, nunca null: asi el que llama sabe por que.
+ */
 async function armarArchivo(codigo, manifiesto) {
   const chunks = await db.collection('techPacks').doc(codigo).collection('chunks').get()
-  const pedazos = chunks.docs
-    .filter((d) => d.id.startsWith('tp-'))
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map((d) => {
-      const v = d.data().datos
-      return Buffer.from(v?._byteString?.binaryString ? Buffer.from(v._byteString.binaryString, 'binary') : v)
-    })
-  if (pedazos.length !== manifiesto.totalChunks) return null
-  return Buffer.concat(pedazos)
+  const porId = new Map(chunks.docs.filter((d) => d.id.startsWith('tp-')).map((d) => [d.id, d]))
+  const idsEsperados = Array.from({ length: manifiesto.totalChunks }, (_, i) => `tp-${String(i).padStart(2, '0')}`)
+  const faltan = idsEsperados.filter((id) => !porId.has(id))
+  if (faltan.length) return { error: `faltan pedazos (${faltan.join(', ')})` }
+  const pedazos = idsEsperados.map((id) => {
+    const v = porId.get(id).data().datos
+    return Buffer.from(v?._byteString?.binaryString ? Buffer.from(v._byteString.binaryString, 'binary') : v)
+  })
+  const buf = Buffer.concat(pedazos)
+  if (manifiesto.tamano != null && buf.length !== manifiesto.tamano) {
+    return { error: `tamano no cuadra (armado ${buf.length}, manifiesto ${manifiesto.tamano})` }
+  }
+  if (manifiesto.sha256) {
+    const hash = createHash('sha256').update(buf).digest('hex')
+    if (hash !== manifiesto.sha256) return { error: 'sha256 no cuadra' }
+  }
+  return { buf }
 }
 
 const snap = await db.collection('techPacks').where('esPrueba', '==', false).get()
@@ -88,18 +105,18 @@ for (const d of snap.docs) {
   if (x.apuntaA) { apuntan.push([d.id, String(x.apuntaA)]); continue }
   if (!x.techPack || x.techPack.formato !== 'xlsx') continue
   try {
-    const buf = await armarArchivo(d.id, x.techPack)
-    if (!buf) { fallidos++; continue }
+    const armado = await armarArchivo(d.id, x.techPack)
+    if (armado.error) { fallidos++; console.log(`   ${d.id}: ${armado.error}`); continue }
     const l = new ExcelJS.Workbook()
-    await l.xlsx.load(buf)
+    await l.xlsx.load(armado.buf)
     if (!esPlantilla(l)) { noPlantilla++; continue }
     const lectura = leerPlantilla(l)
     leidos++
     const pares = Number(lectura.campos?.TP_PACK)
     if (!Number.isInteger(pares) || pares < PARES_MIN || pares > PARES_MAX) { sinPack++; continue }
-    const codigos = new Set([d.id.toUpperCase()])
+    const codigos = new Set([normalizarCodigo(d.id)])
     for (const r of lectura.tablas?.TP_TABLA_PEDIDO || []) {
-      const c = String(r.codigo || '').trim().toUpperCase()
+      const c = normalizarCodigo(r.codigo)
       if (c) codigos.add(c)
     }
     paresDeTp.set(d.id, { pares, codigos })
@@ -116,7 +133,7 @@ const agregar = (codigo, techPack, pares) => {
 for (const [id, { pares, codigos }] of paresDeTp) for (const c of codigos) agregar(c, id, pares)
 for (const [id, destino] of apuntan) {
   const t = paresDeTp.get(destino)
-  if (t) agregar(id.toUpperCase(), destino, t.pares)
+  if (t) agregar(normalizarCodigo(id), destino, t.pares)
 }
 const techpack = Object.fromEntries(
   [...techpackSets].sort().map(([c, m]) => [c, [...m].map(([tp, pares]) => ({ techPack: tp, pares }))])

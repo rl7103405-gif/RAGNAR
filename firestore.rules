@@ -1473,23 +1473,64 @@ service cloud.firestore {
     // valor anterior en 'anterior'. ID = codigo (+ '__prueba' en el corral).
     match /packsManuales/{id} {
       allow read: if esInterno();
-      allow create: if packManualValido(id) && request.resource.data.anterior == null;
+      // Cada escritura sube 'revision' en 1 y OBLIGA a dejar en la MISMA
+      // transaccion el renglon historial/{revision}, que nadie edita ni borra.
+      // Sin esto, dos guardados seguidos del mismo valor lavaban 'anterior' y
+      // se perdia quien habia decidido (lo cazo el pentester, 14-sep).
+      allow create: if packManualValido(id)
+        && request.resource.data.anterior == null
+        && request.resource.data.revision == 1
+        && existsAfter(/databases/$(database)/documents/packsManuales/$(id)/historial/1);
       allow update: if packManualValido(id)
         && request.resource.data.anterior is map
         && request.resource.data.anterior.keys().hasOnly(['pares', 'porNombre', 'en'])
         && request.resource.data.anterior.pares == resource.data.pares
         && request.resource.data.anterior.porNombre == resource.data.porNombre
-        && request.resource.data.anterior.en == resource.data.en;
+        && request.resource.data.anterior.en == resource.data.en
+        // Defensa extra del corral: un update no puede sacar un pack REAL del
+        // corral de prueba ni meter uno de prueba al real.
+        && resource.data.esPrueba == request.resource.data.esPrueba
+        && request.resource.data.revision == resource.data.revision + 1
+        && existsAfter(/databases/$(database)/documents/packsManuales/$(id)/historial/$(string(request.resource.data.revision)));
       allow delete: if false;
+
+      match /historial/{rev} {
+        allow read: if esInterno();
+        allow create: if packHistorialValido(id, rev);
+        allow update, delete: if false;
+      }
+    }
+
+    // El renglon de historial es copia fiel de la escritura que lo acompana:
+    // mismos pares, nota y revision que el documento como queda DESPUES, de la
+    // misma persona. No puede existir sin esa escritura (la revision tiene que
+    // ser la del documento y el create falla si ya existe).
+    function packHistorialValido(id, rev) {
+      let yo = perfilResumido();
+      let h = request.resource.data;
+      let p = getAfter(/databases/$(database)/documents/packsManuales/$(id)).data;
+      return yo.interno && yo.rol in ['pt', 'consulta', 'admin']
+        && h.keys().hasAll(['revision', 'codigo', 'pares', 'nota', 'porUid', 'porNombre', 'en', 'esPrueba'])
+        && h.keys().hasOnly(['revision', 'codigo', 'pares', 'nota', 'porUid', 'porNombre', 'en', 'esPrueba'])
+        && h.revision is int && rev == string(h.revision)
+        && h.revision == p.revision
+        && h.codigo == p.codigo
+        && h.pares == p.pares
+        && h.nota == p.nota
+        && h.porUid == request.auth.uid && p.porUid == request.auth.uid
+        && h.porNombre == p.porNombre
+        && h.en == request.time
+        && h.esPrueba == p.esPrueba;
     }
 
     function packManualValido(id) {
       let yo = perfilResumido();
       let d = request.resource.data;
       return yo.interno && yo.rol in ['pt', 'consulta', 'admin']
-        && d.keys().hasAll(['codigo', 'modelo', 'pares', 'nota', 'porUid', 'porNombre', 'en', 'esPrueba', 'anterior'])
-        && d.keys().hasOnly(['codigo', 'modelo', 'pares', 'nota', 'porUid', 'porNombre', 'en', 'esPrueba', 'anterior'])
-        && d.codigo is string && d.codigo.matches('^[A-Z0-9][A-Z0-9._ -]{0,59}$')
+        && d.keys().hasAll(['codigo', 'modelo', 'pares', 'nota', 'porUid', 'porNombre', 'en', 'esPrueba', 'anterior', 'revision'])
+        && d.keys().hasOnly(['codigo', 'modelo', 'pares', 'nota', 'porUid', 'porNombre', 'en', 'esPrueba', 'anterior', 'revision'])
+        && d.revision is int
+        && d.codigo is string && d.codigo.matches('^[A-Z0-9][A-Z0-9._-]{0,59}$')
         && id == d.codigo + (yo.esPrueba ? '__prueba' : '')
         && d.modelo is string && d.modelo.size() <= 80
         && d.pares is int && d.pares >= 1 && d.pares <= 24

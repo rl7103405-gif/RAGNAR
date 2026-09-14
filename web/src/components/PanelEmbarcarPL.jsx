@@ -26,6 +26,11 @@ import { descargarPdf } from '../utils/pdf'
 import { descargarArchivo } from '../utils/excelSalida'
 import { textoPack } from '../utils/packsPorCodigo'
 
+// packsPlan (y por tanto pedidas/pendientes/excedidas del cierre) ya no viene
+// redondeado: se redondea solo al pintar, para no arrastrar el error a otras
+// cuentas (ver renglonesDeLaOc en entregasPL.js).
+const dosDec = (n) => Math.round(Number(n) * 100) / 100
+
 export default function PanelEmbarcarPL() {
   const { authUser, perfil, esPrueba } = useAuth()
 
@@ -427,13 +432,20 @@ export default function PanelEmbarcarPL() {
                         <div
                           style={{
                             fontSize: 11,
-                            color: f.pack.estado === 'conflicto' ? '#a52218' : f.pack.estado === 'supuesto' ? '#8a5a00' : '#555'
+                            color:
+                              f.pack.estado === 'conflicto' || f.pack.estado === 'indisponible'
+                                ? '#a52218'
+                                : f.pack.estado === 'supuesto'
+                                ? '#8a5a00'
+                                : '#555'
                           }}
                           title={
                             f.pack.estado === 'conflicto'
                               ? 'Las fuentes no coinciden. Se decide en Inventario de PT > Detalle de la orden.'
                               : f.pack.estado === 'supuesto'
                               ? 'Ninguna fuente dice el pack: se cuenta como suelto. Se confirma en Inventario de PT > Detalle.'
+                              : f.pack.estado === 'indisponible'
+                              ? 'No se cargaron las fuentes (Microsip, pedido, tech pack): no se sabe el pack de este codigo.'
                               : undefined
                           }
                         >
@@ -506,9 +518,9 @@ export default function PanelEmbarcarPL() {
                         <span className="texto-suave">sin plan</span>
                       ) : (
                         <span style={{ color: f.cierre.porcentaje >= 1 ? '#1a7a3a' : '#8a5a00' }}>
-                          {f.cierre.dadas}/{f.cierre.pedidas} ({Math.round(f.cierre.porcentaje * 100)}%)
-                          {f.cierre.pendientes > 0 ? ` · faltan ${f.cierre.pendientes}` : ''}
-                          {f.cierre.excedidas > 0 ? ` · +${f.cierre.excedidas}` : ''}
+                          {f.cierre.dadas}/{dosDec(f.cierre.pedidas)} ({Math.round(f.cierre.porcentaje * 100)}%)
+                          {f.cierre.pendientes > 0 ? ` · faltan ${dosDec(f.cierre.pendientes)}` : ''}
+                          {f.cierre.excedidas > 0 ? ` · +${dosDec(f.cierre.excedidas)}` : ''}
                         </span>
                       )}
                     </td>

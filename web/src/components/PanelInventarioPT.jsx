@@ -27,9 +27,9 @@
 // Se lee UNA vez el resumen del plan (que viaja en config/planMaestroActivo) y
 // se escuchan entregas y recepciones; el detalle por codigo de una orden se
 // carga solo al abrirla, porque son 60 ordenes y ~400 lineas.
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { mapaOtAOc, normalizarOt, resumenDeOcs, versionActiva } from '../utils/planMaestro'
+import { mapaOtAOc, normalizarCodigo, normalizarOt, resumenDeOcs, versionActiva } from '../utils/planMaestro'
 import {
   armarPlDeLaOc,
   cierreDelRenglon,
@@ -38,13 +38,13 @@ import {
 } from '../utils/entregasPL'
 import { escucharRecepcionesPT } from '../utils/recepcionPT'
 import { porcentajeHonesto } from '../utils/porcentajes'
-import { ErrorPackManual, ROLES_PACK_MANUAL, guardarPackManual, resolverPacksDeCodigos } from '../utils/packsFuentes'
-import { NOMBRE_FUENTE, PARES_MAX, PARES_MIN, docenasDePacks, textoPack } from '../utils/packsPorCodigo'
+import { ErrorPackManual, ROLES_PACK_MANUAL, guardarPackManual, olvidarPacksManuales, resolverPacksDeCodigos } from '../utils/packsFuentes'
+import { NOMBRE_FUENTE, PARES_MAX, PARES_MIN, claveModelo, docenasDePacks, textoPack } from '../utils/packsPorCodigo'
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
 const doc = (n) => (n == null ? '—' : `${Math.round(n * 100) / 100} doc`)
 const dosDec = (n) => Math.round(Number(n) * 100) / 100
-const codigoDe = (r) => String(r.codigoQuini || r.clave || '').trim().toUpperCase()
+const codigoDe = (r) => normalizarCodigo(r.codigoQuini || r.clave)
 
 /**
  * Docenas embarcadas de una lista de entregas, con el pack VIGENTE de cada
@@ -88,7 +88,8 @@ function lineaEvidencias(res) {
  * "una vez por modelo", y la llave sigue siendo el codigo.
  */
 function DecidirPack({ renglon, renglones, esPrueba, usuario, alGuardar, alCancelar }) {
-  const hermanos = renglon.modelo ? renglones.filter((x) => x.modelo === renglon.modelo) : [renglon]
+  const claveRenglon = claveModelo(renglon.modelo)
+  const hermanos = claveRenglon ? renglones.filter((x) => claveModelo(x.modelo) === claveRenglon) : [renglon]
   const [pares, setPares] = useState(renglon.pack?.pares != null ? String(renglon.pack.pares) : '')
   const [nota, setNota] = useState('')
   const [todos, setTodos] = useState(hermanos.length > 1)
@@ -171,8 +172,14 @@ export default function PanelInventarioPT() {
   // Pares por pack de cada codigo embarcado (Map codigo -> resolucion).
   const [packs, setPacks] = useState(() => new Map())
   const [packsListos, setPacksListos] = useState(false)
+  // Aparte del error general: mientras esto tenga texto, NO se calcula con
+  // los packs viejos que hayan quedado en memoria (se limpian a la vez).
+  const [errorPacks, setErrorPacks] = useState('')
   const [versionPacks, setVersionPacks] = useState(0)
   const [decidiendo, setDecidiendo] = useState(null) // codigo con el formulario abierto
+  // La OC que se pidio por ultimo en cargarDetalle: si una respuesta vieja
+  // llega tarde (dos clics rapidos en distintas ordenes), se descarta.
+  const ultimaOcPedidaRef = useRef(null)
 
   useEffect(() => {
     let vivo = true
@@ -218,12 +225,15 @@ export default function PanelInventarioPT() {
     for (const e of entregas) {
       for (const r of e.renglones || []) {
         const codigo = codigoDe(r)
-        // En el acta la OT va como "7682 / 7683" cuando el codigo viene en varias.
-        if (codigo) lista.push({ codigo, ots: String(r.ot || '').split('/').map((o) => o.trim()).filter(Boolean) })
+        // En el acta la OT va como "7682 / 7683" cuando el codigo viene en
+        // varias: el "/" separador SIEMPRE trae espacio a los dos lados, para
+        // no partir una OT que trae "/" en su propio texto (ej. "7887/A").
+        if (codigo) lista.push({ codigo, ots: String(r.ot || '').split(/\s+\/\s+/).map((o) => o.trim()).filter(Boolean) })
       }
     }
     if (!lista.length) {
       setPacks(new Map())
+      setErrorPacks('')
       setPacksListos(true)
       return
     }
@@ -232,12 +242,17 @@ export default function PanelInventarioPT() {
       .then((m) => {
         if (!vivo) return
         setPacks(m)
+        setErrorPacks('')
         setPacksListos(true)
       })
       .catch((err) => {
         if (!vivo) return
         console.error('[InventarioPT] No se pudo resolver el pack de los codigos:', err)
-        setError('No se pudo saber cuántos pares trae el pack de lo embarcado: ' + (err.message || err))
+        // Se limpian los packs viejos: seguir calculando con datos de antes
+        // se veria bien pero estaria mintiendo. Mientras haya errorPacks, las
+        // filas con entregas dicen "pack no disponible" en vez de un numero.
+        setPacks(new Map())
+        setErrorPacks('No se pudo saber cuántos pares trae el pack de lo embarcado: ' + (err.message || err))
         setPacksListos(true)
       })
     return () => {
@@ -357,14 +372,18 @@ export default function PanelInventarioPT() {
     cargarDetalle(oc)
   }
 
-  // Despues de decidir un pack: se recarga el detalle y se recalculan los totales.
+  // Despues de decidir un pack: se recarga el detalle y se recalculan los
+  // totales. Se olvida la cache de manuales ANTES de recalcular, si no la
+  // siguiente lectura seguiria viendo el valor viejo.
   const trasDecidir = (oc, { mantenerAbierto } = {}) => {
     if (!mantenerAbierto) setDecidiendo(null)
+    olvidarPacksManuales()
     setVersionPacks((v) => v + 1)
     cargarDetalle(oc)
   }
 
   const cargarDetalle = async (oc) => {
+    ultimaOcPedidaRef.current = oc
     setCargandoOc(true)
     try {
       const plan = await renglonesDeLaOc(oc, { esPrueba })
@@ -373,18 +392,22 @@ export default function PanelInventarioPT() {
       // mismo codigo, asi que se SUMA por codigo en vez de pisar.
       const entregadoPorCodigo = new Map()
       for (const r of pl.renglones) {
-        const c = String(r.codigoQuini || '').trim().toUpperCase()
+        const c = normalizarCodigo(r.codigoQuini)
         entregadoPorCodigo.set(c, (entregadoPorCodigo.get(c) || 0) + num(r.packsTotal))
       }
       const renglones = plan.map((r) => {
-        const dadas = entregadoPorCodigo.get(r.codigo.toUpperCase()) || 0
+        const dadas = entregadoPorCodigo.get(normalizarCodigo(r.codigo)) || 0
         return { ...r, dadas, cierre: cierreDelRenglon(r.packsPlan, dadas) }
       })
+      // Si mientras esperabamos esta respuesta ya se pidio OTRA orden, esta
+      // respuesta llego tarde: se descarta para no pisar lo que ya se ve.
+      if (ultimaOcPedidaRef.current !== oc) return
       setAbierta({ oc, renglones, error: '' })
     } catch (err) {
+      if (ultimaOcPedidaRef.current !== oc) return
       setAbierta({ oc, renglones: [], error: err.message || String(err) })
     } finally {
-      setCargandoOc(false)
+      if (ultimaOcPedidaRef.current === oc) setCargandoOc(false)
     }
   }
 
@@ -397,6 +420,7 @@ export default function PanelInventarioPT() {
       </p>
 
       {error && <div className="alerta-error">{error}</div>}
+      {errorPacks && <div className="alerta-error">{errorPacks}</div>}
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', margin: '10px 0' }}>
         <input
@@ -517,9 +541,13 @@ export default function PanelInventarioPT() {
                             ) : f.embarcado == null ? (
                               <span
                                 className="texto-suave"
-                                title="Las fuentes no coinciden en cuántos pares trae el pack de algún código: abre el Detalle para decidirlo"
+                                title={
+                                  errorPacks
+                                    ? 'No se pudieron leer las fuentes del pack: no se puede convertir'
+                                    : 'Las fuentes no coinciden en cuántos pares trae el pack de algún código: abre el Detalle para decidirlo'
+                                }
                               >
-                                {f.packsEmbarcados} packs · pack en conflicto
+                                {f.packsEmbarcados} packs · {errorPacks ? 'pack no disponible' : 'pack en conflicto'}
                               </span>
                             ) : (
                               <>
@@ -594,7 +622,7 @@ export default function PanelInventarioPT() {
                         <tbody>
                           {abierta.renglones.map((r) => {
                             const est = r.pack?.estado
-                            const colorPack = est === 'conflicto' ? '#a52218' : est === 'supuesto' ? '#8a5a00' : undefined
+                            const colorPack = est === 'conflicto' || est === 'indisponible' ? '#a52218' : est === 'supuesto' ? '#8a5a00' : undefined
                             return (
                               <React.Fragment key={r.codigo}>
                                 <tr>
@@ -615,7 +643,7 @@ export default function PanelInventarioPT() {
                                           style={{ fontSize: 11, padding: '1px 6px', marginTop: 2 }}
                                           onClick={() => setDecidiendo(r.codigo)}
                                         >
-                                          {est === 'conflicto' ? 'Decidir' : est === 'supuesto' ? 'Confirmar' : 'Corregir'}
+                                          {est === 'conflicto' || est === 'indisponible' ? 'Decidir' : est === 'supuesto' ? 'Confirmar' : 'Corregir'}
                                         </button>
                                       </div>
                                     )}
@@ -628,7 +656,7 @@ export default function PanelInventarioPT() {
                                         style={{ fontSize: 11, color: r.packsPlanEntero === false ? '#a52218' : undefined }}
                                         title={r.packsPlanEntero === false ? 'Esas docenas no dan packs completos con ese pack: revisar el plan o el pack' : undefined}
                                       >
-                                        = {r.packsPlan} packs{r.packsPlanEntero === false ? ' (no da packs completos)' : ''}
+                                        = {dosDec(r.packsPlan)} packs{r.packsPlanEntero === false ? ' (no da packs completos)' : ''}
                                       </div>
                                     )}
                                   </td>

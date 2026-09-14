@@ -13,7 +13,7 @@
 //                         anterior anotado; no se borra).
 import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import { versionActiva, normalizarOt } from './planMaestro'
+import { versionActiva, normalizarOt, normalizarCodigo } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
 import {
   PARES_MAX,
@@ -76,16 +76,31 @@ export async function textosDePedidoDeOts(ots) {
   return salida
 }
 
+// packsManuales/{id} por id de documento, sin expiracion: mientras nadie
+// decida un pack nuevo el dato no cambia, y sin cache cada entrega releia
+// cientos de documentos. Se vacia con olvidarPacksManuales().
+const cacheManuales = new Map() // id de documento -> datos (o null si no existe)
+
+/** Vacia la cache de packsManuales/. Llamar tras decidir un pack a mano, antes
+ *  de recalcular, para que la siguiente lectura ya vea el valor nuevo. */
+export function olvidarPacksManuales() {
+  cacheManuales.clear()
+}
+
 /** Map codigo -> documento manual (o nada si no hay). */
 export async function manualesDeCodigos(codigos, esPrueba) {
   const salida = new Map()
-  const ids = [...new Set((codigos || []).map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))]
+  const ids = [...new Set((codigos || []).map((c) => normalizarCodigo(c)).filter(Boolean))]
   await Promise.all(
     ids.map(async (c) => {
       const id = idPackManual(c, esPrueba)
       if (!id) return
-      const s = await getDoc(doc(db, 'packsManuales', id))
-      if (s.exists()) salida.set(c, s.data())
+      if (!cacheManuales.has(id)) {
+        const s = await getDoc(doc(db, 'packsManuales', id))
+        cacheManuales.set(id, s.exists() ? s.data() : null)
+      }
+      const datos = cacheManuales.get(id)
+      if (datos) salida.set(c, datos)
     })
   )
   return salida
@@ -101,7 +116,7 @@ export async function manualesDeCodigos(codigos, esPrueba) {
 export async function resolverPacksDeCodigos(lista, esPrueba) {
   const porCodigo = new Map()
   for (const it of lista || []) {
-    const c = String(it?.codigo || '').trim().toUpperCase()
+    const c = normalizarCodigo(it?.codigo)
     if (!c) continue
     const g = porCodigo.get(c) || { codigo: c, ots: new Set(), modelo: '' }
     for (const o of it.ots || []) if (o) g.ots.add(normalizarOt(o))
@@ -120,13 +135,22 @@ export async function resolverPacksDeCodigos(lista, esPrueba) {
   const salida = new Map()
   for (const [c, g] of porCodigo) {
     const modelo = g.modelo || catalogo.get(c)?.modelo || ''
+    const manual = manuales.get(c) || null
+    // Sin config/packsFuentes (no existe o fallo la lectura) no hay Microsip ni
+    // tech pack que consultar. Sin eso NO se puede decir 'supuesto' (seria
+    // inventar que nadie dijo nada, cuando en realidad no se pudo preguntar):
+    // falla cerrado, salvo que ya haya un valor manual que resuelva solo.
+    if (!fuentes.cargado && !manual) {
+      salida.set(c, { estado: 'indisponible', origen: null, pares: null, evidencias: [], discrepancias: [], manual: null, modelo, codigo: c })
+      continue
+    }
     const evidencias = evidenciasDeCodigo({
       codigo: c,
       modeloCatalogo: modelo,
       pedidosDeSusOts: [...g.ots].map((ot) => ({ ot, textos: pedidos.get(ot) || [] })),
       fuentes
     })
-    salida.set(c, { ...resolverPack({ manual: manuales.get(c) || null, evidencias }), modelo, codigo: c })
+    salida.set(c, { ...resolverPack({ manual, evidencias }), modelo, codigo: c })
   }
   return salida
 }
@@ -136,7 +160,7 @@ export async function resolverPacksDeCodigos(lista, esPrueba) {
  * valor anterior: se corrige, no se borra.
  */
 export async function guardarPackManual({ codigo, modelo, pares, nota, usuario, esPrueba }) {
-  const cod = String(codigo || '').trim().toUpperCase()
+  const cod = normalizarCodigo(codigo)
   const id = idPackManual(cod, esPrueba)
   if (!id) throw new ErrorPackManual(`El codigo "${codigo}" trae caracteres que no se pueden guardar.`)
   const n = Number(pares)
@@ -145,19 +169,35 @@ export async function guardarPackManual({ codigo, modelo, pares, nota, usuario, 
   }
   if (!usuario?.uid || !usuario?.nombre) throw new ErrorPackManual('Tu cuenta no tiene nombre configurado.')
   const ref = doc(db, 'packsManuales', id)
+  const notaLimpia = String(nota || '').trim().slice(0, 200)
   await runTransaction(db, async (tx) => {
     const previo = await tx.get(ref)
     const antes = previo.exists() ? previo.data() : null
+    // Cada guardado es una revision nueva con su renglon de historial en la
+    // MISMA transaccion (las reglas lo exigen): asi no se pierde nunca quien
+    // decidio que, aunque se vuelva a guardar el mismo valor.
+    const revision = (Number(antes?.revision) || 0) + 1
     tx.set(ref, {
       codigo: cod,
       modelo: String(modelo || '').slice(0, 80),
       pares: n,
-      nota: String(nota || '').trim().slice(0, 200),
+      nota: notaLimpia,
       porUid: usuario.uid,
       porNombre: usuario.nombre,
       en: serverTimestamp(),
       esPrueba: esPrueba === true,
+      revision,
       anterior: antes ? { pares: antes.pares, porNombre: antes.porNombre, en: antes.en } : null
+    })
+    tx.set(doc(db, 'packsManuales', id, 'historial', String(revision)), {
+      revision,
+      codigo: cod,
+      pares: n,
+      nota: notaLimpia,
+      porUid: usuario.uid,
+      porNombre: usuario.nombre,
+      en: serverTimestamp(),
+      esPrueba: esPrueba === true
     })
   })
 }

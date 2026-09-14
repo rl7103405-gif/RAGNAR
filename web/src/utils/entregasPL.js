@@ -38,7 +38,7 @@ import {
   where
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import { lineasDeOc, normalizarOc, versionActiva } from './planMaestro'
+import { lineasDeOc, normalizarOc, normalizarCodigo, versionActiva } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
 import { resolverPacksDeCodigos } from './packsFuentes'
 import { PARES_MAX, PARES_MIN, packsDeDocenas } from './packsPorCodigo'
@@ -85,14 +85,6 @@ export function leerEmpaque(txt) {
 export function paresPorPack(articulo) {
   const m = /(\d+)\s*PACK/i.exec(String(articulo || ''))
   return m ? Number(m[1]) : null
-}
-
-/** Packs que hacen una docena (12 pares). Es la conversion que le faltaba a
- *  RAGNAR: la app cuenta en DOCENAS de punta a punta y el PL en PACKS.
- *  null cuando no se sabe el tamano del pack — y entonces NO se convierte. */
-export function packsPorDocena(articulo) {
-  const pares = paresPorPack(articulo)
-  return pares && pares > 0 ? 12 / pares : null
 }
 
 /**
@@ -181,9 +173,11 @@ export async function renglonesDeLaOc(oc, { esPrueba } = {}) {
       const cat = delCatalogo.get(r.codigo) || {}
       // La descripcion del plan manda si existe; si no, la del catalogo.
       const descripcion = r.descripcion || cat.descripcion || ''
-      const pack = packs.get(r.codigo.toUpperCase()) || null
+      const pack = packs.get(normalizarCodigo(r.codigo)) || null
       // Exacto, sin redondear: 10 docenas de un 5 pack son 24 packs, pero 1
       // docena son 2.4 y eso no se "arregla" a 2 — se avisa (packsPlanEntero).
+      // El redondeo es solo cosmetico y se hace al PINTAR, no aqui: si se
+      // guardara redondeado, el cierre y el Excel arrastrarian el error.
       const conv = pack?.pares != null && r.cantidadPlan > 0 ? packsDeDocenas(r.cantidadPlan, pack.pares) : null
       return {
         ...r,
@@ -192,7 +186,7 @@ export async function renglonesDeLaOc(oc, { esPrueba } = {}) {
         ots: [...r.ots].sort(),
         ot: [...r.ots].sort().join(' / '),
         pack,
-        packsPlan: conv ? Math.round(conv.packs * 100) / 100 : null,
+        packsPlan: conv ? conv.packs : null,
         packsPlanEntero: conv ? conv.entero : null
       }
     })
@@ -205,6 +199,26 @@ export async function renglonesDeLaOc(oc, { esPrueba } = {}) {
  *  servidor lo rechaza aunque el cliente tenga un bug. */
 export function idDeEntrega(oc, numeroEntrega, esPrueba) {
   return normalizarOc(oc) + '__' + numeroEntrega + (esPrueba ? '__prueba' : '')
+}
+
+const ESTADOS_PACK = ['resuelto', 'conflicto', 'supuesto', 'indisponible']
+const ORIGENES_PACK = ['manual', 'microsip', 'pedido', 'techpack', 'supuesto']
+
+/** La pareja (paresPorPack, packEstado) que se guarda en el acta, coherente
+ *  entre si: 'resuelto' exige un numero valido (si no lo trae, se cae a
+ *  estado null); 'supuesto' siempre es 1 (suelto); 'conflicto' e
+ *  'indisponible' nunca traen numero, porque ninguno de los dos es un dato. */
+function tuplaPack(estadoCrudo, paresCrudo) {
+  const estado = ESTADOS_PACK.includes(estadoCrudo) ? estadoCrudo : null
+  if (estado === 'resuelto') {
+    const n = Number(paresCrudo)
+    if (Number.isInteger(n) && n >= PARES_MIN && n <= PARES_MAX) {
+      return { paresPorPack: n, packEstado: 'resuelto' }
+    }
+    return { paresPorPack: null, packEstado: null }
+  }
+  if (estado === 'supuesto') return { paresPorPack: 1, packEstado: 'supuesto' }
+  return { paresPorPack: null, packEstado: estado }
 }
 
 /**
@@ -259,9 +273,11 @@ export async function registrarEntregaPL({ encabezado, renglones, usuario, esPru
         // CON QUE PACK SE REGISTRO. Para auditar despues: si mas tarde se
         // corrige el pack de este codigo, el acta sigue diciendo que se sabia
         // el dia de la entrega. El inventario cuenta con el pack vigente.
-        paresPorPack: Number.isInteger(r.paresPorPack) && r.paresPorPack >= PARES_MIN && r.paresPorPack <= PARES_MAX ? r.paresPorPack : null,
-        packEstado: ['resuelto', 'conflicto', 'supuesto'].includes(r.packEstado) ? r.packEstado : null,
-        packOrigen: texto(r.packOrigen, 20)
+        // La tupla (paresPorPack, packEstado) tiene que ser coherente: no se
+        // guarda un 'resuelto' sin numero, ni un numero con un 'conflicto' o
+        // un 'indisponible' que dicen que no se sabe.
+        ...tuplaPack(r.packEstado, r.paresPorPack),
+        packOrigen: ORIGENES_PACK.includes(r.packOrigen) ? r.packOrigen : ''
       }
     })
     .filter((r) => r.clave && (r.packs > 0 || r.bultos > 0))
