@@ -17,6 +17,7 @@ import { cargarWorkbook, ErrorLibreriaExcel } from '../utils/excelJs'
 import { esPlantilla, leerPlantilla } from '../utils/leerPlantillaTechPack'
 import { generarPlantillaTechPack } from '../utils/generarPlantillaTechPack'
 import { nombreDeArchivo } from '../utils/plantillaTechPack'
+import { escucharEdiciones, marcarEdicion, textoEdiciones } from '../utils/editandoTechPack'
 
 const lleno = (v) => v !== null && v !== undefined && String(v).trim() !== ''
 const RENGLON = { talla: '', ot: '', codigo: '', claveMicrosip: '', descripcion: '', upc: '', docenas: '' }
@@ -86,6 +87,14 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
   const [guardando, setGuardando] = useState(false)
   const [progreso, setProgreso] = useState('')
   const [error, setError] = useState('')
+  // Quien MAS tiene abierto este tech pack ahorita (Roberto, 14-sep).
+  const [otros, setOtros] = useState([])
+
+  useEffect(() => {
+    const quitar = marcarEdicion({ codigo: item.codigo, usuario, esPrueba, que: 'contenido' })
+    const dejar = escucharEdiciones({ codigo: item.codigo, miUid: usuario?.uid, alRecibir: setOtros })
+    return () => { quitar(); dejar() }
+  }, [item.codigo, usuario?.uid, esPrueba])
 
   useEffect(() => {
     let vivo = true
@@ -180,6 +189,7 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
           <h3 style={{ margin: 0 }}>Editar el contenido de <span className="tp-codigo">{item.codigo}</span></h3>
           <button className="btn-secundario tp-btn-chico" onClick={onCerrar} disabled={guardando}>Cerrar</button>
         </div>
+        {otros.length > 0 && <div className="tp-editando">{textoEdiciones(otros)}</div>}
         {estado === 'cargando' && <p className="texto-suave">{mensaje}</p>}
         {estado === 'error' && <div className="alerta-error">{mensaje}</div>}
         {estado === 'listo' && d && (

@@ -21,6 +21,8 @@ import { useAuth } from '../context/AuthContext'
 const GRUPOS = [
   { rol: 'admin', titulo: 'Direccion', que: 'Ve todo y administra las cuentas' },
   { rol: 'produccion', titulo: 'Produccion', que: 'Sube el plan maestro' },
+  // Lety y su equipo (Roberto, 14-sep: "agregar al equipo de diseno").
+  { rol: 'desarrollo', titulo: 'Diseno y desarrollo de producto', que: 'Hacen los tech packs y reparten las tareas de diseno' },
   { rol: 'completo', titulo: 'Embarques', que: 'Captura, embarca y encarga tareas' },
   { rol: 'captura', titulo: 'Pesadores', que: 'Capturan folios en la bascula' },
   { rol: 'almacen', titulo: 'Almacen de avios', que: 'Manda material a las maquilas' },

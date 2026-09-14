@@ -264,6 +264,14 @@ export async function leerPlanMaestro(archivo) {
   // 'GC3'); aceptar las dos duplicaria la meta y el arbol se veria a la mitad
   // de avance con la produccion completa.
   const hojaDeLaOt = new Map()
+  // EL DESTINO DE CADA OT, DE CUALQUIER HOJA (bug del 10-sep): desde que entran
+  // las OT sin OC, la hoja "OT" (sin columna 'Nom ped') se queda con la orden y
+  // la fila de "Resumen", que SI traia el nombre del pedido, se descartaba por
+  // repetida: 39 OC y 144 OT quedaron "(sin destino)". Ahora el destino se
+  // junta de toda fila que lo traiga, aunque la fila no aporte linea, y al
+  // final se rellena en las lineas y pedidos que no lo tengan.
+  const destinoDeOt = new Map()
+  let destinosEnConflicto = 0
 
   libro.eachSheet((hoja) => {
     const formato = detectarFormato(hoja)
@@ -314,6 +322,14 @@ export async function leerPlanMaestro(archivo) {
       if (ot.length > 40) {
         renglonesIncompletos.push({ hoja: hoja.name, fila: n, motivo: 'orden de trabajo demasiado larga' })
         continue
+      }
+      if (columnas.destino) {
+        const d = String(identificadorDeCelda(val(columnas.destino)) ?? '').trim().slice(0, 120)
+        if (d) {
+          const previo = destinoDeOt.get(ot)
+          if (!previo) destinoDeOt.set(ot, d)
+          else if (previo !== d) destinosEnConflicto += 1
+        }
       }
 
       // --- El diccionario pedido -> OT (independiente de que haya OC) -------
@@ -432,6 +448,19 @@ export async function leerPlanMaestro(archivo) {
     hojasLeidas.push({ hoja: hoja.name, lineas: deLaHoja, pedidos: pedidosDeLaHoja, columnas })
   })
 
+  // Relleno del destino perdido (ver destinoDeOt arriba). El que traia la
+  // propia fila manda; solo se rellena lo vacio.
+  let destinosRecuperados = 0
+  for (const l of lineas) {
+    if (!l.destino && destinoDeOt.has(l.ot)) {
+      l.destino = destinoDeOt.get(l.ot)
+      destinosRecuperados += 1
+    }
+  }
+  for (const p of pedidos.values()) {
+    if (!p.destino && destinoDeOt.has(p.ot)) p.destino = destinoDeOt.get(p.ot)
+  }
+
   // Sin el filtro, el null de las lineas sin OC contaria como "una orden de
   // compra" mas en el resumen que ve Adrian.
   const ocs = new Set(lineas.map((l) => l.oc).filter(Boolean))
@@ -454,6 +483,8 @@ export async function leerPlanMaestro(archivo) {
       ocInvalida,
       formulaSinResultado,
       duplicadosDeOtraHoja,
+      destinosRecuperados,
+      destinosEnConflicto,
       totalLineas: lineas.length,
       totalOcs: ocs.size,
       totalOts: otsConOc.size,

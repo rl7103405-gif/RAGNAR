@@ -3618,6 +3618,23 @@ service cloud.firestore {
         && h.quienNombre == yo.nombre
         && altaHistorialCuadra(codigo, edicionId, yo.esPrueba);
     }
+    function puedeMarcarEdicionTechPack(codigo, uid, d) {
+      let yo = perfilResumido();
+      return yo.subeTechPacks
+        && request.auth.uid == uid
+        && d.keys().hasOnly(['uid', 'nombre', 'que', 'desde', 'latido', 'esPrueba'])
+        && d.uid == uid
+        && d.nombre == yo.nombre
+        && d.que in ['datos', 'contenido']
+        && d.desde is timestamp
+        && d.latido == request.time
+        && d.esPrueba == yo.esPrueba
+        && (yo.esPrueba ? codigo.matches('^ZZTEST.*') : !codigo.matches('^ZZTEST.*'))
+        // Solo sobre un tech pack que existe y es de tu mundo: sin esto se
+        // podian sembrar marcas bajo codigos inventados (Codex, 14-sep).
+        && exists(/databases/$(database)/documents/techPacks/$(codigo))
+        && get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba == yo.esPrueba;
+    }
     function puedeCrearTechPack(codigo, d) {
       let yo = perfilResumido();
       return yo.subeTechPacks
@@ -3681,6 +3698,22 @@ service cloud.firestore {
       allow create: if puedeCrearHistorialTechPack(request.resource.data, codigo, edicionId);
       // Un renglon de historial no se corrige ni se borra: para eso es historial.
       allow update, delete: if false;
+    }
+    // QUIEN ESTA EDITANDO, EN VIVO (Roberto, 2026-09-14). Una marca por
+    // persona con latido; la app ignora las viejas. Solo avisa, no bloquea.
+    // Cada quien escribe y borra SOLO la suya, con el nombre de su perfil y la
+    // hora del servidor; el corral de prueba va en el codigo (ZZTEST).
+    match /techPacks/{codigo}/editando/{uid} {
+      // Corral en la lectura igual que historial y chunks (Codex, 14-sep).
+      allow read: if puedeVerTechPacks()
+        && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;
+      allow create: if puedeMarcarEdicionTechPack(codigo, uid, request.resource.data)
+        && request.resource.data.desde == request.time;
+      // El latido no mueve 'desde'; reabrir el editor lo reinicia a la hora
+      // del servidor, nunca a una fecha inventada.
+      allow update: if puedeMarcarEdicionTechPack(codigo, uid, request.resource.data)
+        && (request.resource.data.desde == resource.data.desde || request.resource.data.desde == request.time);
+      allow delete: if request.auth != null && request.auth.uid == uid;
     }
     match /techPacks/{codigo}/chunks/{chunkId} {
       // El get() del padre ya garantiza que exista: si no existe, se deniega

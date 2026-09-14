@@ -36,6 +36,18 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-14-01',
+    fecha: '2026-09-14',
+    tipo: 'mejorado',
+    titulo: 'Tech packs: aviso cuando alguien mas lo esta editando; Mi equipo con Diseno',
+    detalle:
+      'Si abres un tech pack para editarlo (datos o contenido) y otra persona del equipo lo tiene abierto al mismo '
+      + 'tiempo, arriba sale un aviso con su nombre y desde cuando, para que se pongan de acuerdo: si guardan los dos, '
+      + 'se queda lo ultimo que se guarde. En Mi equipo ya aparece el grupo de Diseno y desarrollo de producto. Y el plan '
+      + 'maestro ya no pierde el nombre del pedido (destino) cuando la hoja de OT no lo trae: se toma de la hoja Resumen '
+      + 'en la siguiente subida.'
+  },
+  {
     id: '2026-09-11-05',
     fecha: '2026-09-11',
     tipo: 'nuevo',

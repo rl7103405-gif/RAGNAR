@@ -259,6 +259,54 @@ Object.assign(ESCENARIOS, {
     request: { auth: { uid: ADMIN.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SIN, techPack: { ...manifiesto(1), subidoPorUid: ADMIN.uid, subidoPorNombre: ADMIN.nombreCompleto }, ...sellos(ADMIN) }) },
     resource: doc(TP_SIN), functionMocks: [...perfilMocks([ADMIN])]
   },
+  // Aviso en vivo de quien esta editando (Roberto, 14-sep; endurecido con Codex).
+  'techpack-editando': {
+    que: 'Lety marca que esta editando un tech pack (su propia marca)',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP + '/editando/' + JEFA.uid, time: T, resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'contenido', desde: T, latido: T, esPrueba: true }) },
+    functionMocks: [...perfilMocks([JEFA]), mExists(P_TP), mGet(P_TP, TP)]
+  },
+  'techpack-editando-latido': {
+    que: 'el latido: solo cambia la hora del latido, desde se queda igual',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP + '/editando/' + JEFA.uid, time: T, resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'contenido', desde: '2026-09-09T22:55:00Z', latido: T, esPrueba: true }) },
+    resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'contenido', desde: '2026-09-09T22:55:00Z', latido: '2026-09-09T22:59:40Z', esPrueba: true }),
+    functionMocks: [...perfilMocks([JEFA]), mExists(P_TP), mGet(P_TP, TP)]
+  },
+  'neg-editando-ajeno': {
+    expectation: 'DENY', que: 'NEG: escribir la marca de edicion de OTRA persona',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP + '/editando/' + EQUIPO.uid, time: T, resource: doc({ uid: EQUIPO.uid, nombre: EQUIPO.nombreCompleto, que: 'datos', desde: T, latido: T, esPrueba: true }) },
+    functionMocks: [...perfilMocks([JEFA]), mExists(P_TP), mGet(P_TP, TP)]
+  },
+  'neg-editando-nombre-falso': {
+    expectation: 'DENY', que: 'NEG: marcarse editando con otro nombre',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP + '/editando/' + JEFA.uid, time: T, resource: doc({ uid: JEFA.uid, nombre: 'Roberto Linares', que: 'datos', desde: T, latido: T, esPrueba: true }) },
+    functionMocks: [...perfilMocks([JEFA]), mExists(P_TP), mGet(P_TP, TP)]
+  },
+  'neg-editando-corral': {
+    expectation: 'DENY', que: 'NEG: una cuenta de prueba se marca editando un tech pack REAL',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: DBPATH + '/techPacks/WKD225T401-4-6/editando/' + JEFA.uid, time: T, resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'datos', desde: T, latido: T, esPrueba: true }) },
+    functionMocks: [...perfilMocks([JEFA]), mExists(DBPATH + '/techPacks/WKD225T401-4-6'), mGet(DBPATH + '/techPacks/WKD225T401-4-6', { ...TP, codigo: 'WKD225T401-4-6', esPrueba: false })]
+  },
+  'neg-editando-consulta': {
+    expectation: 'DENY', que: 'NEG: marcarse con un latido que no es la hora del servidor',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP + '/editando/' + JEFA.uid, time: T, resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'datos', desde: T, latido: '2026-09-01T00:00:00Z', esPrueba: true }) },
+    functionMocks: [...perfilMocks([JEFA]), mExists(P_TP), mGet(P_TP, TP)]
+  },
+  'neg-editando-desde-falso': {
+    expectation: 'DENY', que: 'NEG: crear la marca con un desde inventado',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP + '/editando/' + JEFA.uid, time: T, resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'datos', desde: '2026-01-01T00:00:00Z', latido: T, esPrueba: true }) },
+    functionMocks: [...perfilMocks([JEFA]), mExists(P_TP), mGet(P_TP, TP)]
+  },
+  'neg-editando-mover-desde': {
+    expectation: 'DENY', que: 'NEG: en un latido, mover desde a otra fecha que no es ahora',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP + '/editando/' + JEFA.uid, time: T, resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'datos', desde: '2026-01-01T00:00:00Z', latido: T, esPrueba: true }) },
+    resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'datos', desde: '2026-09-09T22:55:00Z', latido: '2026-09-09T22:59:40Z', esPrueba: true }),
+    functionMocks: [...perfilMocks([JEFA]), mExists(P_TP), mGet(P_TP, TP)]
+  },
+  'neg-editando-sin-padre': {
+    expectation: 'DENY', que: 'NEG: marcar un codigo que no existe en la biblioteca',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: DBPATH + '/techPacks/ZZTEST-INVENTADO/editando/' + JEFA.uid, time: T, resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'datos', desde: T, latido: T, esPrueba: true }) },
+    functionMocks: [...perfilMocks([JEFA]), mExists(DBPATH + '/techPacks/ZZTEST-INVENTADO', false), sinResultado('get', DBPATH + '/techPacks/ZZTEST-INVENTADO')]
+  },
   'neg-techpack-mixto': {
     expectation: 'DENY', que: 'NEG: un update que sube archivo Y edita datos a la vez',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP2, techPack: manifiesto(1) }) },

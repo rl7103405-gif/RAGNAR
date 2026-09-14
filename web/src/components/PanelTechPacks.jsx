@@ -43,6 +43,7 @@ import {
 import { avanceDelTechPack, RUBROS_TECH_PACK } from '../utils/completadoTechPack'
 import VisorTechPack from './VisorTechPack'
 import EditorPlantillaTechPack from './EditorPlantillaTechPack'
+import { escucharEdiciones, marcarEdicion, textoEdiciones } from '../utils/editandoTechPack'
 
 const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—')
 // "WKD225T401-4-6" -> "WKD225T401": el plan trae el codigo base y una OT por
@@ -1235,6 +1236,7 @@ export default function PanelTechPacks() {
           onCerrar={() => setEditando(null)}
           onGuardado={(msg) => { setEditando(null); setAviso(msg) }}
           puedeSubir={puedeSubirTechPacks}
+          esPrueba={esPrueba}
           ocupado={trabajando}
           onVer={(b, pantalla) => { setEditando(null); verTechPack(b, pantalla) }}
           onEditarContenido={(b) => { setEditando(null); setEditandoContenido(b) }}
@@ -1288,7 +1290,14 @@ function NombreDelModelo({ item, corto = false }) {
 
 // EDITAR UN TECH PACK. Todo lo que Lety pidio teclear, en una sola pantalla, y
 // el historial de quien lo toco debajo.
-function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir = false, ocupado = false, onVer, onReemplazar, onQuitar, onEditarContenido }) {
+function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir = false, esPrueba = false, ocupado = false, onVer, onReemplazar, onQuitar, onEditarContenido }) {
+  // Aviso en vivo si alguien mas lo tiene abierto (Roberto, 14-sep).
+  const [otros, setOtros] = useState([])
+  useEffect(() => {
+    const quitar = marcarEdicion({ codigo: item.codigo, usuario, esPrueba, que: 'datos' })
+    const dejar = escucharEdiciones({ codigo: item.codigo, miUid: usuario?.uid, alRecibir: setOtros })
+    return () => { quitar(); dejar() }
+  }, [item.codigo, usuario?.uid, esPrueba])
   const inicial = datosDelTechPack(item)
   const [modelo, setModelo] = useState(inicial.modelo)
   const [talla, setTalla] = useState(inicial.talla)
@@ -1360,6 +1369,7 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir =
           <h3 style={{ margin: 0 }}>Editar <span className="tp-codigo">{item.codigo}</span></h3>
           <button className="btn-secundario tp-btn-chico" onClick={onCerrar}>Cerrar</button>
         </div>
+        {otros.length > 0 && <div className="tp-editando">{textoEdiciones(otros)}</div>}
 
         {/* Las seis pantallas de la plantilla y que le falta a cada una
             (Roberto, 11-sep: "que te diga que pantalla quieres editar"). El

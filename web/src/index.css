@@ -865,3 +865,6 @@ table th, table td {
 .tpe-fotos { display: flex; flex-wrap: wrap; gap: 8px; }
 .tpe-foto { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .tpe-foto img { height: 110px; max-width: 220px; object-fit: contain; border: 1px solid var(--borde); border-radius: 6px; background: #fff; }
+
+/* Aviso en vivo: alguien mas esta editando este tech pack */
+.tp-editando { background: #fff7e6; border: 1px solid #f1c46b; border-left: 4px solid #d97706; color: #7a4a00; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 600; }
