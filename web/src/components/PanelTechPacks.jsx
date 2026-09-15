@@ -210,10 +210,15 @@ function PorcentajeHecho({ avance }) {
 // Las acciones de UN tech pack, en el MISMO orden y del MISMO ancho en todos
 // los cuadros: Editar · % hecho · Ver (Roberto, 11-sep: "algunos empiezan con
 // hecho, despues ver y despues editar, esta mal... darle simetria").
-function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tech pack', titulo, avance, puedeEditar, onEditar, onVer, puedeSubir, onReemplazar, onQuitar, ocupado }) {
+function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tech pack', titulo, avance, puedeEditar, onEditar, onVer, onConsultar, puedeSubir, onReemplazar, onQuitar, ocupado }) {
   const tiene = Boolean(b.techPack?.totalChunks)
   return (
     <div className="tp-acciones">
+      {onConsultar && (
+        <button className="btn-secundario tp-btn-chico" onClick={() => onConsultar(b)} title="Ver quien lo subio o lo cambio, sin entrar a Editar">
+          Quién lo modificó
+        </button>
+      )}
 
       {puedeEditar && (
         <button className="btn-primario tp-btn-chico" onClick={() => onEditar(b)}>
@@ -319,6 +324,7 @@ export default function PanelTechPacks() {
   const [trabajando, setTrabajando] = useState(false)
   // El tech pack que se esta editando (null = el modal cerrado).
   const [editando, setEditando] = useState(null)
+  const [consultando, setConsultando] = useState(null)
   // El editor del contenido (plantilla): datos, tablas, avios y fotos.
   const [editandoContenido, setEditandoContenido] = useState(null)
   const [codigo, setCodigo] = useState('')
@@ -857,7 +863,7 @@ export default function PanelTechPacks() {
                     {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
                   </div>
                   <div className="tp-acciones-lista">
-                    <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
+                    <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} onConsultar={setConsultando} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                     {b.ftt?.totalChunks ? (
                       <div className="tp-acciones">
                         <button className="btn-secundario tp-btn-chico tp-acc-ver" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
@@ -941,7 +947,7 @@ export default function PanelTechPacks() {
                             </span>
                           </div>
                           <div className="tp-acciones-lista">
-                            <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
+                            <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} onConsultar={setConsultando} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                             {b.ftt?.totalChunks ? (
                               <div className="tp-acciones">
                                 <button className="btn-secundario tp-btn-chico tp-acc-ver" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
@@ -1062,7 +1068,7 @@ export default function PanelTechPacks() {
                     {/* Editar AQUI mismo (2026-09-11): este cuadro es donde Lety
                         liga cada tech pack a sus codigos u ordenes. */}
                     <div className="tp-acciones-lista">
-                      <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
+                      <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} onConsultar={setConsultando} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                     </div>
                   </div>
                 ))}
@@ -1196,6 +1202,8 @@ export default function PanelTechPacks() {
           </div>
         </div>
       )}
+
+      {consultando && <ModalConsultarTechPack item={consultando} onCerrar={() => setConsultando(null)} />}
 
       <AvanceDeTechPacks biblioteca={biblioteca} onVer={verTechPack} onEditar={editarTechPack} puedeEditar={puedeEditarTechPacks} />
 
@@ -1340,25 +1348,8 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir =
   // OT del tablero de diseno: es el mismo gesto que ella ya conoce.
   const [codigosTxt, setCodigosTxt] = useState((inicial.codigos || []).join(', '))
   const [checklist, setChecklist] = useState(inicial.checklist || {})
-  const [historial, setHistorial] = useState(null)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    let vivo = true
-    // Dos rastros en una sola lista: las ediciones de datos (historial) y cada
-    // archivo subido, incluido lo que se guarda desde el editor del contenido
-    // (versiones). Antes solo salia lo primero y parecia que nadie lo tocaba.
-    const ms = (t) => (t?.toMillis ? t.toMillis() : 0)
-    Promise.all([historialDelTechPack(item.codigo).catch(() => []), versionesDelTechPack(item.codigo)])
-      .then(([h, v]) => {
-        if (!vivo) return
-        const ediciones = h.map((x) => ({ ...x, clase: 'datos', id: 'h-' + x.id }))
-        const subidas = v.map((x) => ({ id: 'v-' + x.id, clase: 'archivo', quienNombre: x.subidoPorNombre, cuando: x.subidoEn, tipo: x.tipo, version: x.version }))
-        setHistorial([...ediciones, ...subidas].sort((a, b) => ms(b.cuando) - ms(a.cuando)))
-      })
-    return () => { vivo = false }
-  }, [item.codigo])
 
   // El porcentaje se CALCULA, no se guarda: un numero guardado se queda viejo
   // en cuanto cambia el checklist. 'no aplica' no cuenta ni a favor ni en
@@ -1585,29 +1576,77 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir =
 
         <details className="tp-historial">
           <summary>Quien lo ha modificado</summary>
-          {historial === null ? (
-            <p className="texto-suave">Leyendo...</p>
-          ) : historial.length === 0 ? (
-            <p className="texto-suave">Todavia nadie lo ha modificado desde la app.</p>
-          ) : (
-            <ul>
-              {historial.map((h) => (
-                <li key={h.id}>
-                  <strong>{h.quienNombre || 'alguien'}</strong>
-                  <span className="texto-suave">
-                    {' '}· {fecha(h.cuando)} ·{' '}
-                    {h.clase === 'archivo'
-                      ? `guardo ${h.tipo === 'ftt' ? 'la FTT' : 'el tech pack'} (version ${h.version})`
-                      : `cambio ${resumirCambio(h)}`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="texto-suave" style={{ fontSize: 12, margin: '6px 0 0' }}>
-            Los archivos guardados antes del 15 de septiembre no quedaron registrados aqui.
-          </p>
+          <QuienLoModifico codigo={item.codigo} />
         </details>
+      </div>
+    </div>
+  )
+}
+
+// QUIEN LO MODIFICO: dos rastros en una sola lista, las ediciones de datos
+// (historial) y cada archivo guardado, incluido lo del editor del contenido
+// (versiones). Se usa en Editar y en Consultar.
+function QuienLoModifico({ codigo }) {
+  const [historial, setHistorial] = useState(null)
+  useEffect(() => {
+    let vivo = true
+    const ms = (t) => (t?.toMillis ? t.toMillis() : 0)
+    Promise.all([historialDelTechPack(codigo).catch(() => []), versionesDelTechPack(codigo)])
+      .then(([h, v]) => {
+        if (!vivo) return
+        const ediciones = h.map((x) => ({ ...x, clase: 'datos', id: 'h-' + x.id }))
+        const subidas = v.map((x) => ({ id: 'v-' + x.id, clase: 'archivo', quienNombre: x.subidoPorNombre, cuando: x.subidoEn, tipo: x.tipo, version: x.version }))
+        setHistorial([...ediciones, ...subidas].sort((a, b) => ms(b.cuando) - ms(a.cuando)))
+      })
+    return () => { vivo = false }
+  }, [codigo])
+  return (
+    <>
+      {historial === null ? (
+        <p className="texto-suave">Leyendo...</p>
+      ) : historial.length === 0 ? (
+        <p className="texto-suave">Todavia nadie lo ha modificado desde la app.</p>
+      ) : (
+        <ul>
+          {historial.map((h) => (
+            <li key={h.id}>
+              <strong>{h.quienNombre || 'alguien'}</strong>
+              <span className="texto-suave">
+                {' '}· {fecha(h.cuando)} ·{' '}
+                {h.clase === 'archivo'
+                  ? `guardo ${h.tipo === 'ftt' ? 'la FTT' : 'el tech pack'} (version ${h.version})`
+                  : `cambio ${resumirCambio(h)}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="texto-suave" style={{ fontSize: 12, margin: '6px 0 0' }}>
+        Los archivos guardados antes del 15 de septiembre no quedaron registrados aqui.
+      </p>
+    </>
+  )
+}
+
+// CONSULTAR (Roberto, 15-sep): ver quien subio o cambio un tech pack sin
+// tener que entrar a "Editar". Solo lectura; lo ve quien ve la biblioteca.
+function ModalConsultarTechPack({ item, onCerrar }) {
+  const modelos = modelosDelTechPack(item)
+  return (
+    <div className="modal-fondo" onClick={onCerrar}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, width: '100%' }}>
+        <div className="tp-fila" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Quién lo modificó · <span className="tp-codigo">{item.codigo}</span></h3>
+            <p className="texto-suave" style={{ margin: '4px 0 0', fontSize: 13 }}>
+              {[textoDe(item.cliente), modelos.join(', '), item.techPack?.version ? `version ${item.techPack.version}` : ''].filter(Boolean).join(' · ') || 'Sin datos de la plantilla'}
+            </p>
+          </div>
+          <button className="btn-secundario tp-btn-chico" onClick={onCerrar}>Cerrar</button>
+        </div>
+        <div className="tp-historial" style={{ marginTop: 12 }}>
+          <QuienLoModifico codigo={item.codigo} />
+        </div>
       </div>
     </div>
   )
