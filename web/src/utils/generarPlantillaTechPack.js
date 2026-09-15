@@ -25,7 +25,8 @@ import {
   ZONAS_FOTO,
   manifiesto,
   rangoAIndices,
-  referencia
+  referencia,
+  textoPedidoAnterior
 } from './plantillaTechPack.js'
 
 const AZUL = 'FF13263D'
@@ -463,7 +464,7 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
     // Textos del original que el convertidor no supo acomodar: se guardan
     // para que el visor los ensene y Lety los ponga donde van.
     // Lo que un v1 traia del pedido (OC, packs, OT y docenas): oculto, no se tira.
-    pedidoAnterior: datos.pedidoAnterior ? JSON.stringify(datos.pedidoAnterior).slice(0, 32000) : '',
+    pedidoAnterior: textoPedidoAnterior(datos.pedidoAnterior).texto,
     noMigrado: Array.isArray(datos.sobrantes) && datos.sobrantes.length ? JSON.stringify(datos.sobrantes).slice(0, 32000) : '',
     // Los rangos REALES de este libro (las tablas pueden haber crecido).
     manifiesto: JSON.stringify({ ...manifiesto(), nombres: Object.fromEntries((libro.definedNames.model || []).map((d) => [d.name, d.ranges[0]])) })

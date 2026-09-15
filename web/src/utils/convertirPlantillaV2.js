@@ -13,7 +13,7 @@
 //
 // Funcion pura sobre un Workbook de ExcelJS ya abierto (sirve en Node y en el
 // navegador). Quien la llame guarda el libro con writeBuffer.
-import { CLAVES_RAGNAR, HOJAS, ORDEN_HOJAS, PEDIDO_V1, PLANTILLA, TABLAS, manifiesto, rangoAIndices } from './plantillaTechPack.js'
+import { CLAVES_RAGNAR, HOJAS, ORDEN_HOJAS, PEDIDO_V1, PLANTILLA, TABLAS, manifiesto, rangoAIndices, textoPedidoAnterior } from './plantillaTechPack.js'
 import { leerPedidoV1, leerPlantilla } from './leerPlantillaTechPack.js'
 import { valorPlano } from './aviosTechPack.js'
 
@@ -174,14 +174,10 @@ export function convertirLibroAV2(libro) {
   if (claveOcupada && claveOcupada !== 'pedidoAnterior') {
     throw new Error(`_RAGNAR fila ${filaPedido} ya trae la clave "${claveOcupada}": no se pisa`)
   }
-  let textoPedido = pedidoAnterior ? JSON.stringify(pedidoAnterior) : ''
-  if (textoPedido.length > MAX_TEXTO) {
-    // Un JSON cortado a la mitad no se puede leer: se quitan renglones enteros.
-    const recortado = { ...pedidoAnterior, renglones: [...pedidoAnterior.renglones], recortado: true }
-    while (recortado.renglones.length && JSON.stringify(recortado).length > MAX_TEXTO) recortado.renglones.pop()
-    textoPedido = JSON.stringify(recortado)
-    cambios.push(`_RAGNAR: pedidoAnterior recortado a ${recortado.renglones.length} renglones (pasaba de ${MAX_TEXTO} caracteres)`)
-  }
+  // Un JSON cortado a la mitad no se puede leer: se quitan renglones enteros
+  // (la misma funcion que usa el generador).
+  const { texto: textoPedido, recortadoA } = textoPedidoAnterior(pedidoAnterior, MAX_TEXTO)
+  if (recortadoA != null) cambios.push(`_RAGNAR: pedidoAnterior recortado a ${recortadoA} renglones (pasaba de ${MAX_TEXTO} caracteres)`)
   hr.getCell(`A${filaPedido}`).value = 'pedidoAnterior'
   hr.getCell(`B${filaPedido}`).value = textoPedido
 

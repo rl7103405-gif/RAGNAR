@@ -142,6 +142,21 @@ export const ZONAS_FOTO = {
 // { oc, packs, renglones: [{ codigo, talla, ot, docenas }] }. No se muestra.
 export const CLAVES_RAGNAR = ['plantilla', 'version', 'generadoEn', 'generadoDesdeOt', 'generadoPorUid', 'generadoPorNombre', 'manifiesto', 'migradoDe', 'reporteMigracion', 'noMigrado', 'pedidoAnterior']
 
+/**
+ * pedidoAnterior como texto para _RAGNAR, cabiendo en una celda (32,000). Un
+ * JSON cortado a la mitad no se puede leer y se perderia ENTERO: si no cabe se
+ * quitan renglones completos y se marca recortado (qa-tester, 15-sep).
+ * Devuelve { texto, recortadoA } (recortadoA = renglones que quedaron, o null).
+ */
+export function textoPedidoAnterior(pedido, max = 32000) {
+  if (!pedido) return { texto: '', recortadoA: null }
+  const completo = JSON.stringify(pedido)
+  if (completo.length <= max) return { texto: completo, recortadoA: null }
+  const recortado = { ...pedido, renglones: [...(pedido.renglones || [])], recortado: true }
+  while (recortado.renglones.length && JSON.stringify(recortado).length > max) recortado.renglones.pop()
+  return { texto: JSON.stringify(recortado), recortadoA: recortado.renglones.length }
+}
+
 // Donde vivian en la v1 los datos del pedido que la v2 quito. Solo para LEER
 // un archivo v1 y guardar ese dato antes de borrarlo (convertirPlantillaV2).
 export const PEDIDO_V1 = {
