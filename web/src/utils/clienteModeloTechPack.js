@@ -1,0 +1,121 @@
+// CLIENTE Y MODELO DE UN TECH PACK (funcion pura, sin Firebase).
+//
+// Roberto, 2026-09-15: "los tech packs ya no se manejan por OC ni OT sino por
+// MODELO y por CLIENTE". Los 120 de la biblioteca traen cliente, marca y modelo
+// llenos DENTRO de la plantilla TP-Quini (medido: 120/120), pero RAGNAR nunca
+// los saco a la base, asi que no se podia buscar ni agrupar por ellos.
+//
+// Medido el mismo dia: 14 clientes, con "ÓPTIMA" (28) y "OPTIMA" (4) como el
+// mismo cliente escrito distinto; 92 modelos, 0 con dos clientes; 15 modelos
+// con varios tech packs (uno por talla). Algunos TP_MODELO traen varios
+// modelos en texto ("RB10T100, RB10T101, RB10T103").
+//
+// Lo que se guarda es el texto TAL CUAL lo escribio Lety; la normalizacion es
+// solo para comparar y agrupar (Codex: no guardar la clave normalizada).
+
+/** "Óptima  " y "OPTIMA" agrupan juntos: sin acentos, mayusculas y espacios
+ *  colapsados (no eliminados: "GRUPO UNION" no es "GRUPOUNION"). */
+export function claveCliente(texto) {
+  return String(texto ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Los modelos de un TP_MODELO. Solo se parte por coma, punto y coma o salto
+ *  de linea: NUNCA por espacio, guion o diagonal, que son parte del modelo
+ *  ("CATM-FW18-006", "REGEN LT-744"). */
+export function modelosDeTexto(texto) {
+  const vistos = new Set()
+  const salida = []
+  for (const pedazo of String(texto ?? '').split(/[,;\n\r]+/)) {
+    const limpio = pedazo.replace(/\s+/g, ' ').trim()
+    const k = claveCliente(limpio)
+    if (!limpio || vistos.has(k)) continue
+    vistos.add(k)
+    salida.push(limpio)
+  }
+  return salida
+}
+
+const texto = (v, max) => {
+  const s = String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
+  return s || null
+}
+
+/**
+ * La identidad de un tech pack leida de su plantilla (leerPlantilla(libro)).
+ * null en cada campo que no venga: nunca se inventa ni se hereda del archivo
+ * anterior (Codex: un PDF o un Excel ajeno deja los campos vacios).
+ */
+export function identidadDePlantilla(lectura) {
+  const c = lectura?.campos || {}
+  return {
+    cliente: texto(c.TP_CLIENTE, 120),
+    marca: texto(c.TP_MARCA, 120),
+    modeloPlantilla: texto(c.TP_MODELO, 200)
+  }
+}
+
+export const IDENTIDAD_VACIA = Object.freeze({ cliente: null, marca: null, modeloPlantilla: null })
+
+/** Los modelos con los que se agrupa un tech pack: los de la plantilla; si no
+ *  hay, el que dijo el catalogo o Lety (datosEditables). */
+export function modelosDelTechPack(b) {
+  const dePlantilla = modelosDeTexto(b?.modeloPlantilla)
+  if (dePlantilla.length) return dePlantilla
+  const otro = String(b?.datosEditables?.modelo ?? b?.modelo ?? '').trim()
+  return otro ? [otro] : []
+}
+
+/**
+ * La biblioteca agrupada por CLIENTE -> MODELO -> tech packs. Un tech pack con
+ * varios modelos aparece bajo cada uno (el archivo no se duplica). Los que no
+ * traen cliente van al final en "(sin cliente)".
+ *
+ * @returns [{ cliente, clave, modelos: [{ modelo, clave, techPacks: [...] }], total }]
+ */
+export function agruparPorClienteYModelo(biblioteca) {
+  const clientes = new Map()
+  for (const b of biblioteca || []) {
+    if (!b || b.apuntaA) continue
+    const kc = claveCliente(b.cliente) || '~SIN'
+    if (!clientes.has(kc)) clientes.set(kc, { cliente: b.cliente || '(sin cliente)', clave: kc, grafias: new Map(), modelos: new Map(), ids: new Set() })
+    const g = clientes.get(kc)
+    if (b.cliente) g.grafias.set(b.cliente, (g.grafias.get(b.cliente) || 0) + 1)
+    g.ids.add(b.id || b.codigo)
+    const modelos = modelosDelTechPack(b)
+    for (const m of modelos.length ? modelos : ['(sin modelo)']) {
+      const km = claveCliente(m)
+      if (!g.modelos.has(km)) g.modelos.set(km, { modelo: m, clave: km, techPacks: [] })
+      g.modelos.get(km).techPacks.push(b)
+    }
+  }
+  const orden = (a, b) => a.localeCompare(b, 'es', { numeric: true })
+  return [...clientes.values()]
+    .map((g) => ({
+      // Se muestra la grafia mas usada ("ÓPTIMA" sobre "OPTIMA").
+      cliente: g.grafias.size ? [...g.grafias.entries()].sort((a, b) => b[1] - a[1])[0][0] : g.cliente,
+      clave: g.clave,
+      grafias: [...g.grafias.keys()],
+      total: g.ids.size,
+      modelos: [...g.modelos.values()]
+        .map((m) => ({ ...m, techPacks: m.techPacks.sort((x, y) => orden(x.codigo || '', y.codigo || '')) }))
+        .sort((x, y) => orden(x.modelo, y.modelo))
+    }))
+    .sort((a, b) => (a.clave === '~SIN' ? 1 : b.clave === '~SIN' ? -1 : orden(a.cliente, b.cliente)))
+}
+
+/** ¿El tech pack coincide con la busqueda? Todas las palabras tienen que
+ *  aparecer en codigo, cliente, marca, modelo(s), descripcion, talla o color. */
+export function coincideTechPack(b, busqueda) {
+  const palabras = claveCliente(busqueda).split(' ').filter(Boolean)
+  if (!palabras.length) return true
+  const e = b?.datosEditables || {}
+  const pajar = claveCliente(
+    [b?.codigo, b?.cliente, b?.marca, b?.modeloPlantilla, b?.modelo, e.modelo, b?.descripcion, e.talla ?? b?.talla, e.color ?? b?.color].join(' ')
+  )
+  return palabras.every((p) => pajar.includes(p))
+}

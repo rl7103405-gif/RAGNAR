@@ -36,6 +36,18 @@ export const DIAS_NOVEDAD_INICIAL = 30
 
 export const NOVEDADES = [
   {
+    id: '2026-09-15-01',
+    fecha: '2026-09-15',
+    tipo: 'mejorado',
+    titulo: 'Tech packs por cliente y modelo',
+    detalle:
+      'Los tech packs ahora se acomodan por CLIENTE y MODELO, que es como se trabajan: RAGNAR toma el cliente, la marca '
+      + 'y el modelo de la plantilla de cada tech pack. El buscador encuentra por modelo, cliente o código (sin importar '
+      + 'acentos: "optima" encuentra "ÓPTIMA"). La vista por orden de compra y orden de trabajo sigue ahí, en su propio '
+      + 'apartado, para cuando se necesite. Para subir un tech pack ya no hace falta la orden de trabajo: basta el código. '
+      + 'En Maquilas, "Pegar de la biblioteca" busca primero por modelo o cliente, y también por orden si se prefiere.'
+  },
+  {
     id: '2026-09-14-03',
     fecha: '2026-09-14',
     tipo: 'corregido',

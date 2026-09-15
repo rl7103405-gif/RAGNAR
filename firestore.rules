@@ -3199,7 +3199,7 @@ service cloud.firestore {
         // un script con Admin SDK (web/scripts/medir_tech_packs.mjs), NUNCA el
         // cliente; va en el hasOnly para que un documento medido siga siendo
         // valido cuando Lety lo edite desde la app.
-        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes', 'datosEditables', 'revision', 'ultimaEdicionId', 'medicion'])
+        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes', 'datosEditables', 'revision', 'ultimaEdicionId', 'medicion', 'cliente', 'marca', 'modeloPlantilla'])
         // Lo que Lety TECLEA vive junto, en 'datosEditables', separado de los
         // manifiestos y de lo inmutable. Asi el historial guarda un snapshot
         // exacto de ese mapa y la regla puede compararlo entero, en vez de
@@ -3619,8 +3619,21 @@ service cloud.firestore {
         // Admin SDK (que salta las reglas), y ningun flujo de cliente lo
         // escribe en un update. Dejarlo aqui permitia inyectarlo en un tech
         // pack real y volverlo invisible para la biblioteca.
+        // CLIENTE, MARCA y MODELO DE LA PLANTILLA (Roberto, 2026-09-15: "por
+        // modelo y por cliente"). Viajan con el manifiesto porque SALEN del
+        // archivo: se reescriben en cada subida (null si el archivo no es
+        // plantilla). Se validan solo si cambian, para no pagar expresiones
+        // en cada subida de FTT.
+        && (!despues.diff(antes).affectedKeys().hasAny(['cliente', 'marca', 'modeloPlantilla'])
+            || identidadTechPackOk(despues))
         && despues.diff(antes).affectedKeys()
-             .hasOnly(['techPack', 'ftt', 'descripcion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre']);
+             .hasOnly(['techPack', 'ftt', 'descripcion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre',
+                       'cliente', 'marca', 'modeloPlantilla']);
+    }
+    function identidadTechPackOk(d) {
+      return (d.get('cliente', null) == null || (d.cliente is string && d.cliente.size() > 0 && d.cliente.size() <= 120))
+        && (d.get('marca', null) == null || (d.marca is string && d.marca.size() > 0 && d.marca.size() <= 120))
+        && (d.get('modeloPlantilla', null) == null || (d.modeloPlantilla is string && d.modeloPlantilla.size() > 0 && d.modeloPlantilla.size() <= 200));
     }
     // RAMA 2: editar los datos. SIEMPRE deja historial: la regla exige que en
     // el MISMO batch nazca el renglon de historial y que su contenido cuadre

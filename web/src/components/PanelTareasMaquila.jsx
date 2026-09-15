@@ -7,7 +7,7 @@
 // La subida deja la tarea en 'preparando' (invisible para la maquila) hasta
 // que el archivo termina de subir; si se corta, aqui mismo se reintenta con
 // el archivo elegido de nuevo, o se cancela la tarea.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { otsDeLaOc, renglonesDeLaOt } from '../utils/planMaestro'
 import { pedirCorreccion, autoAprobarCorreccion } from '../utils/auditoria'
 import { sujetoDelPermiso, TIPO_PERMISO_OT } from '../utils/otsAsignadas'
@@ -52,6 +52,12 @@ export default function PanelTareasMaquila() {
   const [biblioteca, setBiblioteca] = useState(null)
   const [buscaTp, setBuscaTp] = useState('')
   const [buscandoTp, setBuscandoTp] = useState(false)
+  // Como se busca el tech pack (Roberto, 15-sep): lo estandar es por modelo o
+  // cliente; por orden de compra u OT queda como segunda opcion.
+  const [modoBusquedaTp, setModoBusquedaTp] = useState('modelo')
+  // Contador de busquedas: si llega tarde la respuesta de una busqueda vieja
+  // (se cambio de modo o de texto), no pisa la mas reciente.
+  const busquedaTpId = useRef(0)
   const [mostrarCerradas, setMostrarCerradas] = useState(false)
 
   const [nueva, setNueva] = useState({ maquilaId: '', ot: '', fechaRequerida: '', notas: '' })
@@ -137,32 +143,54 @@ export default function PanelTareasMaquila() {
   // "Pegar de la biblioteca": la OT de la tarea se resuelve a codigos con el
   // plan maestro y se buscan sus tech packs. Si hay uno solo se pega directo;
   // si hay varios, Lindbergh elige (una tarea lleva UN tech pack).
-  // Buscar el tech pack por lo que sea: OC, OT, codigo o folio de ficha.
-  const onBuscarLibre = async () => {
+  // Buscar el tech pack por texto. Modo 'modelo' (el estandar): modelo, cliente
+  // o codigo. Modo 'orden': OC, OT, codigo o folio de ficha.
+  // OJO: una busqueda por texto NUNCA pega sola, aunque traiga un solo
+  // resultado; Lindbergh siempre elige (una palabra suelta puede atinarle a
+  // un modelo equivocado).
+  const onBuscarLibre = async (modo = modoBusquedaTp) => {
     const q = buscaTp.trim()
     if (!q) return
+    const miBusqueda = ++busquedaTpId.current
     setBuscandoTp(true)
     try {
-      const r = await buscarTechPacksComoSea(q, esPrueba)
-      setBiblioteca((b) => ({
+      const r = await buscarTechPacksComoSea(q, esPrueba, { modo })
+      if (miBusqueda !== busquedaTpId.current) return
+      // Si el panel se cerro mientras buscaba, no se revive vacio.
+      setBiblioteca((b) => (b ? {
         ...b,
         ...r,
         libre: true,
         aviso: r.conTechPack.length
           ? `Encontrado por ${r.por}.`
-          : `No se encontro ningun tech pack para "${q}". Prueba con el codigo del diseno, o subelo a mano.`
-      }))
+          : modo === 'modelo'
+            ? `No hay tech packs con "${q}". Prueba con otra palabra del modelo o el nombre del cliente, o busca por orden.`
+            : `No se encontro ningun tech pack para "${q}". Prueba con el codigo del diseno, o subelo a mano.`
+      } : b))
     } catch (e) {
+      if (miBusqueda !== busquedaTpId.current) return
       console.error('[PanelTareasMaquila] busqueda libre:', e)
-      setBiblioteca((b) => ({ ...b, aviso: 'No se pudo buscar: ' + (e?.message || e) }))
+      setBiblioteca((b) => (b ? { ...b, aviso: 'No se pudo buscar: ' + (e?.message || e) } : b))
     } finally {
-      setBuscandoTp(false)
+      if (miBusqueda === busquedaTpId.current) setBuscandoTp(false)
     }
+  }
+
+  // Cambiar de pestana conserva el texto y vuelve a buscar solo si ya habia.
+  const onCambiarModoTp = (modo) => {
+    if (modo === modoBusquedaTp) return
+    setModoBusquedaTp(modo)
+    if (buscaTp.trim()) onBuscarLibre(modo)
   }
 
   const onBuscarEnBiblioteca = async (tarea) => {
     setError('')
     setAviso('')
+    // Cada vez que se abre el panel, el buscador libre arranca por modelo o
+    // cliente, y cualquier busqueda vieja en vuelo queda descartada.
+    setModoBusquedaTp('modelo')
+    busquedaTpId.current++
+    setBuscandoTp(false)
     if (!tarea.ot) {
       // Sin OT no hay contra que buscar en automatico, pero si se puede buscar
       // a mano por orden de compra, por codigo o por folio (Roberto, 10-sep).
@@ -1546,35 +1574,60 @@ export default function PanelTareasMaquila() {
           <h3 style={{ marginTop: 0 }}>
             {biblioteca.libre ? 'Buscar el tech pack' : 'Esta OT trae varios tech packs. ¿Cual va?'}
           </h3>
+          {biblioteca.libre && (
+            <p style={{ fontSize: 12, color: '#475569', marginTop: -6 }}>
+              Lo estándar es por modelo o cliente. La orden de compra o la OT sirven cuando no sabes el modelo.
+            </p>
+          )}
           <p style={{ fontSize: 13, color: '#475569' }}>
             Una tarea lleva UN tech pack. Si la maquila necesita mas de uno, encarga una tarea por codigo.
           </p>
           {biblioteca.aviso && <p style={{ fontSize: 13, color: '#b45309' }}>{biblioteca.aviso}</p>}
-          {/* Buscar de TODAS las formas (Roberto, 10-sep): por orden de compra,
-              por orden de trabajo, por codigo o por folio de ficha. */}
+          {/* Buscar por modelo o cliente (el estandar, Roberto 15-sep) o por
+              orden de compra, OT, codigo o folio de ficha (10-sep). */}
+          <div className="tp-fila" style={{ gap: 6, marginBottom: 6 }}>
+            <button
+              className={`${modoBusquedaTp === 'modelo' ? 'btn-primario' : 'btn-secundario'} tp-btn-chico`}
+              onClick={() => onCambiarModoTp('modelo')}
+            >
+              Por modelo o cliente
+            </button>
+            <button
+              className={`${modoBusquedaTp === 'orden' ? 'btn-primario' : 'btn-secundario'} tp-btn-chico`}
+              onClick={() => onCambiarModoTp('orden')}
+            >
+              Por orden de compra u OT
+            </button>
+          </div>
           <div className="tp-fila" style={{ gap: 6, marginBottom: 8 }}>
             <input
               className="tp-input"
               style={{ flex: 1 }}
               value={buscaTp}
-              placeholder="Orden de compra, OT, codigo o folio"
+              placeholder={modoBusquedaTp === 'modelo' ? 'Modelo, cliente o código (ej. CHEDRAUI, WKD225T401)' : 'Orden de compra, OT, código o folio'}
               onChange={(e) => setBuscaTp(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') onBuscarLibre() }}
             />
-            <button className="btn-secundario tp-btn-chico" disabled={buscandoTp || !buscaTp.trim()} onClick={onBuscarLibre}>
+            <button className="btn-secundario tp-btn-chico" disabled={buscandoTp || !buscaTp.trim()} onClick={() => onBuscarLibre()}>
               {buscandoTp ? 'Buscando...' : 'Buscar'}
             </button>
           </div>
-          {biblioteca.conTechPack.map((c) => (
+          {/* Siempre se elige a mano: ningun resultado se pega solo. */}
+          {biblioteca.conTechPack.slice(0, 12).map((c) => (
             <button
               key={c.codigo}
               className="btn-secundario"
               style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 6 }}
               onClick={() => onPegarDeBiblioteca(tareas.find((x) => x.id === biblioteca.tareaId), c)}
             >
-              <strong>{c.codigo}</strong>{c.talla ? ` (talla ${c.talla})` : ''}{c.folio ? ` · folio ${c.folio}` : ''} {c.descripcion ? `· ${c.descripcion}` : ''} · {c.techPack.nombre}
+              <strong>{c.codigo}</strong>{c.modelo ? ` · ${c.modelo}` : ''}{c.cliente ? ` · ${c.cliente}` : ''}{c.talla ? ` (talla ${c.talla})` : ''}{c.folio ? ` · folio ${c.folio}` : ''} {c.descripcion ? `· ${c.descripcion}` : ''} · {c.techPack?.nombre}
             </button>
           ))}
+          {biblioteca.conTechPack.length > 12 && (
+            <p style={{ fontSize: 12, color: '#475569' }}>
+              …y {biblioteca.conTechPack.length - 12} más: afina la búsqueda
+            </p>
+          )}
           {biblioteca.sinTechPack.length > 0 && (
             <p style={{ fontSize: 12, color: '#b45309' }}>
               Sin tech pack en la biblioteca: {biblioteca.sinTechPack.map((x) => x.codigo).join(', ')}

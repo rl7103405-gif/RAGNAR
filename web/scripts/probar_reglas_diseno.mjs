@@ -322,6 +322,21 @@ Object.assign(ESCENARIOS, {
     request: { auth: { uid: JEFA.uid }, method: 'create', path: DBPATH + '/techPacks/ZZTEST-INVENTADO/editando/' + JEFA.uid, time: T, resource: doc({ uid: JEFA.uid, nombre: JEFA.nombreCompleto, que: 'datos', desde: T, latido: T, esPrueba: true }) },
     functionMocks: [...perfilMocks([JEFA]), mExists(DBPATH + '/techPacks/ZZTEST-INVENTADO', false), sinResultado('get', DBPATH + '/techPacks/ZZTEST-INVENTADO')]
   },
+  'techpack-archivo-identidad': {
+    que: 'Lety sube el tech pack y con el viajan cliente, marca y modelo leidos de la plantilla',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, cliente: 'GRUPO UNION', marca: 'OPTIMA', modeloPlantilla: 'RB10T100, RB10T101' }) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])], ancla: ESCENARIOS['techpack-datos'].ancla
+  },
+  'neg-techpack-cliente-largo': {
+    expectation: 'DENY', que: 'NEG: un cliente de 500 caracteres',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, cliente: 'X'.repeat(500) }) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])]
+  },
+  'neg-techpack-cliente-numero': {
+    expectation: 'DENY', que: 'NEG: un cliente que no es texto',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, cliente: 12345 }) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])]
+  },
   'neg-techpack-mixto': {
     expectation: 'DENY', que: 'NEG: un update que sube archivo Y edita datos a la vez',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP2, techPack: manifiesto(1) }) },

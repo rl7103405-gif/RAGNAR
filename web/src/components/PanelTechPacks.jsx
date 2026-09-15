@@ -41,6 +41,7 @@ import {
   TIPOS
 } from '../utils/techPacks'
 import { avanceDelTechPack, RUBROS_TECH_PACK } from '../utils/completadoTechPack'
+import { agruparPorClienteYModelo, coincideTechPack } from '../utils/clienteModeloTechPack'
 import VisorTechPack from './VisorTechPack'
 import EditorPlantillaTechPack from './EditorPlantillaTechPack'
 import { escucharEdiciones, marcarEdicion, textoEdiciones } from '../utils/editandoTechPack'
@@ -622,6 +623,9 @@ export default function PanelTechPacks() {
       const hoja = libro.addWorksheet('Tech packs')
       hoja.columns = [
         { header: 'Codigo', key: 'codigo', width: 20 },
+        { header: 'Cliente', key: 'cliente', width: 22 },
+        { header: 'Marca', key: 'marca', width: 18 },
+        { header: 'Modelo (plantilla)', key: 'modeloPlantilla', width: 24 },
         { header: 'Modelo', key: 'modelo', width: 18 },
         { header: 'Descripcion', key: 'descripcion', width: 42 },
         { header: 'Talla', key: 'talla', width: 16 },
@@ -644,6 +648,9 @@ export default function PanelTechPacks() {
         const datos = datosDelTechPack(b)
         hoja.addRow({
           codigo: b.codigo,
+          cliente: b.cliente || '',
+          marca: b.marca || '',
+          modeloPlantilla: b.modeloPlantilla || '',
           modelo: datos.modelo || '',
           descripcion: b.descripcion || '',
           talla: datos.talla || '',
@@ -672,19 +679,20 @@ export default function PanelTechPacks() {
   }
 
   const visibles = useMemo(() => {
-    const f = filtro.trim().toUpperCase()
     return biblioteca.filter((b) => !b.apuntaA).filter((b) => {
       if (soloSin && b.techPack?.totalChunks) return false
-      if (!f) return true
-      // Se busca tambien por MODELO, TALLA y COLOR (Lety, 2026-09-08): el
-      // mismo modelo cae en OT distintas, y hay modelos que solo se
-      // distinguen por color ("combo blanco" vs "combo beige").
-      const datos = datosDelTechPack(b)
-      return `${b.codigo} ${b.descripcion || ''} ${datos.modelo || ''} ${datos.talla || ''} ${datos.color || ''}`
-        .toUpperCase()
-        .includes(f)
+      // Se busca por CLIENTE y MARCA ademas de codigo, modelo, talla y color
+      // (Roberto, 2026-09-15: el estandar es modelo + cliente). Todas las
+      // palabras tienen que aparecer, sin importar acentos ni mayusculas.
+      return coincideTechPack(b, filtro)
     })
   }, [biblioteca, filtro, soloSin])
+
+  // LA VISTA ESTANDAR: cliente -> modelo -> tech packs (Roberto, 2026-09-15:
+  // "ya no se manejan por OC ni OT sino por modelo y cliente").
+  const porCliente = useMemo(() => agruparPorClienteYModelo(biblioteca), [biblioteca])
+  const totalClientes = porCliente.filter((c) => c.clave !== '~SIN').length
+  const totalTechPacksCliente = porCliente.reduce((n, c) => n + c.total, 0)
 
   const otsConFaltantes = Array.isArray(cruce) ? cruce.filter((o) => o.faltan.length) : []
 
@@ -777,6 +785,7 @@ export default function PanelTechPacks() {
         </div>
         <div className="tp-tiles">
           <Tile titulo="Codigos" valor={resumen.total} />
+          <Tile titulo="Clientes" valor={totalClientes} />
           <Tile titulo="Con tech pack" valor={resumen.conTp} tono="ok" />
           <Tile titulo="Con FTT" valor={resumen.conFtt} />
           <Tile titulo="Solo FTT" valor={resumen.soloFtt} tono={resumen.soloFtt ? 'aviso' : ''} />
@@ -800,7 +809,7 @@ export default function PanelTechPacks() {
             <strong style={{ whiteSpace: 'nowrap' }}>Buscar un tech pack</strong>
             <input
               className="tp-input"
-              placeholder="Codigo, modelo, color o descripcion — por ejemplo SHASA, RAYAS o QUI-CSHA20X"
+              placeholder="Modelo, cliente o código — por ejemplo CHEDRAUI, WKD225T401 o RAYAS"
               value={filtro}
               onChange={(e) => setFiltro(e.target.value)}
               style={{ flex: 1, minWidth: 240 }}
@@ -831,6 +840,7 @@ export default function PanelTechPacks() {
                 <div key={b.id} className="tp-diseno">
                   <div className="tp-diseno-info">
                     <span className="tp-codigo">{b.codigo}</span>
+                    {b.cliente ? <span className="tp-meta" title={b.marca ? `${b.cliente} · ${b.marca}` : b.cliente}><strong>{b.cliente}</strong></span> : null}
                     <span className="tp-meta"><NombreDelModelo item={b} corto /></span>
                     {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
                   </div>
@@ -862,11 +872,38 @@ export default function PanelTechPacks() {
           <div className="tp-paso">
             <span className="tp-num">1</span>
             <div style={{ flex: 1 }}>
-              <h3 style={{ margin: 0 }}>¿De que orden de trabajo es?</h3>
+              {/* El codigo va PRIMERO (Roberto, 2026-09-15: el estandar es
+                  modelo + cliente, ya no la OT). La OT queda como ayuda para
+                  quien no se sabe el codigo. */}
+              <h3 style={{ margin: 0 }}>¿De qué código es?</h3>
               <p className="texto-suave" style={{ margin: '4px 0 10px' }}>
-                Escribe la OT y la app te dice sus codigos. Si ya sabes el codigo, escribelo directo.
+                Escribe el código del diseño. Si no lo sabes, búscalo abajo por su orden de trabajo.
               </p>
               <div className="tp-fila">
+                <input
+                  className="tp-input"
+                  placeholder="Código del diseño (ej. WKD225T401)"
+                  value={codigo}
+                  onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+                  disabled={trabajando}
+                  style={{ width: 320, fontSize: 16 }}
+                />
+                {/* Descargar la plantilla no escribe nada: el admin (Roberto)
+                    tambien puede, para probarla. Editar sigue siendo solo de desarrollo.
+                    Sigue usando la OT de abajo si se escribio. */}
+                {puedeSubirTechPacks && (
+                  <button
+                    className="btn-primario"
+                    onClick={onNuevaPlantilla}
+                    disabled={trabajando || generando}
+                    title="Descarga un Excel nuevo en el formato TP-Quini, prellenado con lo que el plan sabe de la OT que escribas abajo"
+                  >
+                    {generando ? 'Armando...' : 'Nuevo tech pack (plantilla)'}
+                  </button>
+                )}
+              </div>
+              <div className="tp-fila" style={{ marginTop: 10, flexWrap: 'wrap', gap: 8 }}>
+                <span className="texto-suave" style={{ fontSize: 13 }}>¿No sabes el código? Búscalo por orden de trabajo:</span>
                 <input
                   className="tp-input"
                   placeholder="Orden de trabajo (ej. 7887)"
@@ -874,32 +911,11 @@ export default function PanelTechPacks() {
                   onChange={(e) => setOt(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && onBuscarOt()}
                   disabled={trabajando}
-                  style={{ width: 220 }}
+                  style={{ width: 200 }}
                 />
-                <button className="btn-secundario" onClick={onBuscarOt} disabled={trabajando || codigosDeOt === 'buscando'}>
-                  {codigosDeOt === 'buscando' ? 'Buscando...' : 'Ver sus codigos'}
+                <button className="btn-secundario tp-btn-chico" onClick={onBuscarOt} disabled={trabajando || codigosDeOt === 'buscando'}>
+                  {codigosDeOt === 'buscando' ? 'Buscando...' : 'Ver sus códigos'}
                 </button>
-                {/* Descargar la plantilla no escribe nada: el admin (Roberto)
-                    tambien puede, para probarla. Editar sigue siendo solo de desarrollo. */}
-                {puedeSubirTechPacks && (
-                  <button
-                    className="btn-primario"
-                    onClick={onNuevaPlantilla}
-                    disabled={trabajando || generando}
-                    title="Descarga un Excel nuevo en el formato TP-Quini, prellenado con lo que el plan sabe de esta OT"
-                  >
-                    {generando ? 'Armando...' : 'Nuevo tech pack (plantilla)'}
-                  </button>
-                )}
-                <span className="texto-suave">o</span>
-                <input
-                  className="tp-input"
-                  placeholder="Codigo del diseno (ej. WKD225T401)"
-                  value={codigo}
-                  onChange={(e) => setCodigo(e.target.value.toUpperCase())}
-                  disabled={trabajando}
-                  style={{ width: 280 }}
-                />
               </div>
               {Array.isArray(codigosDeOt) && codigosDeOt.length > 0 && (
                 <div className="tp-chips">
@@ -984,19 +1000,89 @@ export default function PanelTechPacks() {
           abren y se cierran (Roberto, 2026-09-10). Cada uno responde a una
           pregunta distinta: que hay por orden de compra, que trae orden de
           trabajo pero todavia no de compra, y que no cuelga de nada. */}
+      {/* ---------------------------------- LA VISTA ESTANDAR: por cliente y
+          modelo (Roberto, 2026-09-15). Va antes que el arbol de ordenes. */}
+      {porCliente.length > 0 && (
+        <details className="tarjeta tp-cuadro" open>
+          <summary className="tp-cuadro-cab">
+            <strong style={{ fontSize: 16 }}>Por cliente y modelo</strong>
+            <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
+              {totalClientes} {totalClientes === 1 ? 'cliente' : 'clientes'} · {totalTechPacksCliente} {totalTechPacksCliente === 1 ? 'tech pack' : 'tech packs'}
+            </span>
+          </summary>
+          <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>
+            El estándar: cada tech pack es de un cliente y un modelo, tal como viene escrito en su plantilla.
+            Si un tech pack trae varios modelos, aparece bajo cada uno.
+          </p>
+          <div className="tp-arbol">
+            {porCliente.map((c) => (
+              <details key={c.clave} className="tp-oc">
+                <summary>
+                  <span className="tp-oc-titulo">{c.cliente}</span>
+                  <span className="texto-suave">
+                    {' '}· {c.modelos.length} {c.modelos.length === 1 ? 'modelo' : 'modelos'} · {c.total} {c.total === 1 ? 'tech pack' : 'tech packs'}
+                  </span>
+                  {c.grafias.length > 1 && (
+                    <span className="texto-suave" style={{ fontSize: 12 }}>(también escrito: {c.grafias.filter((g) => g !== c.cliente).join(', ')})</span>
+                  )}
+                </summary>
+                {c.modelos.map((m) => (
+                  <div key={m.clave} className="tp-ot">
+                    <div className="tp-ot-cab">
+                      <span className="tp-ot-num">{m.modelo}</span>
+                      <span className="texto-suave"> · {m.techPacks.length} {m.techPacks.length === 1 ? 'tech pack' : 'tech packs'}</span>
+                    </div>
+                    <div className="tp-disenos">
+                      {m.techPacks.map((b) => (
+                        <div key={b.id} className="tp-diseno">
+                          <div className="tp-diseno-info">
+                            <span className="tp-codigo">{b.codigo}</span>
+                            <span className="tp-meta"><NombreDelModelo item={b} corto /></span>
+                            {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
+                          </div>
+                          <div className="tp-acciones-lista">
+                            <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
+                            {b.ftt?.totalChunks ? (
+                              <div className="tp-acciones">
+                                <button className="btn-secundario tp-btn-chico tp-acc-ver" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
+                                  Ver FTT
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </details>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {/* ---------------------------------- el arbol OC/OT se conserva, plegado
+          (Roberto, 2026-09-15: "lo de OC/OT no se debe perder"). */}
+      <details className="tarjeta tp-cuadro">
+        <summary className="tp-cuadro-cab">
+          <strong style={{ fontSize: 16 }}>Buscar por orden de compra u orden de trabajo</strong>
+        </summary>
+        <p className="texto-suave" style={{ margin: '4px 0 10px', fontSize: 13 }}>
+          La forma anterior: cada tech pack cuelga de las órdenes del plan maestro. Sirve para ver qué tech packs lleva una orden; el estándar es por cliente y modelo.
+        </p>
       {enPlan === null ? (
-        <div className="tarjeta">
+        <div>
           <p className="texto-suave" style={{ margin: 0 }}>Leyendo el plan maestro...</p>
         </div>
       ) : arbol.conOc.length === 0 && arbol.sinOc.length === 0 && arbol.sinOrden.length === 0 ? (
-        <div className="tarjeta">
+        <div>
           <div className="tp-vacio">
             <div className="tp-vacio-titulo">Todavia no hay nada en la biblioteca</div>
           </div>
         </div>
       ) : (
         <>
-          <details className="tarjeta tp-cuadro" open>
+          <details className="tp-cuadro" open>
             <summary className="tp-cuadro-cab">
               <strong style={{ fontSize: 16 }}>Por orden de compra</strong>
               <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
@@ -1022,7 +1108,7 @@ export default function PanelTechPacks() {
             )}
           </details>
 
-          <details className="tarjeta tp-cuadro">
+          <details className="tp-cuadro" style={{ marginTop: 12 }}>
             <summary className="tp-cuadro-cab">
               <strong style={{ fontSize: 16 }}>Sin orden de compra</strong>
               <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
@@ -1043,7 +1129,7 @@ export default function PanelTechPacks() {
             )}
           </details>
 
-          <details className="tarjeta tp-cuadro">
+          <details className="tp-cuadro" style={{ marginTop: 12 }}>
             <summary className="tp-cuadro-cab">
               <strong style={{ fontSize: 16 }}>Sin orden de compra ni de trabajo</strong>
               <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
@@ -1076,6 +1162,7 @@ export default function PanelTechPacks() {
           </details>
         </>
       )}
+      </details>
 
       <AvanceDeTechPacks biblioteca={biblioteca} onVer={verTechPack} onEditar={editarTechPack} puedeEditar={puedeEditarTechPacks} />
 

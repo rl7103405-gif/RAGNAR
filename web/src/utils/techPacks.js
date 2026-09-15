@@ -45,6 +45,9 @@ import { db } from '../firebase/config'
 import { normalizarCodigo, normalizarOt, normalizarOc } from './planMaestroNucleo'
 import { renglonesDeLaOt, otsDeLaOc } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
+import { cargarWorkbook } from './excelJs'
+import { esPlantilla, leerPlantilla } from './leerPlantillaTechPack'
+import { IDENTIDAD_VACIA, coincideTechPack, identidadDePlantilla, modelosDelTechPack } from './clienteModeloTechPack'
 import {
   CHUNK_BYTES,
   MAX_CHUNKS,
@@ -128,6 +131,29 @@ export async function guardarEnBiblioteca({
   onProgreso('Calculando la huella del archivo...')
   const sha256 = await sha256Hex(contenido)
 
+  // CLIENTE, MARCA y MODELO salen del archivo (Roberto, 15-sep: los tech
+  // packs se manejan por modelo y cliente). Se leen ANTES de escribir nada, y
+  // solo del tech pack de empaque: la FTT no cambia la identidad. Un PDF o un
+  // Excel que no es la plantilla deja los tres en null: no se heredan del
+  // archivo anterior, porque ya no lo describirian.
+  let identidad = null
+  if (def.campo === 'techPack') {
+    identidad = { ...IDENTIDAD_VACIA }
+    if (formato === 'xlsx') {
+      try {
+        onProgreso('Leyendo cliente y modelo de la plantilla...')
+        const Workbook = await cargarWorkbook()
+        const libro = new Workbook()
+        await libro.xlsx.load(contenido)
+        if (esPlantilla(libro)) identidad = identidadDePlantilla(leerPlantilla(libro))
+      } catch (err) {
+        // Leer la identidad es un adorno de busqueda: si falla, el archivo se
+        // sube igual y queda "sin cliente" hasta la siguiente subida.
+        console.warn('[TechPacks] No se pudo leer cliente/modelo del archivo:', err?.message || err)
+      }
+    }
+  }
+
   // El documento padre tiene que existir ANTES que los chunks: las reglas de
   // los chunks leen su esPrueba para el corral. Si es nuevo, nace aqui con la
   // descripcion del catalogo (si la tiene) para que el tablero se lea solo.
@@ -205,6 +231,7 @@ export async function guardarEnBiblioteca({
       subidoPorUid: usuario.uid,
       subidoPorNombre: String(usuario.nombre).slice(0, 120)
     },
+    ...(identidad || {}),
     actualizadoEn: serverTimestamp(),
     actualizadoPorUid: usuario.uid,
     actualizadoPorNombre: String(usuario.nombre).slice(0, 120)
@@ -444,9 +471,10 @@ export function escucharBiblioteca(esPrueba, alRecibir, alFallar) {
  *   3. como CODIGO o FOLIO    -> el documento directo (siguiendo el alias)
  *   4. como TEXTO            -> lo que traiga ese modelo o esa descripcion
  */
-export async function buscarTechPacksComoSea(texto, esPrueba) {
+export async function buscarTechPacksComoSea(texto, esPrueba, { modo = 'orden' } = {}) {
   const q = String(texto || '').trim()
   if (!q) return { por: '', conTechPack: [], sinTechPack: [], codigos: [] }
+  if (modo === 'modelo') return buscarTechPacksPorModeloOCliente(q, esPrueba)
   const juntar = (a, b) => [...new Map([...a, ...b].map((x) => [x.codigo, x])).values()]
   let conTechPack = []
   let sinTechPack = []
@@ -503,6 +531,47 @@ export async function buscarTechPacksComoSea(texto, esPrueba) {
   }
 
   return { por, conTechPack, sinTechPack, codigos }
+}
+
+/**
+ * LA BUSQUEDA ESTANDAR (Roberto, 15-sep): por MODELO, CLIENTE o CODIGO.
+ * Todas las palabras tienen que aparecer (coincideTechPack), sin acentos. Se
+ * leen los tech packs del mundo de quien busca (son ~120: una consulta), y un
+ * codigo o folio de ficha exacto va primero. Nunca se pega solo: siempre
+ * devuelve la lista para que se elija (Codex: una busqueda por texto puede
+ * traer varias tallas del mismo modelo).
+ */
+export async function buscarTechPacksPorModeloOCliente(texto, esPrueba) {
+  const q = String(texto || '').trim()
+  const vacio = { por: 'modelo, cliente o codigo', conTechPack: [], sinTechPack: [], codigos: [] }
+  if (!q) return vacio
+  const snap = await getDocs(query(collection(db, 'techPacks'), where('esPrueba', '==', esPrueba === true)))
+  const todos = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  const porId = new Map(todos.map((b) => [b.id, b]))
+  const exacto = codigoComoId(q)
+  const vistos = new Set()
+  const conTechPack = []
+  const sinTechPack = []
+  const agrega = (b, folio = '') => {
+    const real = b.apuntaA ? porId.get(codigoComoId(b.apuntaA)) : b
+    if (!real || vistos.has(real.id)) return
+    vistos.add(real.id)
+    const renglon = {
+      codigo: real.id,
+      descripcion: real.descripcion || '',
+      folio,
+      cliente: real.cliente || '',
+      modelo: modelosDelTechPack(real).join(', '),
+      talla: real.datosEditables?.talla ?? real.talla ?? ''
+    }
+    if (real.techPack) conTechPack.push({ ...renglon, techPack: real.techPack })
+    else sinTechPack.push(renglon)
+  }
+  const directo = exacto ? porId.get(exacto) : null
+  if (directo) agrega(directo, directo.apuntaA ? exacto : '')
+  todos.filter((b) => !b.apuntaA && coincideTechPack(b, q)).forEach((b) => agrega(b))
+  const orden = (a, b) => (a.cliente || '~').localeCompare(b.cliente || '~', 'es') || a.modelo.localeCompare(b.modelo, 'es') || a.codigo.localeCompare(b.codigo, 'es', { numeric: true })
+  return { ...vacio, conTechPack: conTechPack.sort(orden), sinTechPack: sinTechPack.sort(orden), codigos: [...vistos] }
 }
 
 export async function techPacksDeLaOt(ot, esPrueba, renglonesYaLeidos = null) {
