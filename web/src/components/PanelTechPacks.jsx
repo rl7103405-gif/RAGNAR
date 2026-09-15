@@ -1008,9 +1008,6 @@ export default function PanelTechPacks() {
             </summary>
             <p className="texto-suave" style={{ margin: '4px 0 8px', fontSize: 13 }}>
               Cada tech pack cuelga de la orden de trabajo que le da el plan, por su codigo o por sus folios de ficha.
-              {Array.isArray(cruce)
-                ? ' Con el cruce hecho, cada OT dice tambien que codigos le faltan.'
-                : ' Pulsa "Cruzar con el plan maestro" para ver ademas lo que le falta a cada OT.'}
             </p>
             {arbol.conOc.length === 0 ? (
               <p className="texto-suave" style={{ margin: '8px 0 0 12px' }}>Ninguna todavia.</p>
@@ -1207,66 +1204,10 @@ export default function PanelTechPacks() {
 
       <AvanceDeTechPacks biblioteca={biblioteca} onVer={verTechPack} onEditar={editarTechPack} puedeEditar={puedeEditarTechPacks} />
 
-      {/* ------------------------------------------------ cruce con el plan */}
-      <div className="tarjeta">
-        <div className="tp-fila" style={{ justifyContent: 'space-between' }}>
-          <div>
-            <h3 style={{ margin: 0 }}>Que me falta por subir, segun el plan</h3>
-            <p className="texto-suave" style={{ margin: '4px 0 0', fontSize: 13 }}>
-              Por cada orden de trabajo del plan vigente, los codigos que todavia no tienen su tech pack
-              de empaque en la biblioteca. Es la lista de pendientes contra lo que la planta ya tiene
-              planeado.
-            </p>
-          </div>
-          <button className="btn-secundario" onClick={onCruzar} disabled={cruce === 'cargando'}>
-            {cruce === 'cargando' ? 'Cruzando...' : cruce ? 'Volver a cruzar' : 'Cruzar con el plan maestro'}
-          </button>
-        </div>
-        {Array.isArray(cruce) &&
-          (otsConFaltantes.length === 0 ? (
-            <p className="tp-ok" style={{ marginTop: 12 }}>
-              Todas las OT del plan tienen tech pack para todos sus codigos.
-            </p>
-          ) : (
-            <div style={{ overflowX: 'auto', marginTop: 12 }}>
-              <p className="tp-aviso">
-                <strong>{otsConFaltantes.length}</strong> de {cruce.length} OT tienen al menos un codigo sin tech pack.
-              </p>
-              <table className="tabla-datos">
-                <thead>
-                  <tr>
-                    <th>OT</th>
-                    <th>OC</th>
-                    <th>Destino</th>
-                    <th>Codigos sin tech pack</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {otsConFaltantes.map((o) => (
-                    <tr key={o.ot}>
-                      <td>
-                        <strong>{o.ot}</strong>
-                      </td>
-                      <td>{o.oc || <span className="texto-suave">sin OC</span>}</td>
-                      <td>{o.destino}</td>
-                      <td>
-                        {o.faltan.map((c) => (
-                          <span key={c} className="tp-pill tp-pill-falta">
-                            {c}
-                          </span>
-                        ))}
-                        <span className="texto-suave" style={{ fontSize: 13 }}>
-                          {' '}
-                          ({o.faltan.length} de {o.total})
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
-      </div>
+      {/* El cuadro "Que me falta por subir, segun el plan" (cruce con el plan
+          maestro por OT) se quito el 15-sep: Roberto, "ya lo estamos viendo por
+          cliente y modelo, no por OT ni OC". Lo pendiente se ve con "Solo los
+          que no tienen tech pack" del buscador. onCruzar queda por si vuelve. */}
 
       {editando && (
 
