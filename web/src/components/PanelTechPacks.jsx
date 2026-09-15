@@ -833,7 +833,7 @@ export default function PanelTechPacks() {
             </button>
           </div>
         </div>
-        {filtro && (
+        {(filtro || soloSin) && (
           <div style={{ marginTop: 12 }}>
             <div className="texto-suave" style={{ fontSize: 13, marginBottom: 6 }}>
               {visibles.length === 0
@@ -921,7 +921,11 @@ export default function PanelTechPacks() {
                             {modelosDelTechPack(b).length > 1 && (
                               <span className="tp-meta">tambien {modelosDelTechPack(b).filter((x) => x !== m.modelo).join(', ')}</span>
                             )}
-                            {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
+                            {b.descripcion && !/^Drive:/i.test(b.descripcion) ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
+                            {/* Lo que antes solo decia la lista completa: version y quien lo cambio. */}
+                            <span className="tp-meta texto-suave" style={{ fontSize: 12 }}>
+                              {b.techPack?.version ? `v${b.techPack.version} · ` : ''}{fecha(b.actualizadoEn)}{b.actualizadoPorNombre ? ` · ${b.actualizadoPorNombre}` : ''}
+                            </span>
                           </div>
                           <div className="tp-acciones-lista">
                             <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
@@ -930,6 +934,11 @@ export default function PanelTechPacks() {
                                 <button className="btn-secundario tp-btn-chico tp-acc-ver" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
                                   Ver FTT
                                 </button>
+                                {puedeSubirTechPacks && (
+                                  <button className="btn-secundario tp-btn-chico" disabled={trabajando} onClick={() => onQuitar(b, 'ftt')}>
+                                    Quitar FTT
+                                  </button>
+                                )}
                               </div>
                             ) : null}
                           </div>
@@ -1180,93 +1189,6 @@ export default function PanelTechPacks() {
       )}
 
       <AvanceDeTechPacks biblioteca={biblioteca} onVer={verTechPack} onEditar={editarTechPack} puedeEditar={puedeEditarTechPacks} />
-
-      {/* ------------------------------------------------ la lista completa (plegada) */}
-      <details className="tarjeta tp-lista">
-        <summary className="tp-fila" style={{ justifyContent: 'space-between', cursor: 'pointer' }}>
-          <h3 style={{ margin: 0 }}>Lista completa, codigo por codigo</h3>
-          <span className="texto-suave" style={{ fontSize: 13 }}>{biblioteca.filter((b) => !b.apuntaA).length} codigos · abrir</span>
-        </summary>
-        {visibles.length === 0 ? (
-          <div className="tp-vacio">
-            {biblioteca.length === 0 ? (
-              <>
-                <div className="tp-vacio-titulo">Todavia no hay nada en la biblioteca</div>
-                <div className="texto-suave">
-                  {puedeSubirTechPacks
-                    ? 'Arriba: escribe la orden de trabajo, elige el codigo y sube el tech pack.'
-                    : 'Cuando Lety suba el primer tech pack aparece aqui.'}
-                </div>
-              </>
-            ) : (
-              <div className="texto-suave">Nada con ese filtro.</div>
-            )}
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto', marginTop: 12 }}>
-            <table className="tabla-datos">
-              <thead>
-                <tr>
-                  <th>Codigo</th>
-                  <th>Modelo</th>
-                  <th>Descripcion</th>
-                  <th>OT / OC (segun el plan)</th>
-                  <th>Tech pack de empaque</th>
-                  <th>FTT</th>
-                  <th>Ultimo cambio</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibles.map((b) => (
-                  <tr key={b.id}>
-                    <td>
-                      <span className="tp-codigo">{b.codigo}</span>
-                    </td>
-                    <td style={{ fontSize: 13 }}>
-                      <NombreDelModelo item={b} />
-                    </td>
-                    <td>{b.descripcion || <span className="texto-suave">sin descripcion</span>}</td>
-                    <td style={{ fontSize: 13 }}>
-                      <LigueAlPlan
-                        lista={
-                          enPlan
-                            ? [
-                                ...(enPlan.get(b.codigo) || []),
-                                ...(codigoBase(b.codigo) !== b.codigo ? enPlan.get(codigoBase(b.codigo)) || [] : []),
-                                ...(resumen.foliosDe.get(b.codigo) || []).flatMap((f) => enPlan.get(f) || [])
-                              ]
-                            : undefined
-                        }
-                        porTalla={codigoBase(b.codigo) !== b.codigo && !enPlan?.get(b.codigo)?.length && Boolean(enPlan?.get(codigoBase(b.codigo))?.length)}
-                        folios={resumen.foliosDe.get(b.codigo) || []}
-                        cargando={enPlan === null}
-                      />
-                    </td>
-                    <td>
-                      <Documento item={b} tipo="tp" avance={avanceDe(b)} onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} />
-                    </td>
-                    <td>
-                      <Documento item={b} tipo="ftt" onVer={setVisor} onQuitar={onQuitar} puedeEditar={puedeSubirTechPacks} ocupado={trabajando} />
-                    </td>
-                    <td className="texto-suave" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
-                      {fecha(b.actualizadoEn)}
-                      {b.actualizadoPorNombre ? ` · ${b.actualizadoPorNombre}` : ''}
-                    </td>
-                    <td>
-                      {puedeEditarTechPacks && !b.apuntaA && (
-                        <button className="btn-secundario tp-btn-chico" onClick={() => setEditando(b)}>
-                          Editar
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </details>
 
       {/* ------------------------------------------------ cruce con el plan */}
       <div className="tarjeta">
