@@ -704,6 +704,15 @@ table th, table td {
 
 /* Buscador de tech packs, al frente (8-sep) */
 .tp-buscador { margin-bottom: 14px; }
+.tp-busca-caja { display: flex; align-items: center; gap: 10px; padding: 4px 14px; border: 2px solid #cbd5e1; border-radius: 999px; background: #fff; transition: border-color .15s, box-shadow .15s; cursor: text; }
+.tp-busca-caja:focus-within { border-color: var(--azul); box-shadow: 0 0 0 4px #dbeafe; }
+.tp-busca-lupa { color: #64748b; flex: none; }
+.tp-busca-caja:focus-within .tp-busca-lupa { color: var(--azul); }
+.tp-busca-input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font-size: 18px; padding: 10px 0; color: inherit; }
+.tp-busca-input::-webkit-search-cancel-button { display: none; }
+.tp-busca-limpiar { flex: none; width: 30px; height: 30px; border: 0; border-radius: 50%; background: #e2e8f0; color: #334155; font-size: 20px; line-height: 1; cursor: pointer; }
+.tp-busca-limpiar:hover { background: #cbd5e1; }
+.tp-subir-cab { border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; }
 .tp-resultados { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
 
 /* La foto va en su renglon, donde el Excel la tiene anclada (8-sep) */

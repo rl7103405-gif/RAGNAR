@@ -788,20 +788,15 @@ export default function PanelTechPacks() {
         <div>
           <h2 style={{ margin: 0 }}>Tech packs</h2>
           <p className="texto-suave" style={{ margin: '6px 0 0' }}>
-            Un renglon por codigo de diseno. <strong>Tener la FTT no es tener tech pack</strong>: a la
-            maquila se le manda el <strong>tech pack de empaque</strong>; la ficha de tejido se guarda
-            aparte, solo para saber que ya existe.
+            El tech pack de empaque de cada código, ordenado por cliente y modelo.
           </p>
         </div>
+        {/* Sin FTT ni "Sin OT en el plan" (Roberto, 15-sep: la ficha de tejido no
+            se va a usar y la OT ya no es el estandar). */}
         <div className="tp-tiles">
           <Tile titulo="Codigos" valor={resumen.total} />
           <Tile titulo="Clientes" valor={totalClientes} />
           <Tile titulo="Con tech pack" valor={resumen.conTp} tono="ok" />
-          <Tile titulo="Con FTT" valor={resumen.conFtt} />
-          <Tile titulo="Solo FTT" valor={resumen.soloFtt} tono={resumen.soloFtt ? 'aviso' : ''} />
-          {resumen.fueraDelPlan != null && (
-            <Tile titulo="Sin OT en el plan" valor={resumen.fueraDelPlan} tono={resumen.fueraDelPlan ? 'aviso' : ''} />
-          )}
         </div>
       </div>
 
@@ -814,20 +809,25 @@ export default function PanelTechPacks() {
           arbol, o sea a media pagina. Va aqui, pegado a la cabecera, porque
           buscar un tech pack es lo que mas se hace en esta pantalla. */}
       <div className="tarjeta tp-buscador">
-        <div className="tp-fila" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-          <div className="tp-fila" style={{ gap: 10, flex: 1, minWidth: 280 }}>
-            <strong style={{ whiteSpace: 'nowrap' }}>Buscar un tech pack</strong>
-            <input
-              className="tp-input"
-              placeholder="Modelo, cliente o código — por ejemplo CHEDRAUI, WKD225T401 o RAYAS"
-              value={filtro}
-              onChange={(e) => setFiltro(e.target.value)}
-              style={{ flex: 1, minWidth: 240 }}
-            />
-            {filtro && (
-              <button className="btn-secundario tp-btn-chico" onClick={() => setFiltro('')}>Limpiar</button>
-            )}
-          </div>
+        <label className="tp-busca-caja">
+          <svg className="tp-busca-lupa" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2.2" />
+            <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+          </svg>
+          <input
+            className="tp-busca-input"
+            type="search"
+            aria-label="Buscar un tech pack"
+            placeholder="Busca un tech pack por modelo, cliente o código"
+            value={filtro}
+            onChange={(e) => setFiltro(e.target.value)}
+          />
+          {filtro && (
+            <button type="button" className="tp-busca-limpiar" onClick={() => setFiltro('')} aria-label="Limpiar la búsqueda">×</button>
+          )}
+        </label>
+        <div className="tp-fila" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
+          <span className="texto-suave" style={{ fontSize: 13 }}>Por ejemplo: CHEDRAUI, WKD225T401 o RAYAS</span>
           <div className="tp-fila" style={{ gap: 10 }}>
             <label className="tp-check">
               <input type="checkbox" checked={soloSin} onChange={(e) => setSoloSin(e.target.checked)} />
@@ -1076,6 +1076,13 @@ export default function PanelTechPacks() {
       {/* ------------------------------------------------ subir, en dos pasos */}
       {puedeSubirTechPacks && (
         <div className="tarjeta tp-subir">
+          {/* Titulo del cuadro (Roberto, 15-sep: "no esta muy bien indicado"). */}
+          <div className="tp-subir-cab">
+            <h2 style={{ margin: 0 }}>Agregar un tech pack</h2>
+            <p className="texto-suave" style={{ margin: '4px 0 0' }}>
+              Sube el tech pack de un código, o reemplaza el que ya tiene.
+            </p>
+          </div>
           <div className="tp-paso">
             <span className="tp-num">1</span>
             <div style={{ flex: 1 }}>
@@ -1176,19 +1183,6 @@ export default function PanelTechPacks() {
                     disabled={!codigoListo || trabajando}
                     onChange={(e) => {
                       onSubir('tp', e.target.files?.[0])
-                      e.target.value = ''
-                    }}
-                  />
-                </label>
-                <label className={`btn-secundario tp-btn-archivo ${!codigoListo || trabajando ? 'apagado' : ''}`}>
-                  Subir FTT (ficha de tejido)
-                  <input
-                    type="file"
-                    accept=".pdf,.xlsx"
-                    style={{ display: 'none' }}
-                    disabled={!codigoListo || trabajando}
-                    onChange={(e) => {
-                      onSubir('ftt', e.target.files?.[0])
                       e.target.value = ''
                     }}
                   />
