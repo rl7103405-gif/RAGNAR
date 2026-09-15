@@ -127,7 +127,7 @@ export async function guardarEnBiblioteca({
   const totalChunks = Math.ceil(bytes.length / CHUNK_BYTES)
   if (totalChunks > MAX_CHUNKS) throw new ErrorBiblioteca('El archivo rebasa los 15 MB.')
 
-  onProgreso('Calculando la huella del archivo...')
+  onProgreso('Preparando el archivo...')
   const sha256 = await sha256Hex(contenido)
 
   // CLIENTE, MARCA y MODELO salen del archivo (Roberto, 15-sep: los tech

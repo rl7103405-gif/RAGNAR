@@ -708,7 +708,7 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
         {subir && fila.estados.length > 0 && (
           <div style={{ marginTop: 6 }}>
             <button type="button" className="btn-secundario tp-btn-chico" onClick={() => setSubiendoAbierto((v) => !v)}>
-              {subiendoAbierto ? 'Cerrar' : 'Subir tech pack'}
+              {subiendoAbierto ? 'Ocultar' : 'Subir tech pack'}
             </button>
             {subiendoAbierto && (
               <div className="td-subir-lista">
@@ -1002,7 +1002,7 @@ function SubirTechPackDeCodigo({ codigo, tiene, variantes, ocupado, usuario, esP
     setSubiendo('Subiendo...')
     try {
       const id = await guardarEnBiblioteca({ codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setSubiendo })
-      onAviso(`Tech pack de ${id || codigo} guardado. El avance ya lo cuenta.`)
+      onAviso(`Tech pack de ${id || codigo} guardado. Para que cuente como listo, llena su checklist en Tech packs (boton Editar).`)
     } catch (err) {
       onError(err)
     } finally {
