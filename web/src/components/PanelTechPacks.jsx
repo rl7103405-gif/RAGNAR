@@ -1408,7 +1408,7 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir =
           <div className="tp-campo">
             <span>Las seis pantallas del tech pack</span>
             <div className="tp-pantallas">
-              {[['pedido', '1 Pedido'], ['ruta', '2 Códigos y ruta'], ['etiquetas', '3 Avíos'], ['individual', '4 Empaque individual'], ['bolsa', '5 Packs en bolsa'], ['caja', '6 Caja']].map(([id, titulo], i) => {
+              {[['pedido', '1 Modelo'], ['ruta', '2 Códigos y ruta'], ['etiquetas', '3 Avíos'], ['individual', '4 Empaque individual'], ['bolsa', '5 Packs en bolsa'], ['caja', '6 Caja']].map(([id, titulo], i) => {
                 const detalle = item.medicion?.detalle?.[id]
                 const faltaV1 = !item.medicion?.detalle && (item.medicion?.faltan || []).includes(id)
                 const falta = detalle?.length ? detalle : faltaV1 ? ['no está'] : []

@@ -21,8 +21,10 @@
 export const RUBROS_TECH_PACK = [
   {
     id: 'pedido',
-    titulo: 'Informacion del pedido',
-    ayuda: 'Cliente, marca, modelo, prenda, tipo de tejido, el pack y los codigos de Microsip con su OT.',
+    // v2 (15-sep): el tech pack es del modelo, sin pedido ni OT. El id sigue
+    // siendo 'pedido' para no perder lo que Lety ya marco en su checklist.
+    titulo: 'Datos del modelo',
+    ayuda: 'Cliente, marca, modelo, prenda, tipo de tejido, pares por pack y los codigos de Microsip del modelo.',
     prefijos: ['INFORMACION DE PEDIDO']
   },
   {
@@ -57,8 +59,9 @@ export const RUBROS_TECH_PACK = [
   },
   {
     id: 'fotos',
-    titulo: 'Fotos',
-    ayuda: 'Sin fotos la maquila no sabe como se ve. El estandar trae fotos en todas sus hojas.',
+    // No tiene pestaña propia: Lety preguntaba "¿cual Fotos?" (usuario-real, 15-sep).
+    titulo: 'Fotos (en 1, 4, 5 y 6)',
+    ayuda: 'Sin fotos la maquila no sabe como se ve. Faltan si alguna de estas no trae foto: la del modelo (1), como se arma el par (4), la bolsa (5) y la caja (6).',
     // No es una hoja: se cumple si el archivo trae imagenes.
     porImagenes: true
   }
