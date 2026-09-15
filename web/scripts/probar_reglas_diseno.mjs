@@ -342,11 +342,6 @@ Object.assign(ESCENARIOS, {
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SIN, descripcion: (TP_SIN.descripcion || '') + ' ', cliente: 'OTRO CLIENTE', ...sellos(JEFA) }) },
     resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])]
   },
-  'neg-techpack-create-con-cliente': {
-    expectation: 'DENY', que: 'NEG: dar de alta un codigo con un cliente que no es texto (tumbaba la biblioteca)',
-    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc({ ...TP_NUEVO, cliente: { a: 'x' } }) },
-    functionMocks: [...perfilMocks([JEFA])]
-  },
   'neg-techpack-mixto': {
     expectation: 'DENY', que: 'NEG: un update que sube archivo Y edita datos a la vez',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP2, techPack: manifiesto(1) }) },
@@ -362,6 +357,11 @@ Object.assign(ESCENARIOS, {
     que: 'Lety da de alta un codigo nuevo en la biblioteca (sin archivo aun)',
     request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc(TP_NUEVO) },
     functionMocks: [...perfilMocks([JEFA])], ancla: 'return yo.subeTechPacks\n        && d.codigo == codigo'
+  },
+  'neg-techpack-create-con-cliente': {
+    expectation: 'DENY', que: 'NEG: dar de alta un codigo con un cliente que no es texto (tumbaba la biblioteca)',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc({ ...TP_NUEVO, cliente: { a: 'x' } }) },
+    functionMocks: [...perfilMocks([JEFA])]
   },
   'asig-reabrir': {
     que: 'la jefa reabre una asignacion cerrada de un encargo que sigue abierto',
