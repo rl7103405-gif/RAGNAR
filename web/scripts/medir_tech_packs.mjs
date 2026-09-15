@@ -23,6 +23,7 @@ import { getFirestore } from 'firebase-admin/firestore'
 import ExcelJS from 'exceljs'
 import { RUBROS_TECH_PACK } from '../src/utils/completadoTechPack.js'
 import { esPlantilla, leerPlantilla, medirPlantilla } from '../src/utils/leerPlantillaTechPack.js'
+import { idsDePedazos } from '../src/utils/pedazosTechPack.js'
 
 initializeApp({ credential: cert(JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))) })
 const db = getFirestore()
@@ -36,9 +37,11 @@ const normaliza = (s) =>
 /** Junta los pedazos del archivo tal como los guarda la app. */
 async function armarArchivo(codigo, manifiesto) {
   const chunks = await db.collection('techPacks').doc(codigo).collection('chunks').get()
-  const pedazos = chunks.docs
-    .filter((d) => d.id.startsWith('tp-'))
-    .sort((a, b) => a.id.localeCompare(b.id))
+  // Ids viejos ('tp-00') o con la huella ('tp-<hex>-00', desde el 15-sep).
+  const porId = new Map(chunks.docs.map((d) => [d.id, d]))
+  const { ids, completo } = idsDePedazos(new Set(porId.keys()), 'tp', manifiesto)
+  if (!completo) return null
+  const pedazos = ids.map((id) => porId.get(id))
     .map((d) => {
       const v = d.data().datos
       return Buffer.from(v?._byteString?.binaryString ? Buffer.from(v._byteString.binaryString, 'binary') : v)

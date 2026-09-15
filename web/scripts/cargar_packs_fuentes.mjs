@@ -26,6 +26,7 @@ import ExcelJS from 'exceljs'
 import { esPlantilla, leerPlantilla } from '../src/utils/leerPlantillaTechPack.js'
 import { PARES_MAX, PARES_MIN, paresEnTexto, tokensDeModelo } from '../src/utils/packsPorCodigo.js'
 import { normalizarCodigo } from '../src/utils/planMaestroNucleo.js'
+import { idsDePedazos } from '../src/utils/pedazosTechPack.js'
 
 initializeApp({ credential: cert(JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))) })
 const db = getFirestore()
@@ -78,7 +79,7 @@ for (const [k, v] of choquesMicrosip) console.log(`   choque interno ${k}: ${v.j
 async function armarArchivo(codigo, manifiesto) {
   const chunks = await db.collection('techPacks').doc(codigo).collection('chunks').get()
   const porId = new Map(chunks.docs.filter((d) => d.id.startsWith('tp-')).map((d) => [d.id, d]))
-  const idsEsperados = Array.from({ length: manifiesto.totalChunks }, (_, i) => `tp-${String(i).padStart(2, '0')}`)
+  const idsEsperados = idsDePedazos(new Set(porId.keys()), 'tp', manifiesto).ids
   const faltan = idsEsperados.filter((id) => !porId.has(id))
   if (faltan.length) return { error: `faltan pedazos (${faltan.join(', ')})` }
   const pedazos = idsEsperados.map((id) => {

@@ -208,6 +208,8 @@ const TP_2M = { ...TP, techPack: manifiesto(1), ftt: manifiesto(1) }
 const TP_2M2 = { ...TP_2M, datosEditables: DATOS, revision: 1, ultimaEdicionId: 'HIST0002', ...sellos(JEFA) }
 const JEFA_BAJA = { ...JEFA, activo: false }
 const REAL_JEFA = { ...JEFA, uid: 'REALJEFA000000000000000000000', esPrueba: false, nombreCompleto: 'JEFA REAL' }
+// Quien solo VE tech packs (rol completo, como Lindbergh): mismo perfil demo, otro rol.
+const VISOR = { ...ADMIN, uid: 'VISORDEMO0000000000000000000', rol: 'completo', nombreCompleto: 'PRUEBA - visor' }
 const P_VER_TP1 = P_TP + '/versiones/tp-1-' + 'a'.repeat(64)
 const VERSION_TP1 = { tipo: 'tp', version: 1, nombre: 'TECH PACK ZZTEST.xlsx', tamano: 123456, sha256: 'a'.repeat(64), subidoEn: T, subidoPorUid: JEFA.uid, subidoPorNombre: JEFA.nombreCompleto }
 const sinResultado = (fn, path) => ({ function: fn, args: [{ exactValue: path }], result: { undefined: {} } })
@@ -364,6 +366,21 @@ Object.assign(ESCENARIOS, {
     que: 'Lety sube el tech pack y con el viajan cliente, marca y modelo leidos de la plantilla',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, cliente: 'GRUPO UNION', marca: 'OPTIMA', modeloPlantilla: 'RB10T100, RB10T101', tallaPlantilla: 'S/M / L/XL / UNI' }) },
     resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1)], ancla: ESCENARIOS['techpack-datos'].ancla
+  },
+  'chunk-get-visor': {
+    que: 'quien solo VE tech packs (rol completo, como Lindbergh) lee un pedazo por id',
+    request: { auth: { uid: VISOR.uid }, method: 'get', path: P_TP + '/chunks/tp-' + 'a'.repeat(16) + '-00', time: T },
+    functionMocks: [...perfilMocks([VISOR]), mGet(P_TP, TP_SUBIDO)]
+  },
+  'neg-chunk-list-visor': {
+    expectation: 'DENY', que: 'NEG: quien solo VE tech packs lista todos los pedazos (arrastraria basura sembrada)',
+    request: { auth: { uid: VISOR.uid }, method: 'list', path: P_TP + '/chunks/tp-00', time: T },
+    functionMocks: [...perfilMocks([VISOR]), mGet(P_TP, TP_SUBIDO)]
+  },
+  'chunk-list-jefa': {
+    que: 'Lety (sube tech packs) puede listar los pedazos',
+    request: { auth: { uid: JEFA.uid }, method: 'list', path: P_TP + '/chunks/tp-00', time: T },
+    functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SUBIDO)]
   },
   'neg-techpack-talla-sin-archivo': {
     expectation: 'DENY', que: 'NEG: cambiar la talla colandola en un cambio de descripcion, sin subir tech pack',

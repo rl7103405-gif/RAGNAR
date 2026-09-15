@@ -3882,11 +3882,19 @@ service cloud.firestore {
     match /techPacks/{codigo}/chunks/{chunkId} {
       // El get() del padre ya garantiza que exista: si no existe, se deniega
       // (y esta bien -- no se puede subir un chunk sin el manifiesto padre).
-      allow read: if puedeVerTechPacks()
+      // Leer un pedazo POR ID, quien ve tech packs. LISTAR la subcoleccion,
+      // solo quien sube (para quitar el archivo): desde el 15-sep los ids
+      // llevan la huella y un listado podria arrastrar pedazos basura
+      // sembrados a proposito (pentester). La app descarga por id.
+      allow get: if puedeVerTechPacks()
+        && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;
+      allow list: if puedeSubirTechPacks()
         && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;
       allow create, update: if puedeSubirTechPacks()
         && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba
-        && chunkId.matches('^(tp|ftt)-(0[0-9]|1[0-6])$')
+        // 'tp-03' (los de antes) o 'tp-<16 hex de la huella>-03' (desde el
+        // 15-sep: dos subidas simultaneas ya no se pisan los pedazos).
+        && chunkId.matches('^(tp|ftt)-([0-9a-f]{16}-)?(0[0-9]|1[0-6])$')
         && request.resource.data.keys().hasAll(['codigo', 'tipo', 'datos'])
         && request.resource.data.keys().hasOnly(['codigo', 'tipo', 'datos'])
         && request.resource.data.codigo == codigo

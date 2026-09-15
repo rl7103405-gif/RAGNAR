@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { initializeApp, cert } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { idsDePedazos } from '../src/utils/pedazosTechPack.js'
 
 const sa = JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))
 initializeApp({ credential: cert(sa) })
@@ -55,9 +56,10 @@ async function bajarDeLaBiblioteca(codigo) {
   if (!m?.totalChunks) throw new Error(`${codigo} no tiene archivo`)
   const chunks = await doc.ref.collection('chunks').get()
   const porId = new Map(chunks.docs.map((d) => [d.id, d.data()]))
+  const { ids } = idsDePedazos(new Set(porId.keys()), 'tp', m)
   const pedazos = []
   for (let i = 0; i < m.totalChunks; i++) {
-    const c = porId.get('tp-' + pad2(i))
+    const c = porId.get(ids[i])
     if (!c?.datos) throw new Error(`${codigo}: falta el pedazo ${i + 1} de ${m.totalChunks}`)
     pedazos.push(Buffer.isBuffer(c.datos) ? c.datos : Buffer.from(c.datos.toUint8Array ? c.datos.toUint8Array() : c.datos))
   }

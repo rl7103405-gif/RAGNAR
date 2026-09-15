@@ -24,6 +24,7 @@ import { getFirestore } from 'firebase-admin/firestore'
 import ExcelJS from 'exceljs'
 import { esPlantilla, leerPlantilla } from '../src/utils/leerPlantillaTechPack.js'
 import { IDENTIDAD_VACIA, claveCliente, identidadDePlantilla } from '../src/utils/clienteModeloTechPack.js'
+import { idsDePedazos } from '../src/utils/pedazosTechPack.js'
 
 initializeApp({ credential: cert(JSON.parse(readFileSync(new URL('../serviceAccountKey.json', import.meta.url)))) })
 const db = getFirestore()
@@ -32,7 +33,8 @@ console.log(EJECUTAR ? 'APLICANDO' : 'ENSAYO (no escribe nada)')
 
 async function archivoVerificado(id, m) {
   const chunks = await db.collection('techPacks').doc(id).collection('chunks').get()
-  const tp = chunks.docs.filter((d) => d.id.startsWith('tp-')).sort((a, b) => a.id.localeCompare(b.id))
+  const porId = new Map(chunks.docs.map((d) => [d.id, d]))
+  const tp = idsDePedazos(new Set(porId.keys()), 'tp', m).ids.map((id) => porId.get(id)).filter(Boolean)
   if (tp.length !== m.totalChunks) return { error: `trae ${tp.length} pedazos y el manifiesto dice ${m.totalChunks}` }
   const buf = Buffer.concat(tp.map((d) => {
     const v = d.data().datos

@@ -48,6 +48,7 @@ import { datosDeCodigos } from './datosDelCatalogo'
 import { cargarWorkbook } from './excelJs'
 import { esPlantilla, leerPlantilla } from './leerPlantillaTechPack'
 import { IDENTIDAD_VACIA, coincideTechPack, identidadDePlantilla, modelosDelTechPack, textoDe } from './clienteModeloTechPack'
+import { idPedazo, idPedazoViejo } from './pedazosTechPack'
 import {
   CHUNK_BYTES,
   MAX_CHUNKS,
@@ -66,10 +67,8 @@ export const TIPOS = {
   ftt: { clave: 'ftt', campo: 'ftt', titulo: 'Ficha tecnica de tejido (FTT)', capa: 'B2' }
 }
 
-const pad2 = (n) => String(n).padStart(2, '0')
 const refDoc = (codigo) => doc(db, 'techPacks', codigo)
 const colChunks = (codigo) => collection(db, 'techPacks', codigo, 'chunks')
-const idChunk = (tipo, i) => `${tipo}-${pad2(i)}`
 
 /** El codigo como id de documento: normalizado y sin caracteres que Firestore
  *  no admite en un id ('/' y los que empiezan con '__'). */
@@ -201,21 +200,16 @@ export async function guardarEnBiblioteca({
   for (let i = 0; i < totalChunks; i++) {
     onProgreso(`Subiendo ${def.titulo.toLowerCase()}... (${i + 1}/${totalChunks})`)
     const pedazo = bytes.slice(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES)
-    await setDoc(doc(colChunks(id), idChunk(def.clave, i)), {
+    // Con la huella en el id: los pedazos de esta subida no pisan los del
+    // archivo vigente ni los de otra subida simultanea (ver pedazosTechPack).
+    await setDoc(doc(colChunks(id), idPedazo(def.clave, sha256, i)), {
       codigo: id,
       tipo: def.clave,
       datos: Bytes.fromUint8Array(pedazo)
     })
   }
-
-  // Chunks sobrantes de una version anterior mas grande: fuera, o quedan
-  // como basura que el manifiesto nuevo no cubre.
-  const existentes = await getDocs(colChunks(id))
-  const sobrantes = existentes.docs.filter((d) => {
-    const [t, n] = d.id.split('-')
-    return t === def.clave && Number(n) >= totalChunks
-  })
-  for (const s of sobrantes) await deleteDoc(s.ref)
+  // Los pedazos viejos se limpian DESPUES de publicar el manifiesto, y solo si
+  // este archivo sigue siendo el vigente (limpiarPedazosSobrantes).
 
   onProgreso('Guardando...')
   // Se relee justo antes de escribir: la version sale del manifiesto VIGENTE
@@ -266,14 +260,59 @@ export async function guardarEnBiblioteca({
   } catch (e) {
     // Lo normal: otra persona guardo una version de este mismo archivo entre
     // la relectura y el commit (la regla exige version = la vigente + 1).
+    // Los pedazos de esta subida perdida NO se borran aqui: con el mismo
+    // archivo subido a la vez, serian los del ganador. Quedan como basura
+    // inofensiva (nadie los lee: la descarga va por la huella del manifiesto).
     if (e?.code === 'permission-denied') {
       throw new ErrorBiblioteca('No se guardo: alguien mas guardo una version de este archivo casi al mismo tiempo. Vuelve a abrirlo e intenta otra vez.')
     }
     throw e
   }
+  // Una subida simultanea pudo haber limpiado pedazos justo antes de este
+  // commit (los creyo sobrantes): se reponen para que el archivo publicado
+  // siempre este completo. Despues se limpian los de versiones anteriores.
+  await reponerPedazos(id, def, sha256, bytes, totalChunks)
+  await limpiarPedazosSobrantes(id, def, sha256, manifiestoNuevo.version)
   // El id con el que QUEDO guardado (con ZZTEST si es de prueba), para que el
   // aviso en pantalla diga lo mismo que la tabla.
   return id
+}
+
+async function reponerPedazos(id, def, sha256, bytes, totalChunks) {
+  for (let i = 0; i < totalChunks; i++) {
+    const idP = idPedazo(def.clave, sha256, i)
+    if ((await getDoc(doc(colChunks(id), idP))).exists()) continue
+    await setDoc(doc(colChunks(id), idP), {
+      codigo: id,
+      tipo: def.clave,
+      datos: Bytes.fromUint8Array(bytes.slice(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES))
+    })
+  }
+}
+
+// Borra SOLO pedazos de archivos que ya se publicaron y quedaron atras: los de
+// id viejo ('tp-NN') y los de las versiones ANTERIORES a esta (numero menor,
+// sacadas de versiones/). Nunca los de una subida en curso ni los de una
+// version mas nueva: una subida en curso aun no esta en versiones/, y una mas
+// nueva tiene numero mayor (pentester, 15-sep: la limpieza por "lo que no es
+// mio" borraba los pedazos recien publicados de otra subida simultanea).
+// Si falla no pasa nada grave: queda basura, el archivo vigente esta entero.
+async function limpiarPedazosSobrantes(id, def, sha256, version) {
+  try {
+    const vivo = await getDoc(refDoc(id))
+    if (vivo.data()?.[def.campo]?.sha256 !== sha256) return
+    const ids = Array.from({ length: MAX_CHUNKS }, (_, i) => idPedazoViejo(def.clave, i))
+    const anteriores = (await versionesDelTechPack(id, 20))
+      .filter((v) => v.tipo === def.clave && Number(v.version) < version && v.sha256 !== sha256)
+      .slice(0, 5)
+    for (const v of anteriores) {
+      const cuantos = Math.min(MAX_CHUNKS, Math.ceil((Number(v.tamano) || 0) / CHUNK_BYTES))
+      for (let i = 0; i < cuantos; i++) ids.push(idPedazo(def.clave, v.sha256, i))
+    }
+    for (const x of ids) await deleteDoc(doc(colChunks(id), x))
+  } catch (err) {
+    console.warn('[TechPacks] No se limpiaron pedazos viejos:', err?.code || err)
+  }
 }
 
 /** Quita un documento del codigo (el otro tipo se conserva). */
@@ -282,6 +321,12 @@ export async function quitarDeBiblioteca({ codigo, tipo, usuario, onProgreso = (
   const id = codigoComoId(codigo)
   if (!id) throw new ErrorBiblioteca('Codigo invalido.')
   onProgreso('Borrando...')
+  // Se anota QUE archivo se quita antes de soltarlo: despues solo se borran
+  // SUS pedazos, por id. Borrar todo lo que empezara con 'tp-' se llevaba los
+  // de alguien que guardara un archivo nuevo en ese mismo momento
+  // (code-reviewer, 15-sep).
+  const antes = await getDoc(refDoc(id))
+  const previo = antes.exists() ? antes.data()[def.campo] : null
   // Primero el manifiesto: en cuanto se va, nadie intenta leer los chunks.
   await updateDoc(refDoc(id), {
     [def.campo]: null,
@@ -289,11 +334,13 @@ export async function quitarDeBiblioteca({ codigo, tipo, usuario, onProgreso = (
     actualizadoPorUid: usuario?.uid || '',
     actualizadoPorNombre: String(usuario?.nombre || '').slice(0, 120)
   })
-  const existentes = await getDocs(colChunks(id))
-  const refs = existentes.docs.filter((d) => d.id.startsWith(def.clave + '-')).map((d) => d.ref)
-  for (let i = 0; i < refs.length; i += 10) {
+  const ids = Array.from({ length: MAX_CHUNKS }, (_, i) => idPedazoViejo(def.clave, i))
+  if (previo?.sha256 && previo?.totalChunks) {
+    for (let i = 0; i < Math.min(MAX_CHUNKS, previo.totalChunks); i++) ids.push(idPedazo(def.clave, previo.sha256, i))
+  }
+  for (let i = 0; i < ids.length; i += 10) {
     const lote = writeBatch(db)
-    refs.slice(i, i + 10).forEach((r) => lote.delete(r))
+    ids.slice(i, i + 10).forEach((x) => lote.delete(doc(colChunks(id), x)))
     await lote.commit()
   }
 }
@@ -454,11 +501,16 @@ export async function descargarDeBiblioteca({ codigo, tipo, manifiesto }) {
   const def = validarTipo(tipo)
   const id = codigoComoId(codigo)
   if (!id || !manifiesto?.totalChunks) throw new ErrorBiblioteca('Ese codigo no tiene ese documento.')
-  const snap = await getDocs(colChunks(id))
-  const porId = new Map(snap.docs.map((d) => [d.id, d.data()]))
+  // Por id y SIN listar la subcoleccion (pentester, 15-sep): pedazos basura
+  // sembrados con otros prefijos no le cuestan nada a quien descarga, y las
+  // reglas ya no dejan listar a quien solo ve tech packs.
+  const n = manifiesto.totalChunks
+  const leer = (ids) => Promise.all(ids.map((x) => getDoc(doc(colChunks(id), x))))
+  let snaps = await leer(Array.from({ length: n }, (_, i) => idPedazo(def.clave, manifiesto.sha256, i)))
+  if (!snaps[0].exists()) snaps = await leer(Array.from({ length: n }, (_, i) => idPedazoViejo(def.clave, i)))
   const pedazos = []
-  for (let i = 0; i < manifiesto.totalChunks; i++) {
-    const chunk = porId.get(idChunk(def.clave, i))
+  for (let i = 0; i < n; i++) {
+    const chunk = snaps[i].exists() ? snaps[i].data() : null
     if (!chunk?.datos) {
       throw new ErrorBiblioteca(
         `Falta el pedazo ${i + 1} de ${manifiesto.totalChunks} del archivo. Pide que lo vuelvan a subir.`

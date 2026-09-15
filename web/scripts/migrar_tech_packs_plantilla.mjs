@@ -22,6 +22,7 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { extraerTechPackViejo } from '../src/utils/migrarTechPackViejo.js'
 import { generarPlantillaTechPack } from '../src/utils/generarPlantillaTechPack.js'
 import { nombreDeArchivo } from '../src/utils/plantillaTechPack.js'
+import { idsDePedazos } from '../src/utils/pedazosTechPack.js'
 import { LOGO_QUINI_PNG_BASE64 } from '../src/assets/logoQuini.js'
 
 const SALIDA = process.argv[2]
@@ -61,7 +62,17 @@ for (const d of docs.sort((a, b) => a.id.localeCompare(b.id))) {
     // Si este tech pack ya se reemplazo por la plantilla, el original de Lety
     // vive en respaldoOriginal (reemplazar_tech_packs_por_plantilla.mjs).
     const sub = d.data().migracionTpQuini && d.data().techPackAnterior ? 'respaldoOriginal' : 'chunks'
-    const chunks = (await d.ref.collection(sub).get()).docs.filter((x) => x.id.startsWith('tp-')).sort((a, b) => a.id.localeCompare(b.id))
+    const todos = (await d.ref.collection(sub).get()).docs
+    const porId = new Map(todos.map((x) => [x.id, x]))
+    let chunks
+    if (sub === 'chunks') {
+      const { ids, completo } = idsDePedazos(new Set(porId.keys()), 'tp', tp)
+      // Nunca armar un archivo truncado: con pedazos incompletos se para aqui.
+      if (!completo) throw new Error(`faltan pedazos del archivo (manifiesto dice ${tp.totalChunks})`)
+      chunks = ids.map((id) => porId.get(id))
+    } else {
+      chunks = todos.filter((x) => x.id.startsWith('tp-')).sort((a, b) => a.id.localeCompare(b.id))
+    }
     const buf = Buffer.concat(chunks.map((x) => Buffer.from(x.data().datos)))
     if (sub === 'respaldoOriginal') fila.origen = 'respaldo'
     const viejo = new ExcelJS.Workbook()

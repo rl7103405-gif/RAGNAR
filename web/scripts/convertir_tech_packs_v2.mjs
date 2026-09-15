@@ -40,6 +40,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { HOJAS, PLANTILLA, ZONAS_FOTO } from '../src/utils/plantillaTechPack.js'
 import { esPlantilla, leerPedidoV1, leerPlantilla, medirPlantilla } from '../src/utils/leerPlantillaTechPack.js'
 import { convertirLibroAV2 } from '../src/utils/convertirPlantillaV2.js'
+import { idsDePedazos } from '../src/utils/pedazosTechPack.js'
 
 const ORIGEN = String(process.env.ORIGEN || '').toLowerCase()
 const argumentos = process.argv.slice(2)
@@ -203,7 +204,10 @@ if (ORIGEN === 'firestore') {
   const aBuffer = (v) => Buffer.from(v?._byteString?.binaryString ? Buffer.from(v._byteString.binaryString, 'binary') : v)
   const pedazos = async (ref, sub) => (await ref.collection(sub).get()).docs.filter((d) => d.id.startsWith('tp-')).sort((a, b) => a.id.localeCompare(b.id))
   async function bajarVerificado(ref, sub, m) {
-    const docs = await pedazos(ref, sub)
+    // Ids viejos ('tp-00') o con la huella ('tp-<hex>-00', desde el 15-sep).
+    const todos = await pedazos(ref, sub)
+    const porId = new Map(todos.map((d) => [d.id, d]))
+    const docs = idsDePedazos(new Set(porId.keys()), 'tp', m).ids.map((id) => porId.get(id)).filter(Boolean)
     if (docs.length !== m.totalChunks) return { error: `trae ${docs.length} pedazos y el manifiesto dice ${m.totalChunks}` }
     const buf = Buffer.concat(docs.map((d) => aBuffer(d.data().datos)))
     if (m.tamano && buf.length !== m.tamano) return { error: `pesa ${buf.length} y el manifiesto dice ${m.tamano}` }
@@ -216,7 +220,8 @@ if (ORIGEN === 'firestore') {
       await ref.collection(sub).doc(`tp-${pad2(i)}`).set({ codigo, tipo: 'tp', datos: buf.subarray(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES) })
     }
     // Pedazos 'tp-' de mas (el archivo anterior era mas grande) se borran.
-    for (const d of await pedazos(ref, sub)) if (Number(d.id.split('-')[1]) >= total) await d.ref.delete()
+    // Y los que traen la huella de un archivo anterior ('tp-<hex>-00').
+    for (const d of await pedazos(ref, sub)) if (!/^tp-\d{2}$/.test(d.id) || Number(d.id.split('-')[1]) >= total) await d.ref.delete()
     return total
   }
 
