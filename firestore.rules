@@ -3624,8 +3624,10 @@ service cloud.firestore {
         // archivo: se reescriben en cada subida (null si el archivo no es
         // plantilla). Se validan solo si cambian, para no pagar expresiones
         // en cada subida de FTT.
+        // Y SOLO con una subida real del tech pack (manifiesto nuevo): la
+        // identidad describe el archivo, no se cambia sola (pentester, 15-sep).
         && (!despues.diff(antes).affectedKeys().hasAny(['cliente', 'marca', 'modeloPlantilla'])
-            || identidadTechPackOk(despues))
+            || (despues.techPack != null && despues.techPack != antes.techPack && identidadTechPackOk(despues)))
         && despues.diff(antes).affectedKeys()
              .hasOnly(['techPack', 'ftt', 'descripcion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre',
                        'cliente', 'marca', 'modeloPlantilla']);
@@ -3765,7 +3767,11 @@ service cloud.firestore {
         // un documento no puede nacer ya con revision 99 y sin rastro. Y los
         // alias (apuntaA) los crea SOLO un script con Admin SDK: desde el
         // cliente no nace ninguno (Codex, 10-sep).
-        && !d.keys().hasAny(['datosEditables', 'revision', 'ultimaEdicionId', 'apuntaA'])
+        // cliente/marca/modeloPlantilla tampoco nacen aqui: salen del archivo y
+        // solo entran con la subida (updateDeArchivoTechPack). Sin esto un
+        // cliente-mapa creado a mano tumbaba la biblioteca entera (pentester,
+        // 15-sep).
+        && !d.keys().hasAny(['datosEditables', 'revision', 'ultimaEdicionId', 'apuntaA', 'cliente', 'marca', 'modeloPlantilla'])
         && d.creadoEn == request.time
         && sellosDeEdicionSegun(d, yo.nombre);
     }

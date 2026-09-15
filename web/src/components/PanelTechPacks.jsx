@@ -41,7 +41,7 @@ import {
   TIPOS
 } from '../utils/techPacks'
 import { avanceDelTechPack, RUBROS_TECH_PACK } from '../utils/completadoTechPack'
-import { agruparPorClienteYModelo, coincideTechPack, modelosDelTechPack } from '../utils/clienteModeloTechPack'
+import { agruparPorClienteYModelo, coincideTechPack, modelosDelTechPack, textoDe } from '../utils/clienteModeloTechPack'
 import VisorTechPack from './VisorTechPack'
 import EditorPlantillaTechPack from './EditorPlantillaTechPack'
 import { escucharEdiciones, marcarEdicion, textoEdiciones } from '../utils/editandoTechPack'
@@ -648,9 +648,9 @@ export default function PanelTechPacks() {
         const datos = datosDelTechPack(b)
         hoja.addRow({
           codigo: b.codigo,
-          cliente: b.cliente || '',
-          marca: b.marca || '',
-          modeloPlantilla: b.modeloPlantilla || '',
+          cliente: textoDe(b.cliente),
+          marca: textoDe(b.marca),
+          modeloPlantilla: textoDe(b.modeloPlantilla),
           modelo: datos.modelo || '',
           descripcion: b.descripcion || '',
           talla: datos.talla || '',
@@ -840,7 +840,7 @@ export default function PanelTechPacks() {
                 <div key={b.id} className="tp-diseno">
                   <div className="tp-diseno-info">
                     <span className="tp-codigo">{b.codigo}</span>
-                    {b.cliente ? <span className="tp-meta" title={b.marca ? `${b.cliente} · ${b.marca}` : b.cliente}><strong>{b.cliente}</strong></span> : null}
+                    {textoDe(b.cliente) ? <span className="tp-meta" title={textoDe(b.marca) ? `${textoDe(b.cliente)} · ${textoDe(b.marca)}` : textoDe(b.cliente)}><strong>{textoDe(b.cliente)}</strong></span> : null}
                     <span className="tp-meta"><NombreDelModelo item={b} corto /></span>
                     {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
                   </div>

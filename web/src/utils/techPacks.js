@@ -47,7 +47,7 @@ import { renglonesDeLaOt, otsDeLaOc } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
 import { cargarWorkbook } from './excelJs'
 import { esPlantilla, leerPlantilla } from './leerPlantillaTechPack'
-import { IDENTIDAD_VACIA, coincideTechPack, identidadDePlantilla, modelosDelTechPack } from './clienteModeloTechPack'
+import { IDENTIDAD_VACIA, coincideTechPack, identidadDePlantilla, modelosDelTechPack, textoDe } from './clienteModeloTechPack'
 import {
   CHUNK_BYTES,
   MAX_CHUNKS,
@@ -577,7 +577,7 @@ export async function buscarTechPacksPorModeloOCliente(texto, esPrueba) {
       codigo: real.id,
       descripcion: real.descripcion || '',
       folio,
-      cliente: real.cliente || '',
+      cliente: textoDe(real.cliente),
       modelo: modelosDelTechPack(real).join(', '),
       talla: real.datosEditables?.talla ?? real.talla ?? ''
     }

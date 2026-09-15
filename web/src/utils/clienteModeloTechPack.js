@@ -61,12 +61,19 @@ export function identidadDePlantilla(lectura) {
 
 export const IDENTIDAD_VACIA = Object.freeze({ cliente: null, marca: null, modeloPlantilla: null })
 
+/** El campo como texto, o '' si no lo es. Defensa: un cliente que no sea texto
+ *  (un mapa, un numero) tumbaba la biblioteca entera al pintarse o al ordenar
+ *  (pentester, 15-sep). Las reglas ya no lo dejan entrar; esto es por si acaso. */
+export function textoDe(v) {
+  return typeof v === 'string' ? v : ''
+}
+
 /** Los modelos con los que se agrupa un tech pack: los de la plantilla; si no
  *  hay, el que dijo el catalogo o Lety (datosEditables). */
 export function modelosDelTechPack(b) {
-  const dePlantilla = modelosDeTexto(b?.modeloPlantilla)
+  const dePlantilla = modelosDeTexto(textoDe(b?.modeloPlantilla))
   if (dePlantilla.length) return dePlantilla
-  const otro = String(b?.datosEditables?.modelo ?? b?.modelo ?? '').trim()
+  const otro = textoDe(b?.datosEditables?.modelo ?? b?.modelo).trim()
   return otro ? [otro] : []
 }
 
@@ -81,10 +88,11 @@ export function agruparPorClienteYModelo(biblioteca) {
   const clientes = new Map()
   for (const b of biblioteca || []) {
     if (!b || b.apuntaA) continue
-    const kc = claveCliente(b.cliente) || '~SIN'
-    if (!clientes.has(kc)) clientes.set(kc, { cliente: b.cliente || '(sin cliente)', clave: kc, grafias: new Map(), modelos: new Map(), ids: new Set() })
+    const cliente = textoDe(b.cliente).trim()
+    const kc = claveCliente(cliente) || '~SIN'
+    if (!clientes.has(kc)) clientes.set(kc, { cliente: cliente || '(sin cliente)', clave: kc, grafias: new Map(), modelos: new Map(), ids: new Set() })
     const g = clientes.get(kc)
-    if (b.cliente) g.grafias.set(b.cliente, (g.grafias.get(b.cliente) || 0) + 1)
+    if (cliente) g.grafias.set(cliente, (g.grafias.get(cliente) || 0) + 1)
     g.ids.add(b.id || b.codigo)
     const modelos = modelosDelTechPack(b)
     for (const m of modelos.length ? modelos : ['(sin modelo)']) {
@@ -115,7 +123,7 @@ export function coincideTechPack(b, busqueda) {
   if (!palabras.length) return true
   const e = b?.datosEditables || {}
   const pajar = claveCliente(
-    [b?.codigo, b?.cliente, b?.marca, b?.modeloPlantilla, b?.modelo, e.modelo, b?.descripcion, e.talla ?? b?.talla, e.color ?? b?.color].join(' ')
+    [b?.codigo, b?.cliente, b?.marca, b?.modeloPlantilla, b?.modelo, e.modelo, b?.descripcion, e.talla ?? b?.talla, e.color ?? b?.color].map(textoDe).join(' ')
   )
   return palabras.every((p) => pajar.includes(p))
 }

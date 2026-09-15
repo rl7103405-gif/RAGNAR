@@ -337,6 +337,16 @@ Object.assign(ESCENARIOS, {
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, cliente: 12345 }) },
     resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])]
   },
+  'neg-techpack-cliente-sin-archivo': {
+    expectation: 'DENY', que: 'NEG: cambiar el cliente colandolo en un cambio de descripcion, sin subir tech pack',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SIN, descripcion: (TP_SIN.descripcion || '') + ' ', cliente: 'OTRO CLIENTE', ...sellos(JEFA) }) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])]
+  },
+  'neg-techpack-create-con-cliente': {
+    expectation: 'DENY', que: 'NEG: dar de alta un codigo con un cliente que no es texto (tumbaba la biblioteca)',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP, time: T, resource: doc({ ...TP_NUEVO, cliente: { a: 'x' } }) },
+    functionMocks: [...perfilMocks([JEFA])]
+  },
   'neg-techpack-mixto': {
     expectation: 'DENY', que: 'NEG: un update que sube archivo Y edita datos a la vez',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP2, techPack: manifiesto(1) }) },
