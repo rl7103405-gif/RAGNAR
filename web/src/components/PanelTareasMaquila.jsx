@@ -8,7 +8,39 @@
 // que el archivo termina de subir; si se corta, aqui mismo se reintenta con
 // el archivo elegido de nuevo, o se cancela la tarea.
 import { useEffect, useRef, useState } from 'react'
-import { otsDeLaOc, renglonesDeLaOt } from '../utils/planMaestro'
+import { normalizarCodigo, otsDeLaOc, renglonesDeLaOt } from '../utils/planMaestro'
+import { claveModelo } from '../utils/packsPorCodigo'
+import { modelosDeTexto } from '../utils/clienteModeloTechPack'
+
+/** Solo el nombre del archivo, sin la carpeta de Drive que trae el manifiesto. */
+const nombreCorto = (nombre) => String(nombre || '').split(/[\\/]/).pop()
+
+/** Codigo sin el corral ni el sufijo de talla: CHYPCT310-4-6 -> CHYPCT310. */
+const baseDeCodigo = (c) => normalizarCodigo(c).replace(/^ZZTEST/, '').replace(/-[0-9_]+(-[0-9_]+)?$/, '')
+
+/**
+ * Si el tech pack elegido NO parece ser de lo que pide la tarea, el texto de
+ * la pregunta; '' si cuadra o no hay con que comparar. Buscando por cliente se
+ * puede pegar el tech pack de otro modelo sin darse cuenta: el usuario-real
+ * como Lindbergh pego un tin de nina de CHEDRAUI a una OT de calcetin de
+ * caballero y nada lo aviso (15-sep).
+ */
+function avisoTechPackAjeno(tarea, elegido) {
+  const renglones = tarea?.renglones || []
+  if (!renglones.length || !elegido?.codigo) return ''
+  const base = baseDeCodigo(elegido.codigo)
+  if (renglones.some((r) => baseDeCodigo(r.codigo) === base)) return ''
+  const modelosTarea = new Set(renglones.map((r) => claveModelo(r.modelo)).filter(Boolean))
+  const modelosTp = modelosDeTexto(elegido.modelo).map(claveModelo).filter(Boolean)
+  if (modelosTp.some((m) => modelosTarea.has(m))) return ''
+  const deLaTarea = renglones.slice(0, 4).map((r) => r.codigo).join(', ') + (renglones.length > 4 ? '...' : '')
+  return (
+    `OJO: este tech pack es de ${elegido.modelo || elegido.codigo}${elegido.cliente ? ` (${elegido.cliente})` : ''}, ` +
+    `y la tarea "${tarea.titulo}" es de ${deLaTarea}` +
+    (modelosTarea.size ? ` (modelo ${[...new Set(renglones.map((r) => r.modelo).filter(Boolean))].join(', ')})` : '') +
+    '.\n\nNo coinciden el codigo ni el modelo. ¿Pegarlo de todos modos?'
+  )
+}
 import { pedirCorreccion, autoAprobarCorreccion } from '../utils/auditoria'
 import { sujetoDelPermiso, TIPO_PERMISO_OT } from '../utils/otsAsignadas'
 import { useAuth } from '../context/AuthContext'
@@ -191,6 +223,9 @@ export default function PanelTareasMaquila() {
     setModoBusquedaTp('modelo')
     busquedaTpId.current++
     setBuscandoTp(false)
+    // El texto de la busqueda es de ESTA tarea: antes se arrastraba el de la
+    // anterior y aparecia "no se encontro CHYPCT310" en otra OT.
+    setBuscaTp('')
     if (!tarea.ot) {
       // Sin OT no hay contra que buscar en automatico, pero si se puede buscar
       // a mano por orden de compra, por codigo o por folio (Roberto, 10-sep).
@@ -207,9 +242,11 @@ export default function PanelTareasMaquila() {
           tareaId: tarea.id,
           libre: true,
           ...r,
-          aviso: !r.codigos.length
-            ? `El plan no conoce la OT ${tarea.ot}. Busca por orden de compra, por codigo o por folio de ficha.`
-            : `Ninguno de los ${r.codigos.length} codigos de la OT ${tarea.ot} tiene tech pack todavia (${r.sinTechPack.map((x) => x.codigo).join(', ')}). Prueba por codigo o por orden de compra.`
+          aviso:
+            (tarea.techPack ? `Esta tarea ya lleva ${nombreCorto(tarea.techPack.nombre)}. ` : '') +
+            (!r.codigos.length
+              ? `El plan no conoce la OT ${tarea.ot}. Busca el tech pack por modelo o cliente.`
+              : `La biblioteca no tiene tech pack con el codigo de la OT ${tarea.ot} (${r.sinTechPack.map((x) => x.codigo).join(', ')}). Buscalo por modelo o cliente.`)
         })
         return
       }
@@ -230,6 +267,10 @@ export default function PanelTareasMaquila() {
   }
 
   const onPegarDeBiblioteca = async (tarea, elegido) => {
+    // Si no coincide con lo que pide la tarea, se pregunta ANTES de cerrar el
+    // panel: si dice que no, sigue eligiendo.
+    const duda = avisoTechPackAjeno(tarea, elegido)
+    if (duda && !window.confirm(duda)) return
     setBiblioteca(null)
     if (!tarea) {
       setError('Esa tarea ya no esta en la lista: vuelve a intentarlo.')
@@ -1026,6 +1067,12 @@ export default function PanelTareasMaquila() {
             Ver tech pack
           </button>
         )}
+        {/* Que tech pack quedo, sin tener que abrirlo (usuario-real, 15-sep). */}
+        {t.techPack && (
+          <span className="texto-suave" style={{ fontSize: 12 }} title={t.techPack.nombre}>
+            {nombreCorto(t.techPack.nombre)}
+          </span>
+        )}
         {/* Solo mientras la tarea esta en manos de la maquila: cerrada o
             cancelada, las reglas ya no dejan leer el archivo. */}
         {t.techPack?.formato === 'xlsx' && ['abierta', 'iniciada', 'declarada'].includes(t.estado) && (
@@ -1620,7 +1667,7 @@ export default function PanelTareasMaquila() {
               style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 6 }}
               onClick={() => onPegarDeBiblioteca(tareas.find((x) => x.id === biblioteca.tareaId), c)}
             >
-              <strong>{c.codigo}</strong>{c.modelo ? ` · ${c.modelo}` : ''}{c.cliente ? ` · ${c.cliente}` : ''}{c.talla ? ` (talla ${c.talla})` : ''}{c.folio ? ` · folio ${c.folio}` : ''} {c.descripcion ? `· ${c.descripcion}` : ''} · {c.techPack?.nombre}
+              <strong>{c.codigo}</strong>{c.modelo ? ` · ${c.modelo}` : ''}{c.cliente ? ` · ${c.cliente}` : ''}{c.talla ? ` (talla ${c.talla})` : ''}{c.folio ? ` · folio ${c.folio}` : ''} {c.descripcion ? `· ${c.descripcion}` : ''} · {nombreCorto(c.techPack?.nombre)}
             </button>
           ))}
           {biblioteca.conTechPack.length > 12 && (
