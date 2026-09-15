@@ -3199,7 +3199,7 @@ service cloud.firestore {
         // un script con Admin SDK (web/scripts/medir_tech_packs.mjs), NUNCA el
         // cliente; va en el hasOnly para que un documento medido siga siendo
         // valido cuando Lety lo edite desde la app.
-        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes', 'datosEditables', 'revision', 'ultimaEdicionId', 'medicion', 'cliente', 'marca', 'modeloPlantilla'])
+        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes', 'datosEditables', 'revision', 'ultimaEdicionId', 'medicion', 'cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla'])
         // Lo que Lety TECLEA vive junto, en 'datosEditables', separado de los
         // manifiestos y de lo inmutable. Asi el historial guarda un snapshot
         // exacto de ese mapa y la regla puede compararlo entero, en vez de
@@ -3607,7 +3607,7 @@ service cloud.firestore {
     }
 
     // RAMA 1: subir o quitar el archivo. Es lo que ya se podia hacer.
-    function updateDeArchivoTechPack(antes, despues, nombre) {
+    function updateDeArchivoTechPack(codigo, antes, despues, nombre) {
       return campoDeManifiestoOk('techPack', antes, despues, nombre)
         && campoDeManifiestoOk('ftt', antes, despues, nombre)
         && despues.descripcion is string && despues.descripcion.size() <= 200
@@ -3626,16 +3626,54 @@ service cloud.firestore {
         // en cada subida de FTT.
         // Y SOLO con una subida real del tech pack (manifiesto nuevo): la
         // identidad describe el archivo, no se cambia sola (pentester, 15-sep).
-        && (!despues.diff(antes).affectedKeys().hasAny(['cliente', 'marca', 'modeloPlantilla'])
+        && (!despues.diff(antes).affectedKeys().hasAny(['cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla'])
             || (despues.techPack != null && despues.techPack != antes.techPack && identidadTechPackOk(despues)))
+        // QUIEN LO MODIFICO (Roberto, 15-sep: "arreglalo"): cada archivo nuevo
+        // (tech pack o FTT) deja en el MISMO batch su renglon en versiones/,
+        // que nadie edita ni borra. Antes solo quedaba el ultimo manifiesto y
+        // "Quien lo ha modificado" decia "nadie" tras subir una version.
+        // El id lleva la huella del archivo: tras "Quitar" la version vuelve a
+        // 1 y un id solo con la version chocaria con el renglon viejo.
+        && (despues.techPack == null || despues.techPack == antes.techPack
+            || existsAfter(/databases/$(database)/documents/techPacks/$(codigo)/versiones/$('tp-' + string(despues.techPack.version) + '-' + despues.techPack.sha256)))
+        && (despues.ftt == null || despues.ftt == antes.ftt
+            || existsAfter(/databases/$(database)/documents/techPacks/$(codigo)/versiones/$('ftt-' + string(despues.ftt.version) + '-' + despues.ftt.sha256)))
         && despues.diff(antes).affectedKeys()
              .hasOnly(['techPack', 'ftt', 'descripcion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre',
-                       'cliente', 'marca', 'modeloPlantilla']);
+                       'cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla']);
     }
     function identidadTechPackOk(d) {
       return (d.get('cliente', null) == null || (d.cliente is string && d.cliente.size() > 0 && d.cliente.size() <= 120))
         && (d.get('marca', null) == null || (d.marca is string && d.marca.size() > 0 && d.marca.size() <= 120))
-        && (d.get('modeloPlantilla', null) == null || (d.modeloPlantilla is string && d.modeloPlantilla.size() > 0 && d.modeloPlantilla.size() <= 200));
+        && (d.get('modeloPlantilla', null) == null || (d.modeloPlantilla is string && d.modeloPlantilla.size() > 0 && d.modeloPlantilla.size() <= 200))
+        && (d.get('tallaPlantilla', null) == null || (d.tallaPlantilla is string && d.tallaPlantilla.size() > 0 && d.tallaPlantilla.size() <= 120));
+    }
+    // El renglon de una version subida: copia fiel del manifiesto que queda en
+    // el padre DESPUES de este batch, de la misma persona y a esta hora. El id
+    // es 'tp-N-<sha256>' o 'ftt-N-<sha256>' y el manifiesto del padre tiene que
+    // ser nuevo (no se siembran versiones de archivos que no se subieron).
+    function puedeRegistrarVersionTechPack(codigo, versionId, v) {
+      let yo = perfilResumido();
+      let antes = get(/databases/$(database)/documents/techPacks/$(codigo)).data;
+      let despues = getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data;
+      let campo = v.get('tipo', '') == 'ftt' ? 'ftt' : 'techPack';
+      return yo.subeTechPacks
+        && antes.esPrueba == yo.esPrueba
+        && v.keys().hasAll(['tipo', 'version', 'nombre', 'tamano', 'sha256', 'subidoEn', 'subidoPorUid', 'subidoPorNombre'])
+        && v.keys().hasOnly(['tipo', 'version', 'nombre', 'tamano', 'sha256', 'subidoEn', 'subidoPorUid', 'subidoPorNombre'])
+        && v.tipo in ['tp', 'ftt']
+        && v.version is int
+        && v.sha256 is string
+        && versionId == v.tipo + '-' + string(v.version) + '-' + v.sha256
+        && despues.get(campo, null) != null
+        && despues.get(campo, null) != antes.get(campo, null)
+        && despues[campo].version == v.version
+        && despues[campo].sha256 == v.sha256
+        && despues[campo].nombre == v.nombre
+        && despues[campo].tamano == v.tamano
+        && v.subidoEn == request.time
+        && v.subidoPorUid == request.auth.uid
+        && v.subidoPorNombre == yo.nombre;
     }
     // RAMA 2: editar los datos. SIEMPRE deja historial: la regla exige que en
     // el MISMO batch nazca el renglon de historial y que su contenido cuadre
@@ -3705,7 +3743,7 @@ service cloud.firestore {
         // expresiones (medido: escenario techpack-datos-2m).
         // Las marcas de quien y cuando se exigen en las DOS ramas.
         && sellosDeEdicionSegun(despues, yo.nombre)
-        && ((tocaArchivo && updateDeArchivoTechPack(antes, despues, yo.nombre))
+        && ((tocaArchivo && updateDeArchivoTechPack(codigo, antes, despues, yo.nombre))
             // Editar los DATOS (modelo, codigos, checklist) es SOLO de Lety y
             // su equipo (Roberto, 11-sep: "serian las unicas personas que lo
             // podrian estar modificando"). Subir archivo sigue abierto al admin.
@@ -3771,7 +3809,7 @@ service cloud.firestore {
         // solo entran con la subida (updateDeArchivoTechPack). Sin esto un
         // cliente-mapa creado a mano tumbaba la biblioteca entera (pentester,
         // 15-sep).
-        && !d.keys().hasAny(['datosEditables', 'revision', 'ultimaEdicionId', 'apuntaA', 'cliente', 'marca', 'modeloPlantilla'])
+        && !d.keys().hasAny(['datosEditables', 'revision', 'ultimaEdicionId', 'apuntaA', 'cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla'])
         && d.creadoEn == request.time
         && sellosDeEdicionSegun(d, yo.nombre);
     }
@@ -3815,6 +3853,14 @@ service cloud.firestore {
       // la del padre (ver puedeCrearHistorialTechPack).
       allow create: if puedeCrearHistorialTechPack(request.resource.data, codigo, edicionId);
       // Un renglon de historial no se corrige ni se borra: para eso es historial.
+      allow update, delete: if false;
+    }
+    // LAS VERSIONES DEL ARCHIVO (15-sep): quien subio cada tech pack o FTT y
+    // cuando. Nacen solo con la subida (ver puedeRegistrarVersionTechPack).
+    match /techPacks/{codigo}/versiones/{versionId} {
+      allow read: if puedeVerTechPacks()
+        && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;
+      allow create: if puedeRegistrarVersionTechPack(codigo, versionId, request.resource.data);
       allow update, delete: if false;
     }
     // QUIEN ESTA EDITANDO, EN VIVO (Roberto, 2026-09-14). Una marca por

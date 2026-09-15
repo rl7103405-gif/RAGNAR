@@ -34,6 +34,7 @@ import {
   escucharBiblioteca,
   guardarEnBiblioteca,
   historialDelTechPack,
+  versionesDelTechPack,
   mismosDatos,
   otsPorCodigo,
   otsSinTechPack,
@@ -912,9 +913,17 @@ export default function PanelTechPacks() {
                     <div className="tp-ot-cab">
                       <span className="tp-ot-num">{m.modelo}</span>
                       <span className="texto-suave"> · {m.techPacks.length} {m.techPacks.length === 1 ? 'tech pack' : 'tech packs'}</span>
+                      {m.tallas.length > 1 && (
+                        <span className="texto-suave"> · {m.tallas.length} tallas: {m.tallas.map((t) => t.talla).join(' · ')}</span>
+                      )}
                     </div>
+                    {/* Las tallas de un mismo modelo solo se distinguian por el final
+                        del codigo (Roberto, 15-sep: "divide las tallas"). */}
+                    {m.tallas.map((t) => (
+                    <div key={t.clave} className="tp-talla">
+                    <div className="tp-talla-cab">Talla {t.talla}</div>
                     <div className="tp-disenos">
-                      {m.techPacks.map((b) => (
+                      {t.techPacks.map((b) => (
                         <div key={b.id} className="tp-diseno">
                           <div className="tp-diseno-info">
                             <span className="tp-codigo">{b.codigo}</span>
@@ -949,6 +958,8 @@ export default function PanelTechPacks() {
                         </div>
                       ))}
                     </div>
+                    </div>
+                    ))}
                   </div>
                 ))}
               </details>
@@ -1341,9 +1352,17 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir =
 
   useEffect(() => {
     let vivo = true
-    historialDelTechPack(item.codigo)
-      .then((h) => vivo && setHistorial(h))
-      .catch(() => vivo && setHistorial([]))
+    // Dos rastros en una sola lista: las ediciones de datos (historial) y cada
+    // archivo subido, incluido lo que se guarda desde el editor del contenido
+    // (versiones). Antes solo salia lo primero y parecia que nadie lo tocaba.
+    const ms = (t) => (t?.toMillis ? t.toMillis() : 0)
+    Promise.all([historialDelTechPack(item.codigo).catch(() => []), versionesDelTechPack(item.codigo)])
+      .then(([h, v]) => {
+        if (!vivo) return
+        const ediciones = h.map((x) => ({ ...x, clase: 'datos', id: 'h-' + x.id }))
+        const subidas = v.map((x) => ({ id: 'v-' + x.id, clase: 'archivo', quienNombre: x.subidoPorNombre, cuando: x.subidoEn, tipo: x.tipo, version: x.version }))
+        setHistorial([...ediciones, ...subidas].sort((a, b) => ms(b.cuando) - ms(a.cuando)))
+      })
     return () => { vivo = false }
   }, [item.codigo])
 
@@ -1575,17 +1594,25 @@ function ModalEditarTechPack({ item, usuario, onCerrar, onGuardado, puedeSubir =
           {historial === null ? (
             <p className="texto-suave">Leyendo...</p>
           ) : historial.length === 0 ? (
-            <p className="texto-suave">Todavia nadie lo ha editado desde la app.</p>
+            <p className="texto-suave">Todavia nadie lo ha modificado desde la app.</p>
           ) : (
             <ul>
               {historial.map((h) => (
                 <li key={h.id}>
                   <strong>{h.quienNombre || 'alguien'}</strong>
-                  <span className="texto-suave"> · {fecha(h.cuando)} · cambio {resumirCambio(h)}</span>
+                  <span className="texto-suave">
+                    {' '}· {fecha(h.cuando)} ·{' '}
+                    {h.clase === 'archivo'
+                      ? `guardo ${h.tipo === 'ftt' ? 'la FTT' : 'el tech pack'} (version ${h.version})`
+                      : `cambio ${resumirCambio(h)}`}
+                  </span>
                 </li>
               ))}
             </ul>
           )}
+          <p className="texto-suave" style={{ fontSize: 12, margin: '6px 0 0' }}>
+            Los archivos guardados antes del 15 de septiembre no quedaron registrados aqui.
+          </p>
         </details>
       </div>
     </div>

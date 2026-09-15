@@ -55,11 +55,29 @@ export function identidadDePlantilla(lectura) {
   return {
     cliente: texto(c.TP_CLIENTE, 120),
     marca: texto(c.TP_MARCA, 120),
-    modeloPlantilla: texto(c.TP_MODELO, 200)
+    modeloPlantilla: texto(c.TP_MODELO, 200),
+    tallaPlantilla: tallaDePlantilla(lectura)
   }
 }
 
-export const IDENTIDAD_VACIA = Object.freeze({ cliente: null, marca: null, modeloPlantilla: null })
+/**
+ * La TALLA del tech pack, para distinguir las tallas de un mismo modelo
+ * (Roberto, 15-sep: "divide las tallas"). Sale de la tabla de codigos de la
+ * plantilla (medido: 105 de 120 traen una sola talla, 15 varias, 0 ninguna);
+ * si no trae, del "sistema de talla". Varias tallas van juntas: "S/M / L/XL".
+ */
+export function tallaDePlantilla(lectura) {
+  const vistas = new Set()
+  const tallas = []
+  for (const r of lectura?.tablas?.TP_TABLA_PEDIDO || []) {
+    const t = String(r?.talla ?? '').replace(/\s+/g, ' ').trim()
+    const k = claveCliente(t)
+    if (t && !vistas.has(k)) { vistas.add(k); tallas.push(t) }
+  }
+  return texto(tallas.length ? tallas.join(' / ') : lectura?.campos?.TP_SISTEMA_TALLA, 120)
+}
+
+export const IDENTIDAD_VACIA = Object.freeze({ cliente: null, marca: null, modeloPlantilla: null, tallaPlantilla: null })
 
 /** El campo como texto, o '' si no lo es. Defensa: un cliente que no sea texto
  *  (un mapa, un numero) tumbaba la biblioteca entera al pintarse o al ordenar
@@ -110,10 +128,34 @@ export function agruparPorClienteYModelo(biblioteca) {
       grafias: [...g.grafias.keys()],
       total: g.ids.size,
       modelos: [...g.modelos.values()]
-        .map((m) => ({ ...m, techPacks: m.techPacks.sort((x, y) => orden(x.codigo || '', y.codigo || '')) }))
+        .map((m) => {
+          const techPacks = m.techPacks.sort((x, y) => orden(x.codigo || '', y.codigo || ''))
+          return { ...m, techPacks, tallas: agruparPorTalla(techPacks) }
+        })
         .sort((x, y) => orden(x.modelo, y.modelo))
     }))
     .sort((a, b) => (a.clave === '~SIN' ? 1 : b.clave === '~SIN' ? -1 : orden(a.cliente, b.cliente)))
+}
+
+/** La talla con la que se muestra un tech pack: la de su plantilla; si no
+ *  hay, la que dijo Lety o el catalogo. '' si nadie la dice. */
+export function tallaDelTechPack(b) {
+  return (textoDe(b?.tallaPlantilla) || textoDe(b?.datosEditables?.talla) || textoDe(b?.talla)).trim()
+}
+
+/** Los tech packs de un modelo separados por talla (Roberto, 15-sep: "divide
+ *  las tallas"). Sin talla van al final. [{ talla, clave, techPacks }] */
+export function agruparPorTalla(techPacks) {
+  const grupos = new Map()
+  for (const b of techPacks || []) {
+    const talla = tallaDelTechPack(b)
+    const k = claveCliente(talla) || '~SIN'
+    if (!grupos.has(k)) grupos.set(k, { talla: talla || '(sin talla)', clave: k, techPacks: [] })
+    grupos.get(k).techPacks.push(b)
+  }
+  return [...grupos.values()].sort((a, b) =>
+    a.clave === '~SIN' ? 1 : b.clave === '~SIN' ? -1 : a.talla.localeCompare(b.talla, 'es', { numeric: true })
+  )
 }
 
 /** ¿El tech pack coincide con la busqueda? Todas las palabras tienen que
@@ -123,7 +165,7 @@ export function coincideTechPack(b, busqueda) {
   if (!palabras.length) return true
   const e = b?.datosEditables || {}
   const pajar = claveCliente(
-    [b?.codigo, b?.cliente, b?.marca, b?.modeloPlantilla, b?.modelo, e.modelo, b?.descripcion, e.talla ?? b?.talla, e.color ?? b?.color].map(textoDe).join(' ')
+    [b?.codigo, b?.cliente, b?.marca, b?.modeloPlantilla, b?.modelo, e.modelo, b?.descripcion, b?.tallaPlantilla, e.talla ?? b?.talla, e.color ?? b?.color].map(textoDe).join(' ')
   )
   return palabras.every((p) => pajar.includes(p))
 }

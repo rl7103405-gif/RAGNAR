@@ -60,10 +60,10 @@ for (const d of snap.docs) {
     else noPlantilla++
   } else noPlantilla++
   if (identidad.cliente) clientes.set(claveCliente(identidad.cliente), [...new Set([...(clientes.get(claveCliente(identidad.cliente)) || []), identidad.cliente])])
-  const igual = ['cliente', 'marca', 'modeloPlantilla'].every((k) => (x[k] ?? null) === identidad[k])
+  const igual = ['cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla'].every((k) => (x[k] ?? null) === identidad[k])
   if (igual) { iguales++; continue }
   cambian++
-  console.log(`  ${d.id.padEnd(26)} ${x.esPrueba ? '[prueba] ' : ''}cliente "${identidad.cliente ?? ''}" · marca "${identidad.marca ?? ''}" · modelo "${identidad.modeloPlantilla ?? ''}"`)
+  console.log(`  ${d.id.padEnd(26)} ${x.esPrueba ? '[prueba] ' : ''}cliente "${identidad.cliente ?? ''}" · marca "${identidad.marca ?? ''}" · modelo "${identidad.modeloPlantilla ?? ''}" · talla "${identidad.tallaPlantilla ?? ''}"`)
   if (EJECUTAR) {
     await db.runTransaction(async (tx) => {
       const vivo = await tx.get(d.ref)

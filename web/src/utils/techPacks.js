@@ -218,24 +218,59 @@ export async function guardarEnBiblioteca({
   for (const s of sobrantes) await deleteDoc(s.ref)
 
   onProgreso('Guardando...')
-  const previo = actual.exists() ? actual.data()[def.campo] : null
-  await updateDoc(refDoc(id), {
-    [def.campo]: {
-      nombre: String(nombre || def.clave).slice(0, 200),
-      formato,
-      tamano: bytes.length,
-      totalChunks,
-      sha256,
-      version: (previo?.version || 0) + 1,
-      subidoEn: serverTimestamp(),
-      subidoPorUid: usuario.uid,
-      subidoPorNombre: String(usuario.nombre).slice(0, 120)
-    },
+  // Se relee justo antes de escribir: la version sale del manifiesto VIGENTE
+  // (alguien pudo subir otra mientras se subian los pedazos).
+  const vigente = await getDoc(refDoc(id))
+  const previo = vigente.exists() ? vigente.data()[def.campo] : null
+  const manifiestoNuevo = {
+    nombre: String(nombre || def.clave).slice(0, 200),
+    formato,
+    tamano: bytes.length,
+    totalChunks,
+    sha256,
+    version: (previo?.version || 0) + 1,
+    subidoEn: serverTimestamp(),
+    subidoPorUid: usuario.uid,
+    subidoPorNombre: String(usuario.nombre).slice(0, 120)
+  }
+  // El manifiesto y el renglon de "quien lo modifico" van en UN batch: las
+  // reglas exigen los dos juntos (Roberto, 15-sep: que se vea quien subio
+  // cada version, tambien las del editor del contenido).
+  const lote = writeBatch(db)
+  lote.update(refDoc(id), {
+    [def.campo]: manifiestoNuevo,
     ...(identidad || {}),
     actualizadoEn: serverTimestamp(),
     actualizadoPorUid: usuario.uid,
     actualizadoPorNombre: String(usuario.nombre).slice(0, 120)
   })
+  // El id lleva la huella: tras "Quitar" la version vuelve a 1. Si ese mismo
+  // archivo ya se habia subido como esa version, el renglon ya existe y no se
+  // reescribe (las reglas no dejan tocar un renglon, y el padre ya lo ve).
+  const refVersion = doc(db, 'techPacks', id, 'versiones', `${def.clave}-${manifiestoNuevo.version}-${sha256}`)
+  const yaRegistrada = await getDoc(refVersion).then((s) => s.exists()).catch(() => false)
+  if (!yaRegistrada) {
+    lote.set(refVersion, {
+      tipo: def.clave,
+      version: manifiestoNuevo.version,
+      nombre: manifiestoNuevo.nombre,
+      tamano: manifiestoNuevo.tamano,
+      sha256,
+      subidoEn: serverTimestamp(),
+      subidoPorUid: usuario.uid,
+      subidoPorNombre: manifiestoNuevo.subidoPorNombre
+    })
+  }
+  try {
+    await lote.commit()
+  } catch (e) {
+    // Lo normal: otra persona guardo una version de este mismo archivo entre
+    // la relectura y el commit (la regla exige version = la vigente + 1).
+    if (e?.code === 'permission-denied') {
+      throw new ErrorBiblioteca('No se guardo: alguien mas guardo una version de este archivo casi al mismo tiempo. Vuelve a abrirlo e intenta otra vez.')
+    }
+    throw e
+  }
   // El id con el que QUEDO guardado (con ZZTEST si es de prueba), para que el
   // aviso en pantalla diga lo mismo que la tabla.
   return id
@@ -396,6 +431,19 @@ export async function historialDelTechPack(codigo, cuantos = 30) {
     query(collection(db, 'techPacks', id, 'historial'), orderBy('cuando', 'desc'), limit(cuantos))
   )
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+/** Las versiones subidas (tech pack y FTT), la mas nueva primero. [] si falla. */
+export async function versionesDelTechPack(codigo, cuantos = 20) {
+  const id = codigoComoId(codigo)
+  if (!id) return []
+  try {
+    const snap = await getDocs(query(collection(db, 'techPacks', id, 'versiones'), orderBy('subidoEn', 'desc'), limit(cuantos)))
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  } catch (err) {
+    console.warn('[TechPacks] No se pudieron leer las versiones:', err?.code || err)
+    return []
+  }
 }
 
 /**
@@ -579,7 +627,7 @@ export async function buscarTechPacksPorModeloOCliente(texto, esPrueba) {
       folio,
       cliente: textoDe(real.cliente),
       modelo: modelosDelTechPack(real).join(', '),
-      talla: real.datosEditables?.talla ?? real.talla ?? ''
+      talla: textoDe(real.tallaPlantilla) || real.datosEditables?.talla || real.talla || ''
     }
     if (real.techPack) conTechPack.push({ ...renglon, techPack: real.techPack })
     else sinTechPack.push(renglon)

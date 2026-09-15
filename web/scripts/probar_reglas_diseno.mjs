@@ -171,10 +171,16 @@ async function correr(nombre, pad = 0, detalle = false) {
   const caso = { expectation: esc.expectation || 'ALLOW', expressionReportLevel: 'FULL', request: esc.request, functionMocks: esc.functionMocks }
   if (esc.resource) caso.resource = esc.resource
   const body = { source: { files: [{ name: 'firestore.rules', content: rules }] }, testSuite: { testCases: [caso] } }
-  const resp = await fetch(`https://firebaserules.googleapis.com/v1/projects/${PROJECT}:test`, {
-    method: 'POST', headers: { Authorization: 'Bearer ' + cfg.tokens.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-  })
-  const data = await resp.json()
+  // La API a veces responde 503 pasajero: se reintenta con espera creciente.
+  let resp, data
+  for (let intento = 1; intento <= 5; intento++) {
+    resp = await fetch(`https://firebaserules.googleapis.com/v1/projects/${PROJECT}:test`, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + cfg.tokens.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    })
+    data = await resp.json()
+    if (resp.status !== 503 && resp.status !== 429) break
+    await new Promise((r) => setTimeout(r, 1500 * intento))
+  }
   if (!resp.ok) throw new Error('API ' + resp.status + ': ' + JSON.stringify(data.error?.message || data).slice(0, 300))
   const res = data.testResults?.[0] || {}
   const debug = res.debugMessages || []
@@ -202,12 +208,44 @@ const TP_2M = { ...TP, techPack: manifiesto(1), ftt: manifiesto(1) }
 const TP_2M2 = { ...TP_2M, datosEditables: DATOS, revision: 1, ultimaEdicionId: 'HIST0002', ...sellos(JEFA) }
 const JEFA_BAJA = { ...JEFA, activo: false }
 const REAL_JEFA = { ...JEFA, uid: 'REALJEFA000000000000000000000', esPrueba: false, nombreCompleto: 'JEFA REAL' }
+const P_VER_TP1 = P_TP + '/versiones/tp-1-' + 'a'.repeat(64)
+const VERSION_TP1 = { tipo: 'tp', version: 1, nombre: 'TECH PACK ZZTEST.xlsx', tamano: 123456, sha256: 'a'.repeat(64), subidoEn: T, subidoPorUid: JEFA.uid, subidoPorNombre: JEFA.nombreCompleto }
 const sinResultado = (fn, path) => ({ function: fn, args: [{ exactValue: path }], result: { undefined: {} } })
 Object.assign(ESCENARIOS, {
   'techpack-archivo': {
     que: 'Lety sube el archivo de un tech pack (manifiesto nuevo, version 1)',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc(TP_SUBIDO) },
-    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])], ancla: ESCENARIOS['techpack-datos'].ancla
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1)], ancla: ESCENARIOS['techpack-datos'].ancla
+  },
+  'neg-techpack-archivo-sin-version': {
+    expectation: 'DENY', que: 'NEG: subir el tech pack SIN dejar su renglon de "quien lo modifico"',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc(TP_SUBIDO) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1, false)]
+  },
+  'techpack-version-create': {
+    que: 'el renglon de la version nace junto con la subida',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_VER_TP1, time: T, resource: doc(VERSION_TP1) },
+    functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SIN), mAfter(P_TP, TP_SUBIDO)]
+  },
+  'neg-version-sin-subida': {
+    expectation: 'DENY', que: 'NEG: sembrar una version de un archivo que no se subio en este batch',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_VER_TP1, time: T, resource: doc(VERSION_TP1) },
+    functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SUBIDO), mAfter(P_TP, TP_SUBIDO)]
+  },
+  'neg-version-otro-nombre': {
+    expectation: 'DENY', que: 'NEG: firmar la version con el nombre de otra persona',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_VER_TP1, time: T, resource: doc({ ...VERSION_TP1, subidoPorNombre: 'Roberto Linares' }) },
+    functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SIN), mAfter(P_TP, TP_SUBIDO)]
+  },
+  'neg-version-otra-huella': {
+    expectation: 'DENY', que: 'NEG: una version cuya huella no es la del archivo que quedo',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_TP + '/versiones/tp-1-' + 'b'.repeat(64), time: T, resource: doc({ ...VERSION_TP1, sha256: 'b'.repeat(64) }) },
+    functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SIN), mAfter(P_TP, TP_SUBIDO)]
+  },
+  'neg-version-cruce-corral': {
+    expectation: 'DENY', que: 'NEG: una jefa REAL registra version en un tech pack de PRUEBA',
+    request: { auth: { uid: REAL_JEFA.uid }, method: 'create', path: P_VER_TP1, time: T, resource: doc({ ...VERSION_TP1, subidoPorUid: REAL_JEFA.uid, subidoPorNombre: REAL_JEFA.nombreCompleto }) },
+    functionMocks: [...perfilMocks([REAL_JEFA]), mGet(P_TP, TP_SIN), mAfter(P_TP, { ...TP_SUBIDO, techPack: { ...TP_SUBIDO.techPack, subidoPorUid: REAL_JEFA.uid, subidoPorNombre: REAL_JEFA.nombreCompleto } })]
   },
   'techpack-datos-2m': {
     que: 'Lety edita datos de un tech pack que YA tiene archivo y FTT (el caso mas pesado)',
@@ -272,7 +310,7 @@ Object.assign(ESCENARIOS, {
   'admin-sube-archivo': {
     que: 'el admin SI sigue pudiendo subir el archivo de un tech pack',
     request: { auth: { uid: ADMIN.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SIN, techPack: { ...manifiesto(1), subidoPorUid: ADMIN.uid, subidoPorNombre: ADMIN.nombreCompleto }, ...sellos(ADMIN) }) },
-    resource: doc(TP_SIN), functionMocks: [...perfilMocks([ADMIN])]
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([ADMIN]), mExistsAfter(P_VER_TP1)]
   },
   // Aviso en vivo de quien esta editando (Roberto, 14-sep; endurecido con Codex).
   'techpack-editando': {
@@ -324,23 +362,28 @@ Object.assign(ESCENARIOS, {
   },
   'techpack-archivo-identidad': {
     que: 'Lety sube el tech pack y con el viajan cliente, marca y modelo leidos de la plantilla',
-    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, cliente: 'GRUPO UNION', marca: 'OPTIMA', modeloPlantilla: 'RB10T100, RB10T101' }) },
-    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])], ancla: ESCENARIOS['techpack-datos'].ancla
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, cliente: 'GRUPO UNION', marca: 'OPTIMA', modeloPlantilla: 'RB10T100, RB10T101', tallaPlantilla: 'S/M / L/XL / UNI' }) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1)], ancla: ESCENARIOS['techpack-datos'].ancla
+  },
+  'neg-techpack-talla-sin-archivo': {
+    expectation: 'DENY', que: 'NEG: cambiar la talla colandola en un cambio de descripcion, sin subir tech pack',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SIN, descripcion: (TP_SIN.descripcion || '') + ' ', tallaPlantilla: 'XL', ...sellos(JEFA) }) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1)]
   },
   'neg-techpack-cliente-largo': {
     expectation: 'DENY', que: 'NEG: un cliente de 500 caracteres',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, cliente: 'X'.repeat(500) }) },
-    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])]
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1)]
   },
   'neg-techpack-cliente-numero': {
     expectation: 'DENY', que: 'NEG: un cliente que no es texto',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, cliente: 12345 }) },
-    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])]
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1)]
   },
   'neg-techpack-cliente-sin-archivo': {
     expectation: 'DENY', que: 'NEG: cambiar el cliente colandolo en un cambio de descripcion, sin subir tech pack',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SIN, descripcion: (TP_SIN.descripcion || '') + ' ', cliente: 'OTRO CLIENTE', ...sellos(JEFA) }) },
-    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA])]
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1)]
   },
   'neg-techpack-mixto': {
     expectation: 'DENY', que: 'NEG: un update que sube archivo Y edita datos a la vez',
