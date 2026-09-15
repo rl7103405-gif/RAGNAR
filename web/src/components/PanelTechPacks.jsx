@@ -506,6 +506,14 @@ export default function PanelTechPacks() {
       setError(`El archivo pesa ${mb(file.size)} y el tope son 15 MB.`)
       return
     }
+    // Si ese codigo YA tiene tech pack, se dice cual y se pregunta: antes se
+    // reemplazaba sin avisar (usuario-real como Lety, 15-sep).
+    const existente = techPackPorId.get(esPrueba && !id.startsWith('ZZTEST') ? 'ZZTEST' + id : id)
+    const previo = existente?.[TIPOS[tipo].campo]
+    if (previo) {
+      const quien = [textoDe(existente.cliente), modelosDelTechPack(existente).join(', ')].filter(Boolean).join(' · ')
+      if (!window.confirm(`${existente.codigo} ya tiene ${TIPOS[tipo].titulo.toLowerCase()}${quien ? ` (${quien})` : ''}, version ${previo.version || 1}. Lo vas a REEMPLAZAR por "${file.name}". ¿Seguir?`)) return
+    }
     setTrabajando(true)
     try {
       const idFinal = await guardarEnBiblioteca({
@@ -518,14 +526,11 @@ export default function PanelTechPacks() {
         esPrueba,
         onProgreso: setProgreso
       })
-      const ligado = enPlan?.get(idFinal || id)
+      // Ya no se habla de OT ni de Adrian: el estandar es cliente y modelo, que
+      // salen de la plantilla y se ven en la vista de abajo.
       setAviso(
         `${TIPOS[tipo].titulo} de ${idFinal || id} guardado.` +
-          (enPlan && !ligado?.length
-            ? ' OJO: ese codigo no esta en ninguna orden de trabajo del plan vigente; se guardo igual, pero nadie lo va a poder pegar por OT hasta que Adrian lo suba.'
-            : ligado?.length
-              ? ` Ligado a ${ligado.length === 1 ? 'la OT' : 'las OT'} ${ligado.map((x) => x.ot).join(', ')}.`
-              : '')
+          (tipo === 'tp' ? ' Queda con el cliente y el modelo que dice su plantilla (si es PDF, sin cliente).' : '')
       )
       setCruce(null)
     } catch (err) {
@@ -841,7 +846,9 @@ export default function PanelTechPacks() {
                   <div className="tp-diseno-info">
                     <span className="tp-codigo">{b.codigo}</span>
                     {textoDe(b.cliente) ? <span className="tp-meta" title={textoDe(b.marca) ? `${textoDe(b.cliente)} · ${textoDe(b.marca)}` : textoDe(b.cliente)}><strong>{textoDe(b.cliente)}</strong></span> : null}
-                    <span className="tp-meta"><NombreDelModelo item={b} corto /></span>
+                    {/* Todos los modelos del tech pack, para que se entienda por que salio
+                        (buscar RB10T101 trae RB10T100, que los lleva los tres). */}
+                    {modelosDelTechPack(b).length ? <span className="tp-meta" title={modelosDelTechPack(b).join(', ')}>modelo {modelosDelTechPack(b).join(', ')}</span> : null}
                     {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
                   </div>
                   <div className="tp-acciones-lista">
@@ -865,136 +872,6 @@ export default function PanelTechPacks() {
           </div>
         )}
       </div>
-
-      {/* ------------------------------------------------ subir, en dos pasos */}
-      {puedeSubirTechPacks && (
-        <div className="tarjeta tp-subir">
-          <div className="tp-paso">
-            <span className="tp-num">1</span>
-            <div style={{ flex: 1 }}>
-              {/* El codigo va PRIMERO (Roberto, 2026-09-15: el estandar es
-                  modelo + cliente, ya no la OT). La OT queda como ayuda para
-                  quien no se sabe el codigo. */}
-              <h3 style={{ margin: 0 }}>¿De qué código es?</h3>
-              <p className="texto-suave" style={{ margin: '4px 0 10px' }}>
-                Escribe el código del diseño. Si no lo sabes, búscalo abajo por su orden de trabajo.
-              </p>
-              <div className="tp-fila">
-                <input
-                  className="tp-input"
-                  placeholder="Código del diseño (ej. WKD225T401)"
-                  value={codigo}
-                  onChange={(e) => setCodigo(e.target.value.toUpperCase())}
-                  disabled={trabajando}
-                  style={{ width: 320, fontSize: 16 }}
-                />
-                {/* Descargar la plantilla no escribe nada: el admin (Roberto)
-                    tambien puede, para probarla. Editar sigue siendo solo de desarrollo.
-                    Sigue usando la OT de abajo si se escribio. */}
-                {puedeSubirTechPacks && (
-                  <button
-                    className="btn-primario"
-                    onClick={onNuevaPlantilla}
-                    disabled={trabajando || generando}
-                    title="Descarga un Excel nuevo en el formato TP-Quini, prellenado con lo que el plan sabe de la OT que escribas abajo"
-                  >
-                    {generando ? 'Armando...' : 'Nuevo tech pack (plantilla)'}
-                  </button>
-                )}
-              </div>
-              <div className="tp-fila" style={{ marginTop: 10, flexWrap: 'wrap', gap: 8 }}>
-                <span className="texto-suave" style={{ fontSize: 13 }}>¿No sabes el código? Búscalo por orden de trabajo:</span>
-                <input
-                  className="tp-input"
-                  placeholder="Orden de trabajo (ej. 7887)"
-                  value={ot}
-                  onChange={(e) => setOt(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && onBuscarOt()}
-                  disabled={trabajando}
-                  style={{ width: 200 }}
-                />
-                <button className="btn-secundario tp-btn-chico" onClick={onBuscarOt} disabled={trabajando || codigosDeOt === 'buscando'}>
-                  {codigosDeOt === 'buscando' ? 'Buscando...' : 'Ver sus códigos'}
-                </button>
-              </div>
-              {Array.isArray(codigosDeOt) && codigosDeOt.length > 0 && (
-                <div className="tp-chips">
-                  <span className="texto-suave" style={{ fontSize: 13 }}>
-                    {codigosDeOt.length === 1 ? 'Esa OT lleva un solo codigo:' : `Esa OT lleva ${codigosDeOt.length} codigos, elige a cual va:`}
-                  </span>
-                  {codigosDeOt.map((c) => (
-                    <button
-                      key={c.codigo}
-                      className={`tp-chip ${codigo === c.codigo ? 'activo' : ''}`}
-                      onClick={() => setCodigo(c.codigo)}
-                      title={c.descripcion || ''}
-                    >
-                      <strong>{c.codigo}</strong>
-                      {c.descripcion ? <span> · {c.descripcion.slice(0, 40)}</span> : null}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className={`tp-paso ${codigoListo ? '' : 'tp-paso-apagado'}`}>
-            <span className="tp-num">2</span>
-            <div style={{ flex: 1 }}>
-              <h3 style={{ margin: 0 }}>
-                {codigoListo ? (
-                  <>
-                    Sube el documento de <span className="tp-codigo">{codigoComoId(codigo)}</span>
-                  </>
-                ) : (
-                  'Sube el documento'
-                )}
-              </h3>
-              <p className="texto-suave" style={{ margin: '4px 0 10px' }}>
-                {!codigoListo
-                  ? 'Se habilita cuando el codigo este elegido arriba.'
-                  : ligueDelElegido?.length
-                    ? `Ligado a ${ligueDelElegido.length === 1 ? 'la OT' : 'las OT'} ${ligueDelElegido.map((x) => x.ot + (x.oc ? ` (OC ${x.oc})` : '')).join(', ')}.`
-                    : enPlan
-                      ? 'Ese codigo no esta en ninguna OT del plan vigente. Se puede subir igual.'
-                      : 'Leyendo el plan...'}
-              </p>
-              <div className="tp-fila">
-                <label className={`btn-primario tp-btn-archivo ${!codigoListo || trabajando ? 'apagado' : ''}`}>
-                  {trabajando ? 'Subiendo...' : 'Subir TECH PACK de empaque'}
-                  <input
-                    type="file"
-                    accept=".pdf,.xlsx"
-                    style={{ display: 'none' }}
-                    disabled={!codigoListo || trabajando}
-                    onChange={(e) => {
-                      onSubir('tp', e.target.files?.[0])
-                      e.target.value = ''
-                    }}
-                  />
-                </label>
-                <label className={`btn-secundario tp-btn-archivo ${!codigoListo || trabajando ? 'apagado' : ''}`}>
-                  Subir FTT (ficha de tejido)
-                  <input
-                    type="file"
-                    accept=".pdf,.xlsx"
-                    style={{ display: 'none' }}
-                    disabled={!codigoListo || trabajando}
-                    onChange={(e) => {
-                      onSubir('ftt', e.target.files?.[0])
-                      e.target.value = ''
-                    }}
-                  />
-                </label>
-                <span className="texto-suave" style={{ fontSize: 13 }}>
-                  PDF o Excel, maximo 15 MB. Mejor PDF. Si ya habia uno, lo reemplaza y sube la version.
-                </span>
-              </div>
-              {progreso && <p className="tp-progreso">{progreso}</p>}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ---------------------------------- el arbol, en TRES cuadros que se
           abren y se cierran (Roberto, 2026-09-10). Cada uno responde a una
@@ -1171,6 +1048,136 @@ export default function PanelTechPacks() {
         </>
       )}
       </details>
+
+      {/* ------------------------------------------------ subir, en dos pasos */}
+      {puedeSubirTechPacks && (
+        <div className="tarjeta tp-subir">
+          <div className="tp-paso">
+            <span className="tp-num">1</span>
+            <div style={{ flex: 1 }}>
+              {/* El codigo va PRIMERO (Roberto, 2026-09-15: el estandar es
+                  modelo + cliente, ya no la OT). La OT queda como ayuda para
+                  quien no se sabe el codigo. */}
+              <h3 style={{ margin: 0 }}>¿De qué código es?</h3>
+              <p className="texto-suave" style={{ margin: '4px 0 10px' }}>
+                Escribe el código del diseño. Si no lo sabes, búscalo abajo por su orden de trabajo.
+              </p>
+              <div className="tp-fila">
+                <input
+                  className="tp-input"
+                  placeholder="Código del diseño (ej. WKD225T401)"
+                  value={codigo}
+                  onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+                  disabled={trabajando}
+                  style={{ width: '100%', maxWidth: 320, fontSize: 16 }}
+                />
+                {/* Descargar la plantilla no escribe nada: el admin (Roberto)
+                    tambien puede, para probarla. Editar sigue siendo solo de desarrollo.
+                    Sigue usando la OT de abajo si se escribio. */}
+                {puedeSubirTechPacks && (
+                  <button
+                    className="btn-primario"
+                    onClick={onNuevaPlantilla}
+                    disabled={trabajando || generando}
+                    title="Descarga un Excel nuevo en el formato TP-Quini, prellenado con lo que el plan sabe de la OT que escribas abajo"
+                  >
+                    {generando ? 'Armando...' : 'Nuevo tech pack (plantilla)'}
+                  </button>
+                )}
+              </div>
+              <div className="tp-fila" style={{ marginTop: 10, flexWrap: 'wrap', gap: 8 }}>
+                <span className="texto-suave" style={{ fontSize: 13 }}>¿No sabes el código? Búscalo por orden de trabajo:</span>
+                <input
+                  className="tp-input"
+                  placeholder="Orden de trabajo (ej. 7887)"
+                  value={ot}
+                  onChange={(e) => setOt(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && onBuscarOt()}
+                  disabled={trabajando}
+                  style={{ width: '100%', maxWidth: 200 }}
+                />
+                <button className="btn-secundario tp-btn-chico" onClick={onBuscarOt} disabled={trabajando || codigosDeOt === 'buscando'}>
+                  {codigosDeOt === 'buscando' ? 'Buscando...' : 'Ver sus códigos'}
+                </button>
+              </div>
+              {Array.isArray(codigosDeOt) && codigosDeOt.length > 0 && (
+                <div className="tp-chips">
+                  <span className="texto-suave" style={{ fontSize: 13 }}>
+                    {codigosDeOt.length === 1 ? 'Esa OT lleva un solo codigo:' : `Esa OT lleva ${codigosDeOt.length} codigos, elige a cual va:`}
+                  </span>
+                  {codigosDeOt.map((c) => (
+                    <button
+                      key={c.codigo}
+                      className={`tp-chip ${codigo === c.codigo ? 'activo' : ''}`}
+                      onClick={() => setCodigo(c.codigo)}
+                      title={c.descripcion || ''}
+                    >
+                      <strong>{c.codigo}</strong>
+                      {c.descripcion ? <span> · {c.descripcion.slice(0, 40)}</span> : null}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className={`tp-paso ${codigoListo ? '' : 'tp-paso-apagado'}`}>
+            <span className="tp-num">2</span>
+            <div style={{ flex: 1 }}>
+              <h3 style={{ margin: 0 }}>
+                {codigoListo ? (
+                  <>
+                    Sube el documento de <span className="tp-codigo">{codigoComoId(codigo)}</span>
+                  </>
+                ) : (
+                  'Sube el documento'
+                )}
+              </h3>
+              <p className="texto-suave" style={{ margin: '4px 0 10px' }}>
+                {!codigoListo
+                  ? 'Se habilita cuando el codigo este elegido arriba.'
+                  : ligueDelElegido?.length
+                    ? `Ligado a ${ligueDelElegido.length === 1 ? 'la OT' : 'las OT'} ${ligueDelElegido.map((x) => x.ot + (x.oc ? ` (OC ${x.oc})` : '')).join(', ')}.`
+                    : enPlan
+                      ? 'Ese codigo no esta en ninguna OT del plan vigente. Se puede subir igual.'
+                      : 'Leyendo el plan...'}
+              </p>
+              <div className="tp-fila">
+                <label className={`btn-primario tp-btn-archivo ${!codigoListo || trabajando ? 'apagado' : ''}`}>
+                  {trabajando ? 'Subiendo...' : 'Subir TECH PACK de empaque'}
+                  <input
+                    type="file"
+                    accept=".pdf,.xlsx"
+                    style={{ display: 'none' }}
+                    disabled={!codigoListo || trabajando}
+                    onChange={(e) => {
+                      onSubir('tp', e.target.files?.[0])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <label className={`btn-secundario tp-btn-archivo ${!codigoListo || trabajando ? 'apagado' : ''}`}>
+                  Subir FTT (ficha de tejido)
+                  <input
+                    type="file"
+                    accept=".pdf,.xlsx"
+                    style={{ display: 'none' }}
+                    disabled={!codigoListo || trabajando}
+                    onChange={(e) => {
+                      onSubir('ftt', e.target.files?.[0])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <span className="texto-suave" style={{ fontSize: 13 }}>
+                  PDF o Excel, maximo 15 MB. Mejor PDF. Si ya habia uno, lo reemplaza y sube la version.
+                </span>
+              </div>
+              {progreso && <p className="tp-progreso">{progreso}</p>}
+            </div>
+          </div>
+        </div>
+      )}
 
       <AvanceDeTechPacks biblioteca={biblioteca} onVer={verTechPack} onEditar={editarTechPack} puedeEditar={puedeEditarTechPacks} />
 
