@@ -41,7 +41,7 @@ import {
   TIPOS
 } from '../utils/techPacks'
 import { avanceDelTechPack, RUBROS_TECH_PACK } from '../utils/completadoTechPack'
-import { agruparPorClienteYModelo, coincideTechPack } from '../utils/clienteModeloTechPack'
+import { agruparPorClienteYModelo, coincideTechPack, modelosDelTechPack } from '../utils/clienteModeloTechPack'
 import VisorTechPack from './VisorTechPack'
 import EditorPlantillaTechPack from './EditorPlantillaTechPack'
 import { escucharEdiciones, marcarEdicion, textoEdiciones } from '../utils/editandoTechPack'
@@ -1037,7 +1037,13 @@ export default function PanelTechPacks() {
                         <div key={b.id} className="tp-diseno">
                           <div className="tp-diseno-info">
                             <span className="tp-codigo">{b.codigo}</span>
-                            <span className="tp-meta"><NombreDelModelo item={b} corto /></span>
+                            {/* El modelo ya esta en el encabezado del grupo, y sale de
+                                la plantilla: aqui solo los OTROS modelos del mismo
+                                tech pack, para no mostrar el del catalogo, que puede
+                                decir otra cosa (code-reviewer, 15-sep). */}
+                            {modelosDelTechPack(b).length > 1 && (
+                              <span className="tp-meta">tambien {modelosDelTechPack(b).filter((x) => x !== m.modelo).join(', ')}</span>
+                            )}
                             {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
                           </div>
                           <div className="tp-acciones-lista">
@@ -1063,7 +1069,9 @@ export default function PanelTechPacks() {
 
       {/* ---------------------------------- el arbol OC/OT se conserva, plegado
           (Roberto, 2026-09-15: "lo de OC/OT no se debe perder"). */}
-      <details className="tarjeta tp-cuadro">
+      {/* Abierto cuando no hay vista por cliente (biblioteca vacia o todavia
+          cargando): si no, el aviso de "no hay nada" quedaba escondido. */}
+      <details className="tarjeta tp-cuadro" open={porCliente.length === 0}>
         <summary className="tp-cuadro-cab">
           <strong style={{ fontSize: 16 }}>Buscar por orden de compra u orden de trabajo</strong>
         </summary>

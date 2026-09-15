@@ -533,6 +533,24 @@ export async function buscarTechPacksComoSea(texto, esPrueba, { modo = 'orden' }
   return { por, conTechPack, sinTechPack, codigos }
 }
 
+// La biblioteca para buscar, una lectura por minuto por mundo: Lindbergh busca,
+// cambia de pestaña y vuelve a buscar, y cada vez releia la coleccion entera
+// (code-reviewer, 15-sep). Un tech pack recien subido tarda a lo mas un minuto
+// en aparecer aqui; en la pestana Tech packs aparece al instante.
+const cacheBiblioteca = new Map() // esPrueba -> { en, promesa }
+function bibliotecaParaBuscar(esPrueba) {
+  const c = cacheBiblioteca.get(esPrueba)
+  if (c && Date.now() - c.en < 60000) return c.promesa
+  const promesa = getDocs(query(collection(db, 'techPacks'), where('esPrueba', '==', esPrueba)))
+    .then((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    .catch((err) => {
+      cacheBiblioteca.delete(esPrueba)
+      throw err
+    })
+  cacheBiblioteca.set(esPrueba, { en: Date.now(), promesa })
+  return promesa
+}
+
 /**
  * LA BUSQUEDA ESTANDAR (Roberto, 15-sep): por MODELO, CLIENTE o CODIGO.
  * Todas las palabras tienen que aparecer (coincideTechPack), sin acentos. Se
@@ -545,8 +563,7 @@ export async function buscarTechPacksPorModeloOCliente(texto, esPrueba) {
   const q = String(texto || '').trim()
   const vacio = { por: 'modelo, cliente o codigo', conTechPack: [], sinTechPack: [], codigos: [] }
   if (!q) return vacio
-  const snap = await getDocs(query(collection(db, 'techPacks'), where('esPrueba', '==', esPrueba === true)))
-  const todos = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  const todos = await bibliotecaParaBuscar(esPrueba === true)
   const porId = new Map(todos.map((b) => [b.id, b]))
   const exacto = codigoComoId(q)
   const vistos = new Set()
