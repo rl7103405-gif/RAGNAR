@@ -712,6 +712,8 @@ table th, table td {
 .tp-busca-input::-webkit-search-cancel-button { display: none; }
 .tp-busca-limpiar { flex: none; width: 30px; height: 30px; border: 0; border-radius: 50%; background: #e2e8f0; color: #334155; font-size: 20px; line-height: 1; cursor: pointer; }
 .tp-busca-limpiar:hover { background: #cbd5e1; }
+.td-subir-lista { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+.td-subir-renglon { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tp-subir-cab { border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; }
 .tp-resultados { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
 

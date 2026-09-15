@@ -219,6 +219,16 @@ Object.assign(ESCENARIOS, {
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc(TP_SUBIDO) },
     resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1)], ancla: ESCENARIOS['techpack-datos'].ancla
   },
+  'techpack-archivo-equipo': {
+    que: 'alguien del EQUIPO de Lety (como Monica) sube el tech pack de un codigo desde su tarea',
+    request: { auth: { uid: EQUIPO.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SIN, techPack: { ...manifiesto(1), subidoPorUid: EQUIPO.uid, subidoPorNombre: EQUIPO.nombreCompleto }, ...sellos(EQUIPO) }) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([EQUIPO]), mExistsAfter(P_VER_TP1)]
+  },
+  'techpack-version-equipo': {
+    que: 'el renglon de "quien lo modifico" de esa subida de Monica',
+    request: { auth: { uid: EQUIPO.uid }, method: 'create', path: P_VER_TP1, time: T, resource: doc({ ...VERSION_TP1, subidoPorUid: EQUIPO.uid, subidoPorNombre: EQUIPO.nombreCompleto }) },
+    functionMocks: [...perfilMocks([EQUIPO]), mGet(P_TP, TP_SIN), mAfter(P_TP, { ...TP_SIN, techPack: { ...manifiesto(1), subidoPorUid: EQUIPO.uid, subidoPorNombre: EQUIPO.nombreCompleto } })]
+  },
   'neg-techpack-archivo-sin-version': {
     expectation: 'DENY', que: 'NEG: subir el tech pack SIN dejar su renglon de "quien lo modifico"',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc(TP_SUBIDO) },

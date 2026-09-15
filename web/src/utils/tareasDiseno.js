@@ -560,7 +560,14 @@ export async function historialDeAsignacion(asignacionId) {
 /** codigo -> documento de la biblioteca (incluye los alias, que se siguen). */
 export function indexarBiblioteca(biblioteca) {
   const m = new Map()
-  ;(biblioteca || []).forEach((b) => m.set(b.codigo, b))
+  ;(biblioteca || []).forEach((b) => {
+    m.set(b.codigo, b)
+    // Cuenta de prueba: la biblioteca guarda 'ZZTEST<codigo>' y la OT dice
+    // '<codigo>'. Sin esto el avance del corral nunca veia lo subido
+    // (code-reviewer, 15-sep). Un documento real con ese codigo gana.
+    const s = String(b.codigo || '')
+    if (b.esPrueba && s.startsWith('ZZTEST') && !m.has(s.slice(6))) m.set(s.slice(6), b)
+  })
   return m
 }
 
@@ -578,7 +585,10 @@ function documentosDe(codigo, indice) {
   if (d?.apuntaA) d = indice.get(d.apuntaA) || null
   if (d && !d.apuntaA) return [d]
   const pref = id + '-'
-  return [...indice.values()].filter((b) => !b.apuntaA && String(b.codigo).startsWith(pref))
+  return [...new Set(indice.values())].filter((b) => {
+    const cod = String(b.codigo)
+    return !b.apuntaA && (cod.startsWith(pref) || (b.esPrueba && cod.startsWith('ZZTEST' + pref)))
+  })
 }
 
 // "Listo" sin ambiguedad: hay archivo, los siete rubros estan marcados,

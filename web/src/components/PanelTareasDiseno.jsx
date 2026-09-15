@@ -12,7 +12,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { planVigente } from '../utils/planMaestro'
-import { escucharBiblioteca } from '../utils/techPacks'
+import { ErrorBiblioteca, escucharBiblioteca, guardarEnBiblioteca } from '../utils/techPacks'
+import { formatoDeArchivo, MAX_TECHPACK_BYTES } from '../utils/tareasEnsamble'
 import {
   asignarOt,
   avanceDeEncargo,
@@ -40,7 +41,7 @@ const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—'
 const aFecha = (s) => (s ? new Date(s + 'T12:00:00') : null)
 
 export default function PanelTareasDiseno() {
-  const { authUser, perfil, esPrueba, esAdmin, puedeAsignarDiseno } = useAuth()
+  const { authUser, perfil, esPrueba, esAdmin, puedeAsignarDiseno, puedeSubirTechPacks } = useAuth()
   const uid = authUser?.uid || ''
   const usuario = { uid, nombre: perfil?.nombreCompleto || '' }
   const vista = esAdmin ? 'admin' : puedeAsignarDiseno ? 'jefa' : 'equipo'
@@ -66,6 +67,21 @@ export default function PanelTareasDiseno() {
     console.error('[Diseno]', e)
     setError(e instanceof ErrorDiseno ? e.message : 'Fallo: ' + (e?.message || e))
   }
+
+  // Subir el tech pack desde la tarea (Lety y su equipo). null = no puede subir.
+  const subir = puedeSubirTechPacks
+    ? {
+        usuario,
+        esPrueba,
+        onAviso: (m) => { setError(''); setAviso(m) },
+        onError: (e) => {
+          setAviso('')
+          if (typeof e === 'string') setError(e)
+          else if (e instanceof ErrorBiblioteca) setError(e.message)
+          else reportar(e)
+        }
+      }
+    : null
 
   // La biblioteca, en vivo: de ahi sale el avance.
   useEffect(() => escucharBiblioteca(esPrueba, setBiblioteca, (e) => setError('No se pudo leer la biblioteca: ' + (e.message || e))), [esPrueba])
@@ -295,6 +311,7 @@ export default function PanelTareasDiseno() {
           puedeRepartir={vista === 'jefa' || esAdmin}
           cargandoLineas={cargandoLineas}
           ocupado={trabajando}
+          subir={subir}
           onAsignar={(encargo, ot, destinataria, fechaObjetivo, codigosManuales) =>
             correr(
               () => asignarOt({ encargo, ot, destinataria, fechaObjetivo, usuario, esPrueba, existentes: asignaciones, codigosManuales }),
@@ -335,7 +352,7 @@ export default function PanelTareasDiseno() {
         />
       )}
 
-      {vista === 'equipo' && <MisAsignaciones asignaciones={asignaciones} indice={indice} />}
+      {vista === 'equipo' && <MisAsignaciones asignaciones={asignaciones} indice={indice} subir={subir} />}
     </div>
   )
 }
@@ -537,7 +554,7 @@ function FormEncargoManual({ esAdmin, responsables, usuario, encargos, ocupado, 
 }
 
 // ---------------------------------------------------------------- admin y jefa: los encargos
-function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa, esAdmin, uid, puedeRepartir, cargandoLineas, ocupado, onAsignar, onCambiar, onCerrarEncargo }) {
+function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa, esAdmin, uid, puedeRepartir, cargandoLineas, ocupado, subir, onAsignar, onCambiar, onCerrarEncargo }) {
   if (!encargos.length) {
     return (
       <div className="tarjeta tp-vacio">
@@ -619,6 +636,7 @@ function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa,
                   puedeRepartir={puedeRepartir && !cerrado}
                   cargandoLineas={cargandoLineas}
                   ocupado={ocupado}
+                  subir={subir}
                   onAsignar={onAsignar}
                   onCambiar={onCambiar}
                 />
@@ -631,8 +649,9 @@ function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa,
   })
 }
 
-function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoLineas, ocupado, onAsignar, onCambiar }) {
+function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoLineas, ocupado, subir, onAsignar, onCambiar }) {
   const equipoDisponible = equipoPorJefa?.get(encargo.responsableUid) ?? equipo
+  const [subiendoAbierto, setSubiendoAbierto] = useState(false)
   const [dest, setDest] = useState('')
   const [fechaObj, setFechaObj] = useState('')
   const [reasignando, setReasignando] = useState(false)
@@ -683,6 +702,25 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
               {c.codigo}{c.variantes ? `×${c.variantes}` : ''}
             </span>
           ))
+        )}
+        {/* Subir desde aqui (Roberto, 15-sep: Lety no sabia como subir los
+            tech packs de lo que repartio). */}
+        {subir && fila.estados.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <button type="button" className="btn-secundario tp-btn-chico" onClick={() => setSubiendoAbierto((v) => !v)}>
+              {subiendoAbierto ? 'Cerrar' : 'Subir tech pack'}
+            </button>
+            {subiendoAbierto && (
+              <div className="td-subir-lista">
+                {fila.estados.map((c) => (
+                  <div key={c.codigo} className="td-subir-renglon">
+                    <span className="tp-codigo">{c.codigo}</span>
+                    <SubirTechPackDeCodigo codigo={c.codigo} tiene={c.tiene} variantes={c.variantes} ocupado={ocupado} {...subir} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </td>
       <td style={{ fontSize: 13 }}>
@@ -885,7 +923,7 @@ function HistorialAsignacion({ asignacion }) {
 }
 
 // ---------------------------------------------------------------- equipo: lo mio
-function MisAsignaciones({ asignaciones, indice }) {
+function MisAsignaciones({ asignaciones, indice, subir }) {
   const abiertas = asignaciones.filter((a) => a.estado === 'abierta')
   const cerradas = asignaciones.length - abiertas.length
   if (!abiertas.length) {
@@ -923,6 +961,7 @@ function MisAsignaciones({ asignaciones, indice }) {
               <th>Estado</th>
               <th>Checklist</th>
               <th>Ultimo cambio</th>
+              {subir && <th>Tech pack</th>}
             </tr>
           </thead>
           <tbody>
@@ -930,8 +969,11 @@ function MisAsignaciones({ asignaciones, indice }) {
               <tr key={c.codigo}>
                 <td><span className="tp-codigo">{c.codigo}</span>{c.variantes ? <span className="texto-suave" style={{ fontSize: 12 }}> · {c.variantes} tallas</span> : null}</td>
                 <td><span className={`td-codigo td-${c.etiqueta.replace(/ /g, '-')}`}>{c.etiqueta}</span></td>
-                <td>{c.tiene ? `${c.porcentaje}%` : <span className="texto-suave">sube el archivo en Tech packs</span>}</td>
+                <td>{c.tiene ? `${c.porcentaje}%` : <span className="texto-suave">{subir ? 'falta el archivo' : 'sube el archivo en Tech packs'}</span>}</td>
                 <td className="texto-suave" style={{ fontSize: 13 }}>{c.quien || '—'}</td>
+                {subir && (
+                  <td><SubirTechPackDeCodigo codigo={c.codigo} tiene={c.tiene} variantes={c.variantes} {...subir} /></td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -939,6 +981,41 @@ function MisAsignaciones({ asignaciones, indice }) {
       </div>
     )
   })
+}
+
+// SUBIR EL TECH PACK DE UN CODIGO DESDE LA TAREA (Roberto, 15-sep: Lety y
+// Monica no sabian como; tenian que irse a Tech packs y volver a escribir el
+// codigo). Guarda exactamente igual que la biblioteca (guardarEnBiblioteca:
+// version, "quien lo modifico", cliente/modelo/talla), y el avance de la
+// tarea se mueve solo porque sale de la biblioteca en vivo.
+function SubirTechPackDeCodigo({ codigo, tiene, variantes, ocupado, usuario, esPrueba, onAviso, onError }) {
+  const [subiendo, setSubiendo] = useState('')
+  // Un codigo con varias tallas vive como varios tech packs (uno por talla):
+  // subir al codigo base crearia uno nuevo y suelto. Eso se hace en Tech packs.
+  if (variantes) return <span className="texto-suave" style={{ fontSize: 12 }}>{variantes} tallas: en Tech packs</span>
+  const elegir = async (file) => {
+    if (!file) return
+    const formato = formatoDeArchivo(file.name)
+    if (!formato) { onError(`El archivo de ${codigo} tiene que ser .pdf o .xlsx.`); return }
+    if (file.size > MAX_TECHPACK_BYTES) { onError(`El archivo de ${codigo} pesa mas de 15 MB.`); return }
+    if (tiene && !window.confirm(`${codigo} ya tiene tech pack. Lo vas a REEMPLAZAR por "${file.name}" (el anterior queda en su historial). ¿Seguir?`)) return
+    setSubiendo('Subiendo...')
+    try {
+      const id = await guardarEnBiblioteca({ codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setSubiendo })
+      onAviso(`Tech pack de ${id || codigo} guardado. El avance ya lo cuenta.`)
+    } catch (err) {
+      onError(err)
+    } finally {
+      setSubiendo('')
+    }
+  }
+  const apagado = ocupado || Boolean(subiendo)
+  return (
+    <label className={`${tiene ? 'btn-secundario' : 'btn-primario'} tp-btn-chico tp-btn-archivo ${apagado ? 'apagado' : ''}`} title="PDF o Excel, maximo 15 MB">
+      {subiendo || (tiene ? 'Reemplazar' : 'Subir tech pack')}
+      <input type="file" accept=".pdf,.xlsx" style={{ display: 'none' }} disabled={apagado} onChange={(e) => { elegir(e.target.files?.[0]); e.target.value = '' }} />
+    </label>
+  )
 }
 
 function Barra({ porcentaje, chica = false }) {
