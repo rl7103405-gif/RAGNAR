@@ -80,6 +80,12 @@ for (const d of docs.sort((a, b) => a.id.localeCompare(b.id))) {
       logoBase64: LOGO_QUINI_PNG_BASE64,
       datos: {
         ...datos,
+        // Plantilla v2 (15-sep): OC, OT, packs y docenas ya no van a la vista;
+        // se guardan OCULTOS en _RAGNAR. Sin esto el generador v2 los tiraba en
+        // silencio (code-reviewer).
+        pedidoAnterior: datos.oc || datos.packs || (datos.renglones || []).some((r) => r.ot || r.docenas)
+          ? { oc: datos.oc || '', packs: datos.packs ?? null, renglones: (datos.renglones || []).map((r) => ({ codigo: r.codigo || '', talla: r.talla || '', ot: r.ot || '', docenas: r.docenas ?? null })) }
+          : null,
         generadoPorNombre: 'Migracion automatica (borrador)',
         migradoDe: { codigo, archivo: tp.nombre, sha256: tp.sha256, version: tp.version || 1 },
         reporteMigracion: { campos: reporte.campos, conflictos: reporte.conflictos, faltantes: reporte.faltantes }

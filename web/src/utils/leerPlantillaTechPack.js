@@ -170,16 +170,18 @@ export function leerPedidoV1(libro) {
   const packs = num(celda(PEDIDO_V1.campos.TP_PACKS))
   const renglones = []
   const t = TABLAS.TP_TABLA_PEDIDO
-  for (let f = t.filaCab + 1; f <= Math.max(t.filaCab + t.filasReservadas, Math.min(h.rowCount, t.filaCab + 200)); f++) {
+  // El rango REAL de la tabla (puede haber crecido mas alla de 20 renglones);
+  // si el nombre no esta, el minimo de la plantilla.
+  const nombre = (libro.definedNames?.model || []).find((d) => d?.name === 'TP_TABLA_PEDIDO')
+  const rango = nombre ? parsearRango(nombre.ranges?.[0]) : null
+  const ultima = rango ? rango.f2 : t.filaCab + t.filasReservadas
+  for (let f = (rango ? rango.f1 : t.filaCab) + 1; f <= ultima; f++) {
     const codigo = celda(`C${f}`)
     const ot = celda(`${PEDIDO_V1.columnasPedido.ot}${f}`)
     const docenas = num(celda(`${PEDIDO_V1.columnasPedido.docenas}${f}`))
     // La tabla termina en el primer renglon sin codigo ni OT ni docenas, pero
     // se revisan todas las reservadas (puede haber huecos).
-    if (!lleno(codigo) && !lleno(ot) && docenas == null) {
-      if (f > t.filaCab + t.filasReservadas) break
-      continue
-    }
+    if (!lleno(codigo) && !lleno(ot) && docenas == null) continue
     renglones.push({ codigo: lleno(codigo) ? String(codigo) : '', talla: lleno(celda(`A${f}`)) ? String(celda(`A${f}`)) : '', ot: lleno(ot) ? String(ot) : '', docenas })
   }
   if (!lleno(oc) && packs == null && !renglones.some((r) => lleno(r.ot) || r.docenas != null)) return null
