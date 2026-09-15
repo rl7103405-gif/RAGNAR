@@ -1,7 +1,9 @@
 // EDITAR UN TECH PACK DE LA PLANTILLA TP-QUINI DENTRO DE RAGNAR.
 //
 // Roberto, 2026-09-11: "poder editar todos los datos, cambiar una foto,
-// corregir la OT, la OC... dale canita". Como todo tech pack en la plantilla
+// corregir la OT, la OC... dale canita". (v2, 15-sep: el tech pack ya no
+// lleva OT, OC ni packs; lo de un v1 se conserva oculto en pedidoAnterior.)
+// Como todo tech pack en la plantilla
 // sale del generador, se puede editar en pantalla y VOLVER A ARMAR el Excel
 // con generarPlantillaTechPack sin perder nada: se lee por nombres
 // (leerPlantilla), se edita aqui, y al guardar se sube como version nueva
@@ -14,16 +16,16 @@ import { useEffect, useState } from 'react'
 import { LISTAS, ZONAS_FOTO } from '../utils/plantillaTechPack'
 import { descargarDeBiblioteca, ErrorBiblioteca, guardarEnBiblioteca } from '../utils/techPacks'
 import { cargarWorkbook, ErrorLibreriaExcel } from '../utils/excelJs'
-import { esPlantilla, leerPlantilla } from '../utils/leerPlantillaTechPack'
+import { esPlantilla, leerPedidoV1, leerPlantilla } from '../utils/leerPlantillaTechPack'
 import { generarPlantillaTechPack } from '../utils/generarPlantillaTechPack'
 import { nombreDeArchivo } from '../utils/plantillaTechPack'
 import { escucharEdiciones, marcarEdicion, textoEdiciones } from '../utils/editandoTechPack'
 
 const lleno = (v) => v !== null && v !== undefined && String(v).trim() !== ''
-const RENGLON = { talla: '', ot: '', codigo: '', claveMicrosip: '', descripcion: '', upc: '', docenas: '' }
+const RENGLON = { talla: '', codigo: '', claveMicrosip: '', descripcion: '', upc: '' }
 const AVIO = { clave: '', descripcion: '', usa: '', comoSeUsa: '', talla: 'TODAS', imagen: null }
 const ZONAS = ['FOTO_REFERENCIA', 'FOTO_INDIVIDUAL', 'FOTO_BOLSA', 'FOTO_CAJA']
-const PANTALLAS = [[1, 'Pedido'], [2, 'Códigos y ruta'], [3, 'Avíos'], [4, 'Empaque individual'], [5, 'Packs en bolsa'], [6, 'Caja']]
+const PANTALLAS = [[1, 'Modelo'], [2, 'Códigos y ruta'], [3, 'Avíos'], [4, 'Empaque individual'], [5, 'Packs en bolsa'], [6, 'Caja']]
 
 const aFechaInput = (v) => {
   const d = v instanceof Date ? v : lleno(v) ? new Date(v) : null
@@ -110,20 +112,23 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
         const media = (id) => { const m = libro.model.media?.[id] || libro.getImage?.(id); return m?.buffer ? { bytes: new Uint8Array(m.buffer), extension: String(m.extension || 'png').toLowerCase() === 'jpg' ? 'jpeg' : String(m.extension || 'png').toLowerCase() } : null }
         const c = l.campos || {}
         const t = l.tablas || {}
-        const pedido = (t.TP_TABLA_PEDIDO || []).map((r, i) => ({ ...RENGLON, ...r, i })).filter((r) => lleno(r.codigo) || lleno(r.ot) || lleno(r.claveMicrosip) || lleno(r.descripcion))
+        const pedido = (t.TP_TABLA_PEDIDO || []).map((r, i) => ({ ...RENGLON, ...r, i })).filter((r) => lleno(r.codigo) || lleno(r.claveMicrosip) || lleno(r.descripcion))
         const codigos = t.TP_TABLA_CODIGOS || []
         setD({
-          modelo: c.TP_MODELO || '', oc: c.TP_OC || '', cliente: c.TP_CLIENTE || '', marca: c.TP_MARCA || '', elaboro: c.TP_ELABORO || '',
+          modelo: c.TP_MODELO || '', cliente: c.TP_CLIENTE || '', marca: c.TP_MARCA || '', elaboro: c.TP_ELABORO || '',
           prenda: c.TP_PRENDA || '', tejido: c.TP_TEJIDO || '', sistemaTalla: c.TP_SISTEMA_TALLA || '', variante: c.TP_VARIANTE || '',
-          fecha: aFechaInput(c.TP_FECHA), paresPorPack: c.TP_PACK ?? '', packs: c.TP_PACKS ?? '',
-          renglones: pedido.map(({ i, ...r }) => ({ ...r, docenas: r.docenas ?? '' })),
+          fecha: aFechaInput(c.TP_FECHA), paresPorPack: c.TP_PACK ?? '',
+          renglones: pedido.map(({ i, ...r }) => ({ talla: r.talla ?? '', codigo: r.codigo ?? '', claveMicrosip: r.claveMicrosip ?? '', descripcion: r.descripcion ?? '', upc: r.upc ?? '' })),
           codigosRuta: pedido.map((r) => ({ colorCuerpo: codigos[r.i]?.colorCuerpo || '', bordado: codigos[r.i]?.bordado || '', hilo: codigos[r.i]?.hilo || '' })),
           ruta: Object.values((t.TP_RUTA || [])[0] || {}).filter(lleno),
           avios: (t.TP_TABLA_AVIOS || []).map((r, i) => ({ ...AVIO, ...r, usa: r.usa ?? '', talla: r.talla || 'TODAS', imagen: media(l.imagenesAvios?.[i]) })).filter((r) => lleno(r.clave) || lleno(r.descripcion)),
           textos: { individual: c.TP_INDIVIDUAL_TEXTO || '', bolsa: c.TP_BOLSA_TEXTO || '', caja: c.TP_CAJA_TEXTO || '' },
           packsPorBolsa: c.TP_PACKS_POR_BOLSA ?? '', docenasPorCaja: c.TP_DOCENAS_POR_CAJA ?? '',
           fotos: Object.fromEntries(ZONAS.map((z) => [z, (l.imagenesZona?.[z] || []).map((im) => media(im.imageId)).filter(Boolean)])),
-          sobrantes: l.noMigrado || []
+          sobrantes: l.noMigrado || [],
+          // Lo que el tech pack traia del pedido (v1): no se ve, pero se conserva.
+          // Abrir un v1 y guardarlo lo convierte a v2 sin perder el dato.
+          pedidoAnterior: l.pedidoAnterior || leerPedidoV1(libro) || null
         })
         setEstado('listo')
       } catch (err) {
@@ -162,10 +167,10 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
         logoBase64: LOGO_QUINI_PNG_BASE64,
         datos: {
           ...d,
-          ot: d.renglones.find((r) => lleno(r.ot))?.ot || '',
           fecha: d.fecha ? new Date(d.fecha + 'T12:00:00') : undefined,
-          paresPorPack: num(d.paresPorPack), packs: num(d.packs), packsPorBolsa: num(d.packsPorBolsa), docenasPorCaja: num(d.docenasPorCaja),
-          renglones: d.renglones.map((r) => ({ ...r, docenas: num(r.docenas) ?? '' })),
+          paresPorPack: num(d.paresPorPack), packsPorBolsa: num(d.packsPorBolsa), docenasPorCaja: num(d.docenasPorCaja),
+          renglones: d.renglones.map((r) => ({ talla: r.talla, codigo: r.codigo, claveMicrosip: r.claveMicrosip, descripcion: r.descripcion, upc: r.upc })),
+          pedidoAnterior: d.pedidoAnterior || null,
           avios: d.avios.map((a) => ({ ...a, usa: num(a.usa) ?? null })),
           generadoPorUid: usuario.uid, generadoPorNombre: usuario.nombre
         }
@@ -205,7 +210,6 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
               <>
                 <div className="tpe-grid">
                   <Campo etiqueta="Modelo" valor={d.modelo} onChange={(v) => set('modelo', v)} />
-                  <Campo etiqueta="Orden de compra" valor={d.oc} onChange={(v) => set('oc', v)} />
                   <Campo etiqueta="Cliente" valor={d.cliente} onChange={(v) => set('cliente', v)} />
                   <Campo etiqueta="Marca" valor={d.marca} onChange={(v) => set('marca', v)} />
                   <Campo etiqueta="Prenda" valor={d.prenda} onChange={(v) => set('prenda', v)} />
@@ -215,18 +219,17 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
                   <Campo etiqueta="Fecha" valor={d.fecha} onChange={(v) => set('fecha', v)} tipo="date" />
                   <Campo etiqueta="Elaboró" valor={d.elaboro} onChange={(v) => set('elaboro', v)} />
                   <Campo etiqueta="Pares por pack" valor={d.paresPorPack} onChange={(v) => set('paresPorPack', v)} tipo="number" />
-                  <Campo etiqueta="Packs del pedido" valor={d.packs} onChange={(v) => set('packs', v)} tipo="number" />
                 </div>
                 <div className="tp-campo">
-                  <span>Códigos del pedido</span>
+                  <span>Códigos del modelo</span>
                   <div className="tabla-marco">
                     <table className="tpe-tabla">
-                      <thead><tr><th>Talla</th><th>OT</th><th>Código</th><th>Clave Microsip</th><th>Descripción</th><th>UPC</th><th>Docenas</th><th></th></tr></thead>
+                      <thead><tr><th>Talla</th><th>Código</th><th>Clave Microsip</th><th>Descripción</th><th>UPC</th><th></th></tr></thead>
                       <tbody>
                         {d.renglones.map((r, i) => (
                           <tr key={i}>
-                            {['talla', 'ot', 'codigo', 'claveMicrosip', 'descripcion', 'upc', 'docenas'].map((k) => (
-                              <td key={k}><input className="tp-input tpe-in" type={k === 'docenas' ? 'number' : 'text'} value={r[k] ?? ''} onChange={(e) => setRenglon(i, k, e.target.value)} /></td>
+                            {['talla', 'codigo', 'claveMicrosip', 'descripcion', 'upc'].map((k) => (
+                              <td key={k}><input className="tp-input tpe-in" type="text" value={r[k] ?? ''} onChange={(e) => setRenglon(i, k, e.target.value)} /></td>
                             ))}
                             <td><button type="button" className="tp-quitar" onClick={() => setD((x) => ({ ...x, renglones: x.renglones.filter((_, j) => j !== i), codigosRuta: x.codigosRuta.filter((_, j) => j !== i) }))}>quitar</button></td>
                           </tr>
@@ -234,7 +237,7 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
                       </tbody>
                     </table>
                   </div>
-                  <button type="button" className="btn-secundario tp-btn-chico" style={{ alignSelf: 'flex-start' }} onClick={() => setD((x) => ({ ...x, renglones: [...x.renglones, { ...RENGLON, ot: x.renglones[0]?.ot || '', talla: x.renglones[0]?.talla || '' }], codigosRuta: [...x.codigosRuta, { colorCuerpo: '', bordado: '', hilo: '' }] }))}>+ Agregar código</button>
+                  <button type="button" className="btn-secundario tp-btn-chico" style={{ alignSelf: 'flex-start' }} onClick={() => setD((x) => ({ ...x, renglones: [...x.renglones, { ...RENGLON, talla: x.renglones[0]?.talla || '' }], codigosRuta: [...x.codigosRuta, { colorCuerpo: '', bordado: '', hilo: '' }] }))}>+ Agregar código</button>
                 </div>
                 <Fotos titulo="Foto de referencia" lista={d.fotos.FOTO_REFERENCIA} onCambiar={(l) => set('fotos', { ...d.fotos, FOTO_REFERENCIA: l })} />
               </>
@@ -276,7 +279,7 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
 
             {pantalla === 3 && (
               <div className="tp-campo">
-                <span>Avíos (USA = cuántos lleva cada pack; ENVIAR se calcula solo)</span>
+                <span>Avíos (USA = cuántos lleva cada pack; lo que se envía lo calcula RAGNAR con los packs de cada tarea)</span>
                 <div className="tabla-marco">
                   <table className="tpe-tabla">
                     <thead><tr><th>Foto</th><th>Clave</th><th>Descripción</th><th>Usa por pack</th><th>Cómo se usa</th><th>Talla</th><th></th></tr></thead>

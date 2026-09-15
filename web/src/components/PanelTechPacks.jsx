@@ -415,7 +415,6 @@ export default function PanelTechPacks() {
       const avisosOt = []
       if (modelos.length > 1) avisosOt.push(`la OT trae ${modelos.length} modelos (${modelos.join(', ')}): un tech pack es de un solo modelo, revisa`)
       if (packsVistos.length > 1) avisosOt.push(`las descripciones dicen packs distintos (${packsVistos.join(', ')}): el pack se dejo vacio`)
-      if (ocs.length > 1) avisosOt.push(`la OT aparece con ${ocs.length} ordenes de compra (${ocs.join(', ')}): la OC se dejo vacia`)
       const { cargarWorkbook } = await import('../utils/excelJs.js')
       const { generarPlantillaTechPack, descargarLibro } = await import('../utils/generarPlantillaTechPack.js')
       const { LOGO_QUINI_PNG_BASE64 } = await import('../assets/logoQuini.js')
@@ -425,7 +424,12 @@ export default function PanelTechPacks() {
         logoBase64: LOGO_QUINI_PNG_BASE64,
         datos: {
           ot: limpia,
-          oc: ocs.length === 1 ? ocs[0] : '',
+          // v2: el tech pack no lleva OC, OT ni docenas a la vista. De que orden
+          // se armo queda OCULTO en _RAGNAR (Roberto, 15-sep: "que no se vea,
+          // chance nos sirve").
+          pedidoAnterior: renglones.length
+            ? { oc: ocs.join(', '), packs: null, renglones: renglones.map((r) => ({ codigo: r.codigo, talla: r.talla, ot: r.ot, docenas: r.docenas ?? null })) }
+            : null,
           cliente: destino || renglonesPlan.find((r) => r.destino)?.destino || '',
           modelo,
           paresPorPack: pares,

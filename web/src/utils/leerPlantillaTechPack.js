@@ -12,7 +12,7 @@
 // que la hoja exista.
 //
 // Funcion pura sobre un Workbook de ExcelJS ya abierto.
-import { CAMPOS, HOJAS, ORDEN_HOJAS, PLANTILLA, TABLAS, ZONAS_FOTO, BANDA, rangoAIndices } from './plantillaTechPack.js'
+import { CAMPOS, HOJAS, ORDEN_HOJAS, PLANTILLA, PEDIDO_V1, TABLAS, ZONAS_FOTO, BANDA, rangoAIndices } from './plantillaTechPack.js'
 import { normalizarClaveAvio, valorPlano } from './aviosTechPack.js'
 import { RUBROS_TECH_PACK } from './completadoTechPack.js'
 
@@ -128,18 +128,62 @@ export function leerPlantilla(libro) {
     }
   }
 
-  // Lo que la migracion no supo acomodar (hoja _RAGNAR, clave noMigrado).
+  // Lo que la migracion no supo acomodar (hoja _RAGNAR, clave noMigrado) y lo
+  // que el tech pack traia del pedido antes de la v2 (clave pedidoAnterior).
   let noMigrado = []
+  let pedidoAnterior = null
+  let version = 1
   const hr = libro.getWorksheet(HOJAS.ragnar)
   if (hr) {
     for (let f = 1; f <= Math.min(hr.rowCount, 20); f++) {
-      if (String(valorPlano(hr.getCell(`A${f}`).value) ?? '') === 'noMigrado') {
-        try { noMigrado = JSON.parse(String(valorPlano(hr.getCell(`B${f}`).value) || '[]')) } catch { noMigrado = [] }
+      const clave = String(valorPlano(hr.getCell(`A${f}`).value) ?? '')
+      const valor = valorPlano(hr.getCell(`B${f}`).value)
+      if (clave === 'noMigrado') {
+        try { noMigrado = JSON.parse(String(valor || '[]')) } catch { noMigrado = [] }
+      } else if (clave === 'pedidoAnterior' && valor) {
+        try { pedidoAnterior = JSON.parse(String(valor)) } catch { pedidoAnterior = null }
+      } else if (clave === 'version') {
+        version = Number(valor) || 1
       }
     }
   }
 
-  return { faltaEstructura, campos, tablas, fotos, imagenesZona, imagenesAvios, noMigrado }
+  return { faltaEstructura, campos, tablas, fotos, imagenesZona, imagenesAvios, noMigrado, pedidoAnterior, version }
+}
+
+/**
+ * Lo que un archivo v1 traia del PEDIDO (orden de compra, packs y, por codigo,
+ * la OT y las docenas), leido de las celdas donde la v1 lo guardaba. Sirve
+ * para conservarlo en 'pedidoAnterior' antes de quitarlo de la vista
+ * (Roberto, 15-sep: "que no se vea, pero que no se desperdicie").
+ * null si el archivo no trae nada de eso.
+ */
+export function leerPedidoV1(libro) {
+  const h = libro?.getWorksheet?.(HOJAS.pedido)
+  if (!h) return null
+  const celda = (ref) => {
+    const v = h.getCell(ref).value
+    const x = v && typeof v === 'object' && ('formula' in v || 'sharedFormula' in v) ? v.result : valorPlano(v)
+    return typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : x
+  }
+  const oc = celda(PEDIDO_V1.campos.TP_OC)
+  const packs = num(celda(PEDIDO_V1.campos.TP_PACKS))
+  const renglones = []
+  const t = TABLAS.TP_TABLA_PEDIDO
+  for (let f = t.filaCab + 1; f <= Math.max(t.filaCab + t.filasReservadas, Math.min(h.rowCount, t.filaCab + 200)); f++) {
+    const codigo = celda(`C${f}`)
+    const ot = celda(`${PEDIDO_V1.columnasPedido.ot}${f}`)
+    const docenas = num(celda(`${PEDIDO_V1.columnasPedido.docenas}${f}`))
+    // La tabla termina en el primer renglon sin codigo ni OT ni docenas, pero
+    // se revisan todas las reservadas (puede haber huecos).
+    if (!lleno(codigo) && !lleno(ot) && docenas == null) {
+      if (f > t.filaCab + t.filasReservadas) break
+      continue
+    }
+    renglones.push({ codigo: lleno(codigo) ? String(codigo) : '', talla: lleno(celda(`A${f}`)) ? String(celda(`A${f}`)) : '', ot: lleno(ot) ? String(ot) : '', docenas })
+  }
+  if (!lleno(oc) && packs == null && !renglones.some((r) => lleno(r.ot) || r.docenas != null)) return null
+  return { oc: lleno(oc) ? String(oc) : '', packs, renglones }
 }
 
 /**
@@ -151,17 +195,18 @@ export function medirPlantilla(l) {
   const c = l.campos || {}
   const falta = Object.fromEntries(RUBROS_TECH_PACK.map((r) => [r.id, []]))
 
-  // --- pedido
-  for (const n of ['TP_CLIENTE', 'TP_MARCA', 'TP_MODELO', 'TP_PRENDA', 'TP_TEJIDO', 'TP_FECHA', 'TP_ELABORO', 'TP_OC']) {
+  // --- datos del modelo (v2: sin orden de compra, sin OT y sin cantidades del
+  // pedido; Roberto, 15-sep). Con lo que un tech pack puro necesita, un tech
+  // pack por modelo SI puede llegar al 100%.
+  for (const n of ['TP_CLIENTE', 'TP_MARCA', 'TP_MODELO', 'TP_PRENDA', 'TP_TEJIDO', 'TP_FECHA', 'TP_ELABORO']) {
     if (!lleno(c[n])) falta.pedido.push(CAMPOS[n].etiqueta)
   }
   if (!(num(c.TP_PACK) > 0)) falta.pedido.push('Pares por pack')
-  if (!(num(c.TP_PACKS) > 0)) falta.pedido.push('Packs del pedido')
   const pedRaw = l.tablas?.TP_TABLA_PEDIDO || []
-  const ped = pedRaw.map((r, i) => ({ ...r, i })).filter((r) => lleno(r.codigo) || lleno(r.ot) || lleno(r.claveMicrosip) || lleno(r.docenas))
-  const completos = ped.filter((r) => lleno(r.ot) && lleno(r.claveMicrosip) && num(r.docenas) > 0)
-  if (!completos.length) falta.pedido.push('al menos un codigo con OT, clave Microsip y docenas')
-  else if (completos.length < ped.length) falta.pedido.push(`${ped.length - completos.length} renglon(es) del pedido incompletos`)
+  const ped = pedRaw.map((r, i) => ({ ...r, i })).filter((r) => lleno(r.codigo) || lleno(r.claveMicrosip) || lleno(r.descripcion))
+  const completos = ped.filter((r) => lleno(r.codigo) && lleno(r.claveMicrosip))
+  if (!completos.length) falta.pedido.push('al menos un codigo con su clave Microsip')
+  else if (completos.length < ped.length) falta.pedido.push(`${ped.length - completos.length} codigo(s) sin clave Microsip`)
 
   // --- codigos y ruta (hoja 2): cada codigo del pedido con su color de cuerpo
   const codRaw = l.tablas?.TP_TABLA_CODIGOS || []
@@ -213,7 +258,6 @@ export function aviosDesdePlantilla(l) {
   const c = l.campos || {}
   const avisos = []
   const pack = num(c.TP_PACK)
-  const packs = num(c.TP_PACKS)
   const avios = []
   let sinClave = 0
   for (const r of (l.tablas?.TP_TABLA_AVIOS || []).filter((x) => lleno(x.clave) || lleno(x.descripcion) || lleno(x.usa))) {
@@ -228,18 +272,15 @@ export function aviosDesdePlantilla(l) {
     else if (usa < 0) { avisos.push(`${clave}: USA POR PACK es negativo (${usa}).`); usa = null }
     avios.push({ clave, descripcion: String(r.descripcion || ''), cantidadTexto: String(r.comoSeUsa || ''), usaPorPack: usa, enviar: null })
   }
-  const docenas = pack > 0 && packs > 0 ? (pack * packs) / 12 : null
-  let cuadra = pack > 0 && packs > 0
-  if (!cuadra) avisos.push('En la hoja 1 faltan los pares por pack o los packs del pedido: no se puede comprobar el pedido.')
-  const docTabla = (l.tablas?.TP_TABLA_PEDIDO || []).reduce((a, r) => a + (num(r.docenas) || 0), 0)
-  if (cuadra && docTabla > 0 && Math.abs(docTabla - docenas) > 0.5) {
-    cuadra = false
-    avisos.push(`No cuadra: ${packs} packs x ${pack} pares = ${docenas} docenas, y la tabla del pedido suma ${docTabla}.`)
-  }
+  // v2: el tech pack ya no trae los packs del pedido; cuantos mandar lo dice la
+  // TAREA (necesidadDeAvios). Antes, sin "packs del pedido" esto quedaba en
+  // cuadra=false y el veredicto nunca pasaba de "inconcluso".
+  let cuadra = true
+  if (!(pack > 0)) avisos.push('En la hoja 1 faltan los pares por pack: si la tarea esta en docenas no se puede pasar a packs.')
   if (!avios.length) avisos.push('La hoja 3 AVIOS no trae ningun avio con clave.')
   if ((l.faltaEstructura || []).length) {
     cuadra = false
     avisos.push(`Plantilla danada: falta ${l.faltaEstructura.slice(0, 5).join(', ')}.`)
   }
-  return { paresPorPack: pack > 0 ? pack : null, packs: packs > 0 ? packs : null, docenas, avios, avisos, sinClave, cuadra }
+  return { paresPorPack: pack > 0 ? pack : null, packs: null, docenas: null, avios, avisos, sinClave, cuadra }
 }

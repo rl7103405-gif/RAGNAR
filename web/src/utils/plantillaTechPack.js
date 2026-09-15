@@ -15,7 +15,13 @@
 // Las hojas 2-6 repiten la banda con formulas hacia la hoja 1 solo para que se
 // vea; RAGNAR lee siempre la celda original de la hoja 1.
 
-export const PLANTILLA = { id: 'TP-QUINI', version: 1, marca: 'TP-QUINI v1' }
+// v2 (Roberto, 2026-09-15): "el tech pack puro, sin OT". El tech pack es del
+// MODELO y del CLIENTE, hecho a la unidad de venta (el pack): sin orden de
+// compra, sin orden de trabajo y sin cantidades del pedido. La cantidad a
+// enviar de cada avio la calcula RAGNAR con los packs de cada TAREA. Lo que
+// traian los v1 (OC, OT, packs, docenas) NO se tira: queda en la hoja oculta
+// _RAGNAR, clave 'pedidoAnterior' ("que no se vea, chance nos sirve").
+export const PLANTILLA = { id: 'TP-QUINI', version: 2, marca: 'TP-QUINI v2' }
 
 export const HOJAS = {
   pedido: '1 PEDIDO',
@@ -56,7 +62,6 @@ export const LISTAS = {
 export const CAMPOS = {
   TP_PLANTILLA: { hoja: 'pedido', celda: 'J1', etiqueta: 'Plantilla', tipo: 'texto', rubro: null, obligatorio: true },
   TP_MODELO: { hoja: 'pedido', celda: 'D2', etiqueta: 'Modelo', tipo: 'texto', rubro: 'pedido', obligatorio: true },
-  TP_OC: { hoja: 'pedido', celda: 'G2', etiqueta: 'Orden de compra', tipo: 'texto', rubro: 'pedido', obligatorio: true },
   TP_FECHA: { hoja: 'pedido', celda: 'J2', etiqueta: 'Fecha', tipo: 'fecha', rubro: 'pedido', obligatorio: true },
   TP_CLIENTE: { hoja: 'pedido', celda: 'D3', etiqueta: 'Cliente', tipo: 'texto', rubro: 'pedido', obligatorio: true },
   TP_MARCA: { hoja: 'pedido', celda: 'G3', etiqueta: 'Marca', tipo: 'texto', rubro: 'pedido', obligatorio: true },
@@ -66,9 +71,6 @@ export const CAMPOS = {
   TP_SISTEMA_TALLA: { hoja: 'pedido', celda: 'F5', etiqueta: 'Sistema de talla', etiquetaCorta: 'TALLA', tipo: 'lista', lista: 'sistemaTalla', rubro: 'pedido', obligatorio: true },
   TP_VARIANTE: { hoja: 'pedido', celda: 'H5', etiqueta: 'Variante / color', etiquetaCorta: 'VARIANTE', tipo: 'texto', rubro: 'pedido', obligatorio: false },
   TP_PACK: { hoja: 'pedido', celda: 'B7', etiqueta: 'Pares por pack', tipo: 'entero', min: 1, max: 24, rubro: 'pedido', obligatorio: true },
-  TP_PACKS: { hoja: 'pedido', celda: 'D7', etiqueta: 'Packs del pedido', etiquetaCorta: 'PACKS', tipo: 'entero', min: 1, rubro: 'pedido', obligatorio: true },
-  TP_PARES: { hoja: 'pedido', celda: 'F7', etiqueta: 'Total de pares', etiquetaCorta: 'PARES', tipo: 'formula', rubro: null, obligatorio: false },
-  TP_DOCENAS: { hoja: 'pedido', celda: 'H7', etiqueta: 'Total de docenas', etiquetaCorta: 'DOCENAS', tipo: 'formula', rubro: null, obligatorio: false },
   TP_INDIVIDUAL_TEXTO: { hoja: 'individual', celda: 'A5', etiqueta: 'Como se arma el par', tipo: 'texto', rubro: 'individual', obligatorio: false },
   TP_PACKS_POR_BOLSA: { hoja: 'bolsa', celda: 'B5', etiqueta: 'Packs por bolsa', tipo: 'entero', min: 1, rubro: 'bolsa', obligatorio: true },
   TP_BOLSA_TEXTO: { hoja: 'bolsa', celda: 'A7', etiqueta: 'Como se acomodan en la bolsa', tipo: 'texto', rubro: 'bolsa', obligatorio: false },
@@ -82,16 +84,18 @@ export const CAMPOS = {
 // primera fila. filasReservadas es el minimo; el generador la agranda si la OT
 // trae mas codigos.
 export const TABLAS = {
+  // El NOMBRE se queda (TP_TABLA_PEDIDO) para no romper lo que ya lo lee; en
+  // v2 son los codigos DEL MODELO. Las columnas B (OT) y J (DOCENAS) de v1
+  // quedan vacias: las letras de las demas no se mueven, porque la hoja 2 las
+  // referencia por formula.
   TP_TABLA_PEDIDO: {
-    hoja: 'pedido', titulo: 'CODIGOS DEL PEDIDO (un renglon por codigo)', filaTitulo: 9, filaCab: 10, filasReservadas: 20, rubro: 'pedido',
+    hoja: 'pedido', titulo: 'CODIGOS DEL MODELO (un renglon por codigo)', filaTitulo: 9, filaCab: 10, filasReservadas: 20, rubro: 'pedido',
     columnas: [
       { col: 'A', clave: 'talla', etiqueta: 'TALLA', tipo: 'texto', ancho: 12 },
-      { col: 'B', clave: 'ot', etiqueta: 'OT', tipo: 'texto', ancho: 10, obligatorio: true },
       { col: 'C', clave: 'codigo', etiqueta: 'CODIGO INTERNO', tipo: 'texto', ancho: 16, obligatorio: true },
       { col: 'D', clave: 'claveMicrosip', etiqueta: 'CLAVE MICROSIP', tipo: 'texto', ancho: 18, obligatorio: true },
       { col: 'E', clave: 'descripcion', etiqueta: 'DESCRIPCION MICROSIP', tipo: 'texto', ancho: 34, span: 3 },
-      { col: 'H', clave: 'upc', etiqueta: 'UPC', tipo: 'texto', ancho: 18, span: 2 },
-      { col: 'J', clave: 'docenas', etiqueta: 'DOCENAS', tipo: 'decimal', min: 0, ancho: 11, obligatorio: true }
+      { col: 'H', clave: 'upc', etiqueta: 'UPC', tipo: 'texto', ancho: 18, span: 2 }
     ]
   },
   TP_TABLA_CODIGOS: {
@@ -110,12 +114,13 @@ export const TABLAS = {
     columnas: [1, 2, 3, 4, 5, 6, 7].map((n, i) => ({ col: 'ABCDEFG'[i], clave: `proceso${n}`, etiqueta: `PROCESO ${n}`, tipo: 'lista', lista: 'procesos', ancho: 14 }))
   },
   TP_TABLA_AVIOS: {
-    hoja: 'avios', titulo: 'AVIOS Y ETIQUETAS (USA = cuantos lleva CADA PACK; ENVIAR se calcula solo)', filaTitulo: 5, filaCab: 6, filasReservadas: 20, rubro: 'avios',
+    // Sin la columna ENVIAR (v2): cuanto mandar depende de la tarea, no del
+    // tech pack. La F queda vacia para no mover las demas letras.
+    hoja: 'avios', titulo: 'AVIOS Y ETIQUETAS (USA = cuantos lleva CADA PACK)', filaTitulo: 5, filaCab: 6, filasReservadas: 20, rubro: 'avios',
     columnas: [
       { col: 'A', clave: 'clave', etiqueta: 'CLAVE', tipo: 'texto', ancho: 12, obligatorio: true },
       { col: 'B', clave: 'descripcion', etiqueta: 'DESCRIPCION', tipo: 'texto', ancho: 36, span: 3 },
       { col: 'E', clave: 'usa', etiqueta: 'USA POR PACK', tipo: 'decimal', min: 0, ancho: 13, obligatorio: true },
-      { col: 'F', clave: 'enviar', etiqueta: 'ENVIAR', tipo: 'formula', ancho: 11 },
       { col: 'G', clave: 'comoSeUsa', etiqueta: 'COMO SE USA', tipo: 'texto', ancho: 30, span: 2 },
       { col: 'I', clave: 'talla', etiqueta: 'TALLA', tipo: 'lista', lista: 'tallaAvio', ancho: 11 },
       { col: 'J', clave: 'imagen', etiqueta: 'IMAGEN', tipo: 'imagen', ancho: 16 }
@@ -133,7 +138,18 @@ export const ZONAS_FOTO = {
 }
 
 // Lo que se guarda en la hoja oculta _RAGNAR (columna A = clave, B = valor).
-export const CLAVES_RAGNAR = ['plantilla', 'version', 'generadoEn', 'generadoDesdeOt', 'generadoPorUid', 'generadoPorNombre', 'manifiesto', 'migradoDe', 'reporteMigracion', 'noMigrado']
+// 'pedidoAnterior' (v2): JSON con lo que el tech pack traia del pedido en v1
+// { oc, packs, renglones: [{ codigo, talla, ot, docenas }] }. No se muestra.
+export const CLAVES_RAGNAR = ['plantilla', 'version', 'generadoEn', 'generadoDesdeOt', 'generadoPorUid', 'generadoPorNombre', 'manifiesto', 'migradoDe', 'reporteMigracion', 'noMigrado', 'pedidoAnterior']
+
+// Donde vivian en la v1 los datos del pedido que la v2 quito. Solo para LEER
+// un archivo v1 y guardar ese dato antes de borrarlo (convertirPlantillaV2).
+export const PEDIDO_V1 = {
+  campos: { TP_OC: 'G2', TP_PACKS: 'D7', TP_PARES: 'F7', TP_DOCENAS: 'H7' },
+  etiquetas: ['F2', 'C7', 'E7', 'G7'],
+  columnasPedido: { ot: 'B', docenas: 'J' },
+  columnaEnviar: 'F'
+}
 
 const colIdx = (s) => [...s].reduce((a, ch) => a * 26 + (ch.charCodeAt(0) - 64), 0)
 const colLetra = (n) => { let s = ''; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26) } return s }

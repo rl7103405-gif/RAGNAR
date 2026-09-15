@@ -46,15 +46,14 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
   // Una pantalla por apartado (Roberto, 11-sep: "si me gustarian las diferentes
   // pantallas de uno, dos, tres, cuatro, cinco y seis").
   const [activa, setActiva] = useState(Number(pantallaInicial) >= 1 && Number(pantallaInicial) <= 6 ? Number(pantallaInicial) : 1)
-  const PESTANAS = [[1, 'Pedido', 'pedido'], [2, 'Códigos y ruta', 'ruta'], [3, 'Avíos', 'etiquetas'], [4, 'Empaque individual', 'individual'], [5, 'Packs en bolsa', 'bolsa'], [6, 'Caja', 'caja']]
+  const PESTANAS = [[1, 'Modelo', 'pedido'], [2, 'Códigos y ruta', 'ruta'], [3, 'Avíos', 'etiquetas'], [4, 'Empaque individual', 'individual'], [5, 'Packs en bolsa', 'bolsa'], [6, 'Caja', 'caja']]
   const c = lectura.campos || {}
   const t = lectura.tablas || {}
   const zona = (n) => (lectura.imagenesZona?.[n] || []).map((im) => urlDe(im.imageId)).filter(Boolean)
-  const pedido = (t.TP_TABLA_PEDIDO || []).map((r, i) => ({ ...r, i })).filter((r) => lleno(r.codigo) || lleno(r.ot) || lleno(r.claveMicrosip))
+  const pedido = (t.TP_TABLA_PEDIDO || []).map((r, i) => ({ ...r, i })).filter((r) => lleno(r.codigo) || lleno(r.descripcion) || lleno(r.claveMicrosip))
   const codigos = t.TP_TABLA_CODIGOS || []
   const ruta = Object.values((t.TP_RUTA || [])[0] || {}).filter(lleno)
   const avios = (t.TP_TABLA_AVIOS || []).map((r, i) => ({ ...r, i })).filter((r) => lleno(r.clave) || lleno(r.descripcion))
-  const packs = Number(c.TP_PACKS) || 0
   const falta = medicion?.detalle || {}
   const seccion = (id) => {
     const f = falta[id] || []
@@ -82,12 +81,11 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
         ))}
       </div>
 
-      {/* ---------------------------------------------------- 1 PEDIDO */}
+      {/* ------------------------------------------- 1 DATOS DEL MODELO */}
       {activa === 1 && <section className="tpv-sec">
-        <h4>1 · Pedido {seccion('pedido')}</h4>
+        <h4>1 · Datos del modelo {seccion('pedido')}</h4>
         <div className="tpv-grid">
           <Dato etiqueta="Modelo" valor={c.TP_MODELO} />
-          <Dato etiqueta="Orden de compra" valor={c.TP_OC} />
           <Dato etiqueta="Cliente" valor={c.TP_CLIENTE} />
           <Dato etiqueta="Marca" valor={c.TP_MARCA} />
           <Dato etiqueta="Prenda" valor={c.TP_PRENDA} />
@@ -97,9 +95,6 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
           <Dato etiqueta="Fecha" valor={fecha(c.TP_FECHA)} />
           <Dato etiqueta="Elaboró" valor={c.TP_ELABORO} />
           <Dato etiqueta="Pares por pack" valor={numero(c.TP_PACK)} />
-          <Dato etiqueta="Packs" valor={numero(c.TP_PACKS)} />
-          <Dato etiqueta="Pares" valor={c.TP_PACK && c.TP_PACKS ? numero(Number(c.TP_PACK) * Number(c.TP_PACKS)) : ''} />
-          <Dato etiqueta="Docenas" valor={c.TP_PACK && c.TP_PACKS ? numero((Number(c.TP_PACK) * Number(c.TP_PACKS)) / 12) : ''} />
         </div>
         <div className="tabla-marco">
           <table className="tpv-tabla">
@@ -141,7 +136,7 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
         <h4>3 · Avíos {seccion('etiquetas')}</h4>
         <div className="tabla-marco">
           <table className="tpv-tabla">
-            <thead><tr><th></th><th>Clave</th><th>Avío</th><th className="num">Usa por pack</th><th className="num">Enviar{packs ? ` (${numero(packs)} packs)` : ''}</th><th>Cómo se usa</th><th>Talla</th></tr></thead>
+            <thead><tr><th></th><th>Clave</th><th>Avío</th><th className="num">Usa por pack</th><th>Cómo se usa</th><th>Talla</th></tr></thead>
             <tbody>
               {avios.map((r) => {
                 const u = urlDe(lectura.imagenesAvios?.[r.i])
@@ -154,13 +149,12 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
                     <td><strong className={lleno(r.clave) ? '' : 'tpv-vacio'}>{lleno(r.clave) ? r.clave : 'sin clave'}</strong></td>
                     <td>{r.descripcion}</td>
                     <td className={`num ${Number.isFinite(usa) && lleno(r.usa) ? '' : 'tpv-vacio'}`}>{Number.isFinite(usa) && lleno(r.usa) ? numero(usa) : 'sin número'}</td>
-                    <td className="num">{Number.isFinite(usa) && lleno(r.usa) && packs ? numero(Math.ceil(usa * packs - 1e-9)) : ''}</td>
                     <td>{r.comoSeUsa}</td>
                     <td>{r.talla}</td>
                   </tr>
                 )
               })}
-              {!avios.length && <tr><td colSpan={7} className="tpv-vacio">sin avíos</td></tr>}
+              {!avios.length && <tr><td colSpan={6} className="tpv-vacio">sin avíos</td></tr>}
             </tbody>
           </table>
         </div>

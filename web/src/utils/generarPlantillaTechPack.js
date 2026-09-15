@@ -1,8 +1,12 @@
-// GENERA UN TECH PACK NUEVO EN LA PLANTILLA TP-QUINI v1, PRELLENADO.
+// GENERA UN TECH PACK NUEVO EN LA PLANTILLA TP-QUINI v2, PRELLENADO.
 //
 // Fase F2 del plan (docs/plan-plantilla-tech-pack-v1.md). Arma un Excel NUEVO
-// con ExcelJS a partir de lo que el plan ya sabe de una OT (cliente, OC, OT,
-// codigos, docenas, pares por pack). Lety lo completa en Excel y lo sube;
+// con ExcelJS a partir de lo que ya se sabe del MODELO (cliente, marca,
+// codigos, pares por pack). v2 (Roberto, 15-sep): "el tech pack puro, sin OT":
+// sin orden de compra, sin OT y sin cantidades del pedido; la cantidad a
+// enviar de cada avio la calcula RAGNAR con los packs de cada tarea. Lo que
+// traia un v1 del pedido se guarda oculto en _RAGNAR (pedidoAnterior).
+// Lety lo completa en Excel y lo sube;
 // ese archivo terminado NUNCA se reescribe aqui (ExcelJS pierde formas y
 // flechas). La forma sale toda de plantillaTechPack.js.
 //
@@ -179,7 +183,8 @@ function banda(hoja, clave, libro, logoId) {
 
   const filas = [
     // A la derecha del logo (A1:B3): etiqueta en C/F/I, dato en D:E, G:H, J.
-    [2, [['C', 'MODELO', 'TP_MODELO', 'D:E'], ['F', 'OC', 'TP_OC', 'G:H'], ['I', 'FECHA', 'TP_FECHA', 'J:J']]],
+    // v2: F2:H2 quedan vacias (ahi iba la OC).
+    [2, [['C', 'MODELO', 'TP_MODELO', 'D:E'], ['I', 'FECHA', 'TP_FECHA', 'J:J']]],
     [3, [['C', 'CLIENTE', 'TP_CLIENTE', 'D:E'], ['F', 'MARCA', 'TP_MARCA', 'G:H'], ['I', 'ELABORO', 'TP_ELABORO', 'J:J']]]
   ]
   for (const [f, grupos] of filas) {
@@ -293,9 +298,12 @@ function campo(hoja, nombre, libro, valor) {
  * @param {object} p
  * @param {Function} p.Workbook   clase Workbook de ExcelJS ya cargada
  * @param {string}   [p.logoBase64]  PNG en base64 (sin prefijo data:)
- * @param {object}   p.datos      { ot, oc, cliente, marca, modelo, prenda, elaboro, paresPorPack,
- *                                  renglones: [{ talla, ot, codigo, claveMicrosip, descripcion, upc, docenas }],
+ * @param {object}   p.datos      { cliente, marca, modelo, prenda, elaboro, paresPorPack,
+ *                                  renglones: [{ talla, codigo, claveMicrosip, descripcion, upc }],
+ *                                  pedidoAnterior: { oc, packs, renglones: [{ codigo, talla, ot, docenas }] } | null,
  *                                  generadoPorUid, generadoPorNombre, ahora }
+ *                                  Si trae oc, packs, u ot/docenas por renglon, se ignoran
+ *                                  (solo `ot` se anota en _RAGNAR como generadoDesdeOt).
  */
 export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = {} }) {
   const libro = new Workbook()
@@ -327,7 +335,7 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
   libro.definedNames.add(referencia('pedido', CAMPOS.TP_PLANTILLA.celda), 'TP_PLANTILLA')
   const fecha = datos.fecha instanceof Date && !isNaN(datos.fecha) ? datos.fecha : datos.ahora ? new Date(datos.ahora) : new Date()
   for (const [nombre, valor] of [
-    ['TP_MODELO', datos.modelo], ['TP_OC', datos.oc], ['TP_FECHA', fecha],
+    ['TP_MODELO', datos.modelo], ['TP_FECHA', fecha],
     ['TP_CLIENTE', datos.cliente], ['TP_MARCA', datos.marca], ['TP_ELABORO', datos.elaboro]
   ]) {
     const c = pedido.getCell(CAMPOS[nombre].celda)
@@ -342,20 +350,6 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
   campo(pedido, 'TP_VARIANTE', libro, datos.variante)
   pedido.getRow(7).height = 20
   campo(pedido, 'TP_PACK', libro, datos.paresPorPack)
-  const totalDocenas = (datos.renglones || []).reduce((a, r) => a + (Number(r.docenas) || 0), 0)
-  // Solo se prellena si la cuenta es exacta: redondear inventaria pares.
-  const paresTotales = totalDocenas * 12
-  const packsPrellenados = Number.isFinite(Number(datos.packs)) && Number(datos.packs) > 0
-    ? Number(datos.packs)
-    : datos.paresPorPack && paresTotales && paresTotales % datos.paresPorPack === 0 ? paresTotales / datos.paresPorPack : undefined
-  campo(pedido, 'TP_PACKS', libro, packsPrellenados)
-  const pares = campo(pedido, 'TP_PARES', libro)
-  pares.value = { formula: `IF(AND(ISNUMBER(${CAMPOS.TP_PACK.celda}),ISNUMBER(${CAMPOS.TP_PACKS.celda})),${CAMPOS.TP_PACK.celda}*${CAMPOS.TP_PACKS.celda},"")`, result: packsPrellenados && datos.paresPorPack ? packsPrellenados * datos.paresPorPack : '' }
-  pares.fill = relleno(FONDO_ETQ)
-  const docenas = campo(pedido, 'TP_DOCENAS', libro)
-  docenas.value = { formula: `IF(ISNUMBER(${CAMPOS.TP_PARES.celda}),${CAMPOS.TP_PARES.celda}/12,"")`, result: packsPrellenados && datos.paresPorPack ? (packsPrellenados * datos.paresPorPack) / 12 : '' }
-  docenas.fill = relleno(FONDO_ETQ)
-  docenas.numFmt = 'General'
 
   const nRenglones = (datos.renglones || []).length
   const primera = tabla(pedido, 'TP_TABLA_PEDIDO', libro, nRenglones)
@@ -402,9 +396,7 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
   const filasAv = Math.max(ta.filasReservadas, listaAvios.length)
   for (let i = 0; i < filasAv; i++) {
     const f = primeraAv + i
-    avios.getCell(`F${f}`).value = { formula: `IF(AND(ISNUMBER(E${f}),ISNUMBER(${referencia('pedido', CAMPOS.TP_PACKS.celda)})),E${f}*${referencia('pedido', CAMPOS.TP_PACKS.celda)},"")`, result: '' }
-    avios.getCell(`F${f}`).fill = relleno(FONDO_ETQ)
-    avios.getCell(`F${f}`).numFmt = 'General'
+    // v2: sin columna ENVIAR (F); cuanto mandar lo calcula RAGNAR por tarea.
     const a = listaAvios[i]
     if (a) {
       if (a.clave) avios.getCell(`A${f}`).value = String(a.clave)
@@ -419,7 +411,7 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
   }
   const filaNota = TABLAS.TP_TABLA_AVIOS.filaCab + filasAv + 2
   avios.mergeCells(`A${filaNota}:J${filaNota + 2}`)
-  avios.getCell(`A${filaNota}`).value = 'USA POR PACK es un numero: 1 = uno por pack; 3 = tres por pack; 0.1667 = una bolsa cada 6 packs (1/6). La clave tiene que existir en el catalogo de avios de RAGNAR.'
+  avios.getCell(`A${filaNota}`).value = 'USA POR PACK es un numero: 1 = uno por pack; 3 = tres por pack; 0.1667 = una bolsa cada 6 packs (1/6). La clave tiene que existir en el catalogo de avios de RAGNAR. La cantidad a enviar la calcula RAGNAR con los packs de cada tarea.'
   avios.getCell(`A${filaNota}`).font = { name: 'Arial', size: 9, italic: true, color: { argb: GRIS_ETQ } }
   avios.getCell(`A${filaNota}`).alignment = { wrapText: true, vertical: 'top' }
 
@@ -470,6 +462,8 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
     reporteMigracion: datos.reporteMigracion ? JSON.stringify(datos.reporteMigracion).slice(0, 32000) : '',
     // Textos del original que el convertidor no supo acomodar: se guardan
     // para que el visor los ensene y Lety los ponga donde van.
+    // Lo que un v1 traia del pedido (OC, packs, OT y docenas): oculto, no se tira.
+    pedidoAnterior: datos.pedidoAnterior ? JSON.stringify(datos.pedidoAnterior).slice(0, 32000) : '',
     noMigrado: Array.isArray(datos.sobrantes) && datos.sobrantes.length ? JSON.stringify(datos.sobrantes).slice(0, 32000) : '',
     // Los rangos REALES de este libro (las tablas pueden haber crecido).
     manifiesto: JSON.stringify({ ...manifiesto(), nombres: Object.fromEntries((libro.definedNames.model || []).map((d) => [d.name, d.ranges[0]])) })
