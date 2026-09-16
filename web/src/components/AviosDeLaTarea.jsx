@@ -8,13 +8,9 @@
 // Nada se escribe: es una lectura para decidir que mandar. Si el tech pack
 // no sigue el estandar (sin columna USA), se dice tal cual, no se inventa.
 import { useEffect, useState } from 'react'
-import { doc, getDoc } from 'firebase/firestore'
-import { db } from '../firebase/config'
 import { descargarTechPack, ErrorTareaEnsamble } from '../utils/tareasEnsamble'
-import { abrirLibro, ErrorLibreriaExcel } from '../utils/excelJs'
-import { leerSaldosConUnidad } from '../utils/inventarioAvios'
-import { aviosDelTechPack, hojasDeLibro, necesidadDeAvios } from '../utils/aviosTechPack'
-import { aviosDesdePlantilla, esPlantilla, leerPlantilla } from '../utils/leerPlantillaTechPack'
+import { ErrorLibreriaExcel } from '../utils/excelJs'
+import { necesidadDeAviosDelContenido } from '../utils/necesidadAvios'
 
 const num = (n) => (n == null ? '—' : Number(n).toLocaleString('es-MX'))
 
@@ -29,20 +25,17 @@ export default function AviosDeLaTarea({ maquilaId, maquilaNombre, tareaId, tare
       try {
         const buffer = await descargarTechPack({ maquilaId, tareaId, techPack: tarea.techPack })
         if (!vivo) return
-        setMensaje('Leyendo la hoja de etiquetas...')
-        const libro = await abrirLibro(buffer)
-        // Plantilla TP-Quini: se lee por nombres (hoja 3 AVIOS); formato viejo: por etiquetas.
-        const lectura = esPlantilla(libro) ? aviosDesdePlantilla(leerPlantilla(libro)) : aviosDelTechPack(hojasDeLibro(libro))
+        // El mismo calculo que se hace al encargar (utils/necesidadAvios.js).
+        const r = await necesidadDeAviosDelContenido({
+          contenido: buffer,
+          formato: tarea.techPack?.formato,
+          maquilaId,
+          renglones: tarea.renglones || [],
+          onProgreso: (m) => vivo && setMensaje(m)
+        })
         if (!vivo) return
-        setMensaje('Leyendo lo que tiene la maquila...')
-        const claves = [...new Set(lectura.avios.map((a) => a.clave))]
-        const [saldos, enCatalogo] = await Promise.all([
-          claves.length ? leerSaldosConUnidad(maquilaId, claves) : {},
-          Promise.all(claves.map(async (c) => [c, (await getDoc(doc(db, 'avios', c))).exists()]))
-        ])
-        if (!vivo) return
-        const catalogo = new Set(enCatalogo.filter(([, existe]) => existe).map(([c]) => c))
-        setResultado(necesidadDeAvios(lectura, tarea.renglones || [], saldos, catalogo))
+        if (!r) throw new ErrorTareaEnsamble('El tech pack es PDF: los avios solo se leen del Excel de la plantilla.')
+        setResultado(r)
         setEstado('listo')
       } catch (err) {
         console.error('[AviosDeLaTarea]', err)

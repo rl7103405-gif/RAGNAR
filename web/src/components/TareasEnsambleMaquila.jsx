@@ -486,7 +486,9 @@ export default function TareasEnsambleMaquila() {
       {aviso && <div className="alerta-exito" style={{ marginBottom: 12 }}>{aviso}</div>}
 
       <div className="tarjeta">
-        <h2>Tareas de ensamble ({enMisManos.length})</h2>
+        {/* Cuenta tambien las que Quini esta actualizando (se listan abajo):
+            decia "(0)" con tareas a la vista (usuario-real, 14-sep). */}
+        <h2>Tareas de ensamble ({enMisManos.length + actualizandose.length})</h2>
         <p className="texto-suave" style={{ fontSize: 13, marginTop: 2 }}>
           Lo que Quini te encargo armar, <strong>lo mas urgente primero</strong>. Marca{' '}
           <strong>&quot;Ya empece&quot;</strong> cuando arranques y{' '}

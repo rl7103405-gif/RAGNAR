@@ -89,15 +89,18 @@ for (const item of PLAN) {
   console.log(`  OT ${item.ot} <- ${item.codigo} (${(contenido.length / 1048576).toFixed(1)} MB, ${totalChunks} pedazo(s))`)
   if (!EJECUTAR) continue
 
+  // Con la huella en el id, como la app desde el 15-sep ('<16 hex>-NN').
   const chunks = tarea.ref.collection('techPackChunks')
+  const prefijo = manifiesto.sha256.slice(0, 16) + '-'
   for (let i = 0; i < totalChunks; i++) {
-    await chunks.doc(pad2(i)).set({
+    await chunks.doc(prefijo + pad2(i)).set({
       maquilaId: item.maquila,
       datos: Buffer.from(contenido.subarray(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES))
     })
   }
+  // Todo lo que no sea de este archivo (ids viejos 'NN' o de otra huella) sobra.
   const viejos = await chunks.get()
-  for (const d of viejos.docs) if (Number(d.id) >= totalChunks) await d.ref.delete()
+  for (const d of viejos.docs) if (!d.id.startsWith(prefijo) || Number(d.id.slice(prefijo.length)) >= totalChunks) await d.ref.delete()
 
   const yaPublicada = tarea.data().publicadaEn != null
   await tarea.ref.update({

@@ -160,6 +160,25 @@ const ESCENARIOS = {
   // `datos is bytes` da false). El positivo de subir un pedazo NO se puede
   // probar por aqui (en vivo si sube: el SDK manda Bytes de verdad). Se
   // cubre la autorizacion con dos negativos que no dependen del tipo.
+  // Desde el 16-sep los pedazos llevan la huella del archivo en el id, asi que
+  // LISTAR la carpeta le entregaria a la maquila tambien los del tech pack
+  // ANTERIOR (el que Lindbergh pego por error y ya reemplazo). Leer por id si;
+  // listar solo Quini. La app baja por id (descargarTechPack).
+  'chunk-get-maquila': {
+    que: 'HUGO lee un pedazo del tech pack POR ID (asi lo baja el visor)',
+    request: { auth: { uid: HUGO_UID }, method: 'get', path: P_TAREA + '/techPackChunks/' + 'a'.repeat(16) + '-00', time: T },
+    functionMocks: [...hugoMocks, mGet(P_TAREA, { ...conOt, estado: 'abierta', publicadaEn: T, techPack: { nombre: 'tp.pdf', formato: 'pdf', tamano: 10, totalChunks: 1, sha256: 'a'.repeat(64), subidoEn: T } })]
+  },
+  'neg-chunk-list-maquila': {
+    expectation: 'DENY', que: 'NEG: HUGO LISTA la carpeta de pedazos (se llevaria el tech pack reemplazado)',
+    request: { auth: { uid: HUGO_UID }, method: 'list', path: P_TAREA + '/techPackChunks/00', time: T },
+    functionMocks: [...hugoMocks, mGet(P_TAREA, { ...conOt, estado: 'abierta', publicadaEn: T, techPack: { nombre: 'tp.pdf', formato: 'pdf', tamano: 10, totalChunks: 1, sha256: 'a'.repeat(64), subidoEn: T } })]
+  },
+  'chunk-list-quini': {
+    que: 'Lindbergh SI puede listar los pedazos (el barrido al cerrar la tarea)',
+    request: { auth: { uid: LIN.uid }, method: 'list', path: P_TAREA + '/techPackChunks/00', time: T },
+    functionMocks: [...perfilMocks, mGet(P_MAQ, MAQ), mGet(P_TAREA, { ...conOt, estado: 'terminada', publicadaEn: T })]
+  },
   'neg-pegar-techpack-abierta': {
     expectation: 'DENY', que: 'NEG: subir un pedazo del tech pack a una tarea que NO esta en preparando',
     request: { auth: { uid: LIN.uid }, method: 'create', path: P_TAREA + '/techPackChunks/00', time: T,
@@ -203,10 +222,23 @@ async function correr(nombre, pad = 0) {
   const esc = ESCENARIOS[nombre]
   let rules = RULES
   if (pad) {
-    const ancla = 'return yo.creaTareas\n        && mismoMundoMaquilaSegun(maquilaId, yo.esPrueba)'
+    // ANCLA del relleno. Por defecto la rama de QUINI; para medir a la maquila
+    // hay que meterlo en SU rama (ANCLA=maquila): la de Quini se corta en
+    // yo.creaTareas y el relleno ni se evalua.
+    const ancla = process.env.ANCLA === 'maquila'
+      ? "return esMaquilaDeSegun(maquilaId, yo)\n        && resource.data.get('publicadaEn', null) != null"
+      // ⚠️ Con ' && (' al final: sin eso casaba PRIMERO con puedeCrearTareaEnsamble,
+      // que empieza igual, y los margenes de los UPDATE de Quini median una
+      // funcion que en un update ni se evalua (pentester, 16-sep).
+      : 'return yo.creaTareas\n        && mismoMundoMaquilaSegun(maquilaId, yo.esPrueba) && ('
     if (!rules.includes(ancla)) throw new Error('no encontre el ancla')
     const arbol = (n) => (n <= 1 ? 'true' : '(' + arbol(Math.floor(n / 2)) + ' && ' + arbol(Math.ceil(n / 2)) + ')')
-    rules = rules.replace(ancla, ancla + ' && ' + arbol(pad))
+    // El ancla de Quini termina en '(' (para no casar con puedeCrearTareaEnsamble),
+    // asi que el relleno va DENTRO del parentesis: pegarlo con '&&' despues de
+    // un '(' abierto deja las reglas mal formadas y TODO mide 0.
+    rules = ancla.endsWith('(')
+      ? rules.replace(ancla, ancla + ' ' + arbol(pad) + ' &&')
+      : rules.replace(ancla, ancla + ' && ' + arbol(pad))
   }
   const caso = { expectation: esc.expectation || 'ALLOW', expressionReportLevel: 'FULL', request: esc.request, functionMocks: esc.functionMocks }
   if (esc.resource) caso.resource = esc.resource
@@ -254,7 +286,7 @@ for (const nombre of Object.keys(ESCENARIOS)) {
       console.log('        L' + m.ln + ': ' + (LINEAS[m.ln - 1] || '').trim().slice(0, 100) + '  => ' + m.vals.join(','))
     }
   }
-  if (process.env.MARGEN === '1' && ok && !esc.expectation && nombre.startsWith('sin') === false && nombre !== 'publicar') {
+  if (process.env.MARGEN === '1' && ok && !ESCENARIOS[nombre].expectation &&nombre.startsWith('sin') === false && nombre !== 'publicar') {
     let lo = 0, hi = 600
     while (hi - lo > 8) {
       const mid = Math.floor((lo + hi) / 2)

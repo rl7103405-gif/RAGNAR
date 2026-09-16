@@ -23,7 +23,6 @@
 import {
   Bytes,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -104,6 +103,11 @@ export const ESTADOS_EN_LA_MAQUILA = ['abierta', 'iniciada', 'declarada']
 export const estaViva = (tarea) => ESTADOS_VIVOS.includes(tarea?.estado)
 
 const pad2 = (n) => String(n).padStart(2, '0')
+// Desde el 15-sep cada subida escribe sus pedazos con la HUELLA del archivo
+// en el id ('<16 hex>-03'): dos subidas al mismo tiempo ya no se pisan los
+// pedazos (mismo arreglo que la biblioteca, pedazosTechPack.js). Los ids
+// viejos ('03') se siguen leyendo.
+const idPedazoTarea = (sha256, i) => `${String(sha256 || '').slice(0, 16)}-${pad2(i)}`
 
 const refTarea = (maquilaId, tareaId) =>
   doc(db, 'portalMaquila', maquilaId, 'tareasEnsamble', tareaId)
@@ -505,23 +509,17 @@ export async function subirTechPack({ maquilaId, tareaId, contenido, nombre, for
   const totalChunks = Math.ceil(bytes.length / CHUNK_BYTES)
   if (totalChunks > MAX_CHUNKS) throw new ErrorTareaEnsamble('El archivo rebasa los 15 MB.')
 
-  onProgreso('Calculando la huella del archivo...')
+  onProgreso('Preparando el archivo...')
   const sha256 = await sha256Hex(contenido)
 
   for (let i = 0; i < totalChunks; i++) {
     onProgreso(`Subiendo el tech pack... (${i + 1}/${totalChunks})`)
     const pedazo = bytes.slice(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES)
-    await setDoc(doc(colChunks(maquilaId, tareaId), pad2(i)), {
+    await setDoc(doc(colChunks(maquilaId, tareaId), idPedazoTarea(sha256, i)), {
       maquilaId,
       datos: Bytes.fromUint8Array(pedazo)
     })
   }
-
-  // Si antes hubo un archivo mas grande, sus chunks sobrantes se barren: el
-  // manifiesto nuevo no los cubre y quedarian como basura ilegible.
-  const existentes = await getDocs(colChunks(maquilaId, tareaId))
-  const sobrantes = existentes.docs.filter((d) => Number(d.id) >= totalChunks)
-  for (const s of sobrantes) await deleteDoc(s.ref)
 
   onProgreso('Publicando la tarea...')
   // 'publicadaEn' se fija solo la PRIMERA vez: si esta tarea ya se habia
@@ -529,6 +527,36 @@ export async function subirTechPack({ maquilaId, tareaId, contenido, nombre, for
   // conservar el valor que tenia.
   const actual = await getDoc(refTarea(maquilaId, tareaId))
   const yaPublicada = actual.exists() && actual.data().publicadaEn != null
+  // El archivo que ESTA tarea tenia publicado antes.
+  const shaAnterior = actual.exists() ? actual.data().techPack?.sha256 : null
+
+  // ⚠️ SUS PEDAZOS SE BARREN AQUI, ANTES DE PUBLICAR, y no despues: la regla
+  // solo deja borrar pedazos con la tarea en 'preparando' / 'terminada' /
+  // 'cancelada' (es el candado que impide vaciarle el tech pack a una maquila
+  // a media faena). Publicar primero y barrer despues daba permission-denied
+  // en silencio y la basura se quedaba hasta el cierre (qa-tester, 16-sep).
+  //
+  // El riesgo de este orden es el inverso y es chico: si la publicacion de
+  // abajo falla, la tarea vuelve a 'abierta' con el manifiesto VIEJO y sus
+  // pedazos ya no estan, asi que la maquila veria "falta el pedazo" hasta que
+  // se vuelva a subir. Se prefiere eso a acumular basura invisible: mientras
+  // la tarea esta en 'preparando' la maquila no puede leer NADA (las reglas
+  // exigen abierta/iniciada/declarada), y el mensaje de esa falla es claro y
+  // se resuelve volviendo a subir el archivo.
+  try {
+    const ids = Array.from({ length: MAX_CHUNKS }, (_, i) => pad2(i))
+    if (shaAnterior && shaAnterior !== sha256) {
+      for (let i = 0; i < MAX_CHUNKS; i++) ids.push(idPedazoTarea(shaAnterior, i))
+    }
+    for (let i = 0; i < ids.length; i += 10) {
+      const lote = writeBatch(db)
+      ids.slice(i, i + 10).forEach((x) => lote.delete(doc(colChunks(maquilaId, tareaId), x)))
+      await lote.commit()
+    }
+  } catch (err) {
+    console.warn('[tareasEnsamble] No se limpiaron los pedazos del archivo anterior:', err?.code || err)
+  }
+
   await updateDoc(refTarea(maquilaId, tareaId), {
     estado: 'abierta',
     ...(yaPublicada ? {} : { publicadaEn: serverTimestamp() }),
@@ -815,11 +843,15 @@ export async function limpiarTechPack({ maquilaId, tareaId, onProgreso = () => {
  */
 export async function descargarTechPack({ maquilaId, tareaId, techPack }) {
   if (!techPack?.totalChunks) throw new ErrorTareaEnsamble('Esta tarea no tiene tech pack.')
-  const snap = await getDocs(colChunks(maquilaId, tareaId))
-  const porId = new Map(snap.docs.map((d) => [d.id, d.data()]))
+  // Por id, sin listar: primero los de la huella del manifiesto; si el
+  // primero no existe, es un archivo de antes del 15-sep con ids '00'..'16'.
+  const n = techPack.totalChunks
+  const leer = (ids) => Promise.all(ids.map((x) => getDoc(doc(colChunks(maquilaId, tareaId), x))))
+  let snaps = await leer(Array.from({ length: n }, (_, i) => idPedazoTarea(techPack.sha256, i)))
+  if (!snaps[0].exists()) snaps = await leer(Array.from({ length: n }, (_, i) => pad2(i)))
   const pedazos = []
-  for (let i = 0; i < techPack.totalChunks; i++) {
-    const chunk = porId.get(pad2(i))
+  for (let i = 0; i < n; i++) {
+    const chunk = snaps[i].exists() ? snaps[i].data() : null
     if (!chunk?.datos) {
       throw new ErrorTareaEnsamble(
         `Falta el pedazo ${i + 1} de ${techPack.totalChunks} del archivo. ` +

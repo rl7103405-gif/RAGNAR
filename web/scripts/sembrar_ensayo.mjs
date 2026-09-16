@@ -50,6 +50,21 @@ const FOLIOS = [
   ['ZZTEST-12', '7935-J', 7, '9903_ENSAYO_PT', h(9, 55)]
 ]
 
+// LOS PRECIOS DE LA MAQUILA DE PRUEBA. Son el corazon del ensayo: la remision
+// debe dar $464.00 sin que nadie teclee un precio (docenas x precio, por
+// MODELO -- 1506-I y 1508-I son el mismo SFT106 y se pagan igual).
+//
+// Se siembran aqui porque viven en portalMaquila/demo_maquila/preciosEnsamble
+// y limpiar_datos_prueba.mjs borra ESE portal completo: cada barrido del
+// corral se los lleva, y sin ellos la remision sale en blanco (16-sep: paso
+// justo asi antes de correr el ensayo).
+const MAQUILA_ENSAYO = 'demo_maquila'
+const PRECIOS = [
+  ['SFT106', 6.5],
+  ['SFT113', 7.0],
+  ['SFT419', 6.0]
+]
+
 async function main() {
   console.log(EJECUTAR ? '=== MODO REAL: se van a sembrar ===\n' : '=== SIMULACION (nada se escribe) ===\n')
 
@@ -79,13 +94,36 @@ async function main() {
     if (EJECUTAR) await db.collection('foliosRuteo').doc(folio).set(doc)
   }
 
+  // La maquila de prueba tiene que existir y ser de prueba: sembrarle precios
+  // a una maquila REAL desde aqui seria meter tarifas inventadas al cobro.
+  const maq = await db.collection('maquilas').doc(MAQUILA_ENSAYO).get()
+  if (!maq.exists || maq.data().esPrueba !== true) {
+    throw new Error(`${MAQUILA_ENSAYO} no existe o no es de prueba: no se siembran precios.`)
+  }
+  const precios = db.collection('portalMaquila').doc(MAQUILA_ENSAYO).collection('preciosEnsamble')
+  for (const [modelo, precio] of PRECIOS) {
+    console.log(`  precio ${modelo}  $${precio.toFixed(2)} por docena  (${MAQUILA_ENSAYO})`)
+    if (EJECUTAR) {
+      await precios.doc(modelo).set({
+        modelo,
+        maquilaId: MAQUILA_ENSAYO,
+        precioPorPack: precio,
+        notas: 'Precio del ENSAYO del flujo completo (docs/ensayo-flujo-completo.md).',
+        actualizadoEn: FieldValue.serverTimestamp(),
+        actualizadoPorUid: 'script-sembrar-ensayo',
+        actualizadoPorNombre: 'Siembra del ensayo (maquila de prueba)'
+      }, { merge: true })
+    }
+  }
+
   if (!EJECUTAR) {
-    console.log(`\n${FOLIOS.length} folios se sembrarian. Para aplicar:`)
+    console.log(`\n${FOLIOS.length} folios y ${PRECIOS.length} precios se sembrarian. Para aplicar:`)
     console.log('   EJECUTAR=1 node scripts/sembrar_ensayo.mjs')
     return
   }
   const s = await db.collection('foliosRuteo').where('__name__', '>=', 'ZZTEST').where('__name__', '<', 'ZZTESU').get()
-  console.log(`\nsembrados. folios ZZTEST en el ruteo: ${s.size}`)
+  const p = await precios.get()
+  console.log(`\nsembrados. folios ZZTEST en el ruteo: ${s.size} · precios en ${MAQUILA_ENSAYO}: ${p.size}`)
   console.log('Ya se pueden capturar con demo_pesador.')
 }
 

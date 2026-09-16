@@ -8,7 +8,8 @@
 // que el archivo termina de subir; si se corta, aqui mismo se reintenta con
 // el archivo elegido de nuevo, o se cancela la tarea.
 import { useEffect, useRef, useState } from 'react'
-import { normalizarCodigo, otsDeLaOc, renglonesDeLaOt } from '../utils/planMaestro'
+import { normalizarCodigo, normalizarOt, otsDeLaOc, renglonesDeLaOt } from '../utils/planMaestro'
+import { necesidadDeAviosDelContenido, resumenDeAvios } from '../utils/necesidadAvios'
 import { claveModelo } from '../utils/packsPorCodigo'
 import { modelosDeTexto } from '../utils/clienteModeloTechPack'
 
@@ -75,6 +76,9 @@ export default function PanelTareasMaquila() {
   const [tareas, setTareas] = useState([])
   const [error, setError] = useState('')
   const [aviso, setAviso] = useState('')
+  // { veredicto, texto }: lo que le falta (o no) de avios a la maquila para lo
+  // que se acaba de encargar. Aparte del aviso verde para que no se pierda.
+  const [avisoAvios, setAvisoAvios] = useState(null)
   const [progreso, setProgreso] = useState('')
   const [trabajando, setTrabajando] = useState(null)
   const [visor, setVisor] = useState(null) // { maquilaId, tareaId, techPack }
@@ -372,7 +376,9 @@ export default function PanelTareasMaquila() {
    */
   /** El titulo que se guarda: la orden y a donde va. */
   const tituloSugerido = () => {
-    const ot = String(nueva.ot || '').trim()
+    // Normalizada: si Lindbergh escribe "OT 7601" el titulo decia "OT OT 7601"
+    // (usuario-real, 14-sep). crearTareaEnsamble ya guarda la OT limpia.
+    const ot = normalizarOt(nueva.ot)
     const destino = avisoOt?.destino || avisoOt?.ots?.[0]?.destino || ''
     if (!ot) return 'Tarea sin orden'
     return `OT ${ot}${destino ? ' - ' + destino : ''}`
@@ -403,6 +409,8 @@ export default function PanelTareasMaquila() {
     // ocupada) mentiria en el aviso.
     const resultadosTp = { conTp: [], eligeTp: [], sinTp: [], falloTp: [] }
     const { conTp, eligeTp, sinTp, falloTp } = resultadosTp
+    const avisosAvios = []
+    setAvisoAvios(null)
     try {
       const ids = (maquilas || []).map((m) => m.id)
       for (const ot of otsElegidas) {
@@ -498,6 +506,23 @@ export default function PanelTareasMaquila() {
           } else if (diagnostico) {
             resultadosTp[diagnostico.lista].push(diagnostico.texto)
           }
+          // AVISO DE AVIOS al encargar (Roberto, 15-sep): con el tech pack ya
+          // en memoria se cruza contra lo que la maquila tiene hoy. Si falla,
+          // no estorba: la tarea ya esta encargada y queda el boton en la tarea.
+          if (deBiblioteca?.contenido && !resultado?.sinTechPack) {
+            try {
+              const r = await necesidadDeAviosDelContenido({
+                contenido: deBiblioteca.contenido,
+                formato: deBiblioteca.formato,
+                maquilaId: nueva.maquilaId,
+                renglones: delPlan.map((x) => ({ cantidad: x.cantidad, unidad: 'docenas' })),
+                onProgreso: setProgreso
+              })
+              avisosAvios.push({ ot, veredicto: r?.veredicto || 'inconcluso', texto: `OT ${ot}: ${resumenDeAvios(r)}` })
+            } catch (err) {
+              console.warn('[Encargar] No se pudieron calcular los avios de la OT', ot, err)
+            }
+          }
         } catch (err) {
           // Que una orden choque con el candado NO debe tumbar a las demas:
           // se salta esa, se dice por que, y las otras siguen. Cualquier otro
@@ -536,6 +561,18 @@ export default function PanelTareasMaquila() {
           (sinTp.length ? ` Sin tech pack en la biblioteca: OT ${sinTp.join(', ')} -- subelo tu en la tarea (boton "Subir el tech pack"), o pidele a Lety que lo suba a la biblioteca.` : '') +
           (falloTp.length ? ` No se pudo pegar el tech pack (la tarea SI se encargo): OT ${falloTp.join('; ')} -- subelo tu en la tarea.` : '')
       )
+      if (avisosAvios.length) {
+        setAvisoAvios({
+          // Manda lo peor de todas las OT: si a una le falta, el aviso va rojo.
+          veredicto: avisosAvios.some((a) => a.veredicto === 'faltante')
+            ? 'faltante'
+            : avisosAvios.some((a) => a.veredicto !== 'suficiente')
+              ? 'inconcluso'
+              : 'suficiente',
+          texto: 'Avios de ' + nombreMaquila(nueva.maquilaId) + ' para lo encargado: ' + avisosAvios.map((a) => a.texto).join(' · ') +
+            '. El detalle esta en "Avios que necesita" de cada tarea.'
+        })
+      }
     } catch (err) {
       reportar(err)
       // Lo que si alcanzo a guardarse, dicho aparte del error: son tareas que
@@ -557,6 +594,9 @@ export default function PanelTareasMaquila() {
     e.preventDefault()
     setError('')
     setAviso('')
+    // Tambien el de avios: si este intento falla, el de la tarea ANTERIOR se
+    // quedaba pegado junto al error nuevo (code-reviewer, 16-sep).
+    setAvisoAvios(null)
     setTrabajando('crear')
     try {
       // ⚠️ Que el numero escrito NO sea una ORDEN DE COMPRA. El campo acepta
@@ -601,6 +641,8 @@ export default function PanelTareasMaquila() {
         usuario: usuario(),
         onProgreso: setProgreso
       })
+      const maquilaCreada = nueva.maquilaId
+      const renglonesCreados = renglones.map((r) => ({ cantidad: Number(r.cantidad), unidad: r.unidad }))
       setNueva({ maquilaId: '', ot: '', fechaRequerida: '', notas: '' })
       setRenglones([{ ...RENGLON_VACIO }])
       setArchivo(null)
@@ -611,6 +653,25 @@ export default function PanelTareasMaquila() {
             ? 'Tarea creada y tech pack subido: la maquila ya la ve en su portal.'
             : 'Tarea creada: la maquila ya la ve en su portal.'
       )
+      // AVISO DE AVIOS al encargar (Roberto, 15-sep), solo si el archivo subio.
+      setAvisoAvios(null)
+      if (archivo && !resultado?.sinTechPack) {
+        try {
+          const r = await necesidadDeAviosDelContenido({
+            contenido: await archivo.arrayBuffer(),
+            formato: formatoDeArchivo(archivo.name),
+            maquilaId: maquilaCreada,
+            renglones: renglonesCreados,
+            onProgreso: setProgreso
+          })
+          setAvisoAvios({
+            veredicto: r?.veredicto || 'inconcluso',
+            texto: `Avios de ${nombreMaquila(maquilaCreada)} para esta tarea: ${resumenDeAvios(r)}. El detalle esta en "Avios que necesita" de la tarea.`
+          })
+        } catch (err) {
+          console.warn('[Crear tarea] No se pudieron calcular los avios:', err)
+        }
+      }
     } catch (err) {
       reportar(err)
     } finally {
@@ -1263,6 +1324,21 @@ export default function PanelTareasMaquila() {
         </div>
       )}
       {aviso && <div className="alerta-exito" style={{ marginBottom: 12 }}>{aviso}</div>}
+      {avisoAvios && (
+        /* Tres colores, como el modal de avios: rojo falta, verde alcanza,
+           ambar "no se pudo dar por bueno". Con dos, un inconcluso se pintaba
+           verde y el color decia lo contrario del texto (qa-tester, 16-sep). */
+        <div
+          className={avisoAvios.veredicto === 'faltante' ? 'alerta-error' : 'alerta-exito'}
+          style={
+            avisoAvios.veredicto === 'inconcluso'
+              ? { marginBottom: 12, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }
+              : { marginBottom: 12 }
+          }
+        >
+          {avisoAvios.texto}
+        </div>
+      )}
       {progreso && <div className="alerta-exito" style={{ marginBottom: 12 }}>{progreso}</div>}
 
       <form className="tarjeta" onSubmit={onCrear} style={{ marginBottom: 18 }}>

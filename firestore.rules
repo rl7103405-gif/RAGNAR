@@ -144,7 +144,12 @@ service cloud.firestore {
         'rol': activo ? r : '',
         'maquila': activo ? p.get('maquilaId', '') : '',
         'esPrueba': activo && p.get('esPrueba', false) == true,
-        'nombre': p.get('nombreCompleto', '')
+        // Apagado con la cuenta, igual que rol/maquila/esPrueba: era el unico
+        // campo que seguia devolviendo el nombre de alguien dado de baja. Hoy
+        // ninguna regla llega ahi sin pasar antes por interno/maquila activos,
+        // pero dejarlo abierto es una trampa para la siguiente regla que se
+        // escriba (code-reviewer, 16-sep: candado, no disciplina).
+        'nombre': activo ? p.get('nombreCompleto', '') : ''
       };
     }
 
@@ -2651,20 +2656,17 @@ service cloud.firestore {
 
     // El update de Quini, con el perfil ligado una sola vez (mismo motivo
     // que puedeCrearTareaEnsamble).
-    function puedeEditarTareaEnsambleQuini(maquilaId, tareaId) {
-      let yo = perfilResumido();
+    function puedeEditarTareaEnsambleQuiniSegun(maquilaId, tareaId, yo) {
       // ---- Lo que hace QUINI (Lindbergh o el admin) ----
-      // tareaEnsambleValida se evalua UNA sola vez, aqui, y ya no dentro de las
-      // ramas: estaba en dos de ellas y una tarea que trae OT + fechaRequerida
-      // se pasaba del tope de 1,000 expresiones. Eso dejaba a Lindbergh sin
-      // poder ponerle fecha, adjuntarle el tech pack NI CANCELARLA, con la OT
-      // apartada para siempre (medido el 2026-09-10 con
+      // tareaEnsambleValida se evalua UNA sola vez (en
+      // puedeActualizarTareaEnsamble), y ya no dentro de las ramas: estaba en
+      // dos de ellas y una tarea que trae OT + fechaRequerida se pasaba del
+      // tope de 1,000 expresiones. Eso dejaba a Lindbergh sin poder ponerle
+      // fecha, adjuntarle el tech pack NI CANCELARLA, con la OT apartada para
+      // siempre (medido el 2026-09-10 con
       // web/scripts/probar_regla_tarea_maquila.mjs).
-      // Exigirla en TODAS las ramas es mas estricto, no menos: las tres que no
-      // la pedian solo mueven estado y firmas, que ella tambien valida. Y no
-      // rompe nada vivo: hoy hay CERO tareas de ensamble en las seis maquilas.
-      return yo.creaTareas && mismoMundoMaquilaSegun(maquilaId, yo.esPrueba)
-        && tareaEnsambleValidaCon(maquilaId, false) && (
+      return yo.creaTareas
+        && mismoMundoMaquilaSegun(maquilaId, yo.esPrueba) && (
           // (1) Mientras nadie la ha empezado ('preparando' o 'abierta'): se
           // reedita entera, se publica ('preparando' -> 'abierta'), se regresa
           // a 'preparando' para cambiarle el archivo, o se cierra. Quien la
@@ -2871,21 +2873,28 @@ service cloud.firestore {
       // relee). Con Quini primero: maquila declara ~30 de margen, Quini
       // publica ~68. Con la maquila primero: 69 y 12. Se deja Quini primero;
       // el margen real esta en adelgazar perfilResumido, no en el orden.
-      allow update: if puedeEditarTareaEnsambleQuini(maquilaId, tareaId);
-      allow update: if puedeReportarLaMaquila(maquilaId);
+      // UN solo allow (15-sep): con dos, el primero que fallaba le cobraba al
+      // segundo su lectura del perfil, y a la maquila le quedaban ~31
+      // expresiones de margen para declarar "ya termine". Ahora el perfil y
+      // la forma del documento se evaluan una vez y luego cada rol.
+      allow update: if puedeActualizarTareaEnsamble(maquilaId, tareaId);
       allow delete: if false;
     }
-    // Lo que la maquila reporta de su avance. El perfil se lee UNA vez.
-    function puedeReportarLaMaquila(maquilaId) {
+    function puedeActualizarTareaEnsamble(maquilaId, tareaId) {
       let yo = perfilResumido();
+      // Sin revalidar las firmas: CADA rama de la maquila fija iniciadaEn /
+      // declaradaEn con request.time y el uid de quien escribe, que es mas
+      // estricto que firmaCoherente. Con ellas dentro, declarar terminada
+      // una tarea con OT se pasaba del tope de 1,000 expresiones y Hugo
+      // veia un permiso negado (medido el 2026-09-10).
+      return tareaEnsambleValidaCon(maquilaId, false)
+        && (puedeEditarTareaEnsambleQuiniSegun(maquilaId, tareaId, yo)
+            || puedeReportarLaMaquilaSegun(maquilaId, yo));
+    }
+    // Lo que la maquila reporta de su avance.
+    function puedeReportarLaMaquilaSegun(maquilaId, yo) {
       return esMaquilaDeSegun(maquilaId, yo)
         && resource.data.get('publicadaEn', null) != null
-        // Sin revalidar las firmas: CADA rama de aqui abajo fija iniciadaEn /
-        // declaradaEn con request.time y el uid de quien escribe, que es mas
-        // estricto que firmaCoherente. Con ellas dentro, declarar terminada
-        // una tarea con OT se pasaba del tope de 1,000 expresiones y Hugo
-        // veia un permiso negado (medido el 2026-09-10).
-        && tareaEnsambleValidaCon(maquilaId, false)
         && (
           // (a) EMPECE. Solo desde 'abierta', y una vez: 'iniciadaEn' nace
           // aqui y ya no se vuelve a mover en toda la vida de la tarea.
@@ -2895,7 +2904,10 @@ service cloud.firestore {
             && request.resource.data.estado == 'iniciada'
             && request.resource.data.iniciadaEn == request.time
             && request.resource.data.iniciadaPorUid == request.auth.uid
-            && request.resource.data.iniciadaPorNombre == perfil().get('nombreCompleto', '') )
+            && request.resource.data.iniciadaPorNombre == yo.nombre
+            // Un perfil sin nombreCompleto dejaba la firma en blanco: la tarea
+            // quedaba "empezada por nadie" (pentester, 16-sep).
+            && yo.nombre.size() > 0 )
           ||
           // (b) YA TERMINE. Desde 'iniciada' -- y tambien desde 'abierta',
           // porque a quien se le olvido marcar el inicio no se le puede dejar
@@ -2930,10 +2942,12 @@ service cloud.firestore {
             && ( resource.data.estado == 'iniciada'
                  || ( request.resource.data.iniciadaEn == request.time
                       && request.resource.data.iniciadaPorUid == request.auth.uid
-                      && request.resource.data.iniciadaPorNombre == perfil().get('nombreCompleto', '') ) )
+                      && request.resource.data.iniciadaPorNombre == yo.nombre ) )
             && request.resource.data.declaradaEn == request.time
             && request.resource.data.declaradaPorUid == request.auth.uid
-            && request.resource.data.declaradaPorNombre == perfil().get('nombreCompleto', '')
+            && request.resource.data.declaradaPorNombre == yo.nombre
+            // Sin nombre no se firma una entrega: es con lo que cobra.
+            && yo.nombre.size() > 0
             && (request.resource.data.get('notaMaquila', null) == null
                 || (request.resource.data.notaMaquila is string
                     && request.resource.data.notaMaquila.size() <= 300)) )
@@ -2961,10 +2975,21 @@ service cloud.firestore {
       // CON EL QUE ARMA, y dejarlo solo en 'abierta' significaria que al picar
       // "empece" lo pierde justo cuando lo necesita. 'declarada' tambien
       // cuenta, porque una tarea devuelta vuelve a sus manos.
-      allow read: if puedeCrearTareas()
+      //
+      // LEER UN PEDAZO POR ID, si; LISTAR la carpeta, solo Quini (16-sep).
+      // Desde que los ids llevan la huella del archivo, un listado le
+      // entregaria a la maquila tambien los pedazos de un archivo ANTERIOR
+      // -- por ejemplo el tech pack de otro cliente que Lindbergh pego por
+      // error y despues reemplazo. La app baja por id (descargarTechPack), no
+      // lista. Misma leccion que la biblioteca (techPacks/{codigo}/chunks).
+      allow get: if puedeCrearTareas()
         || (esMaquilaDe(maquilaId)
             && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado in ['abierta', 'iniciada', 'declarada']
             && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.techPack != null);
+      // Listar es de Quini y solo en su propio mundo: lo usa el barrido al
+      // cerrar la tarea (limpiarTechPack) y la recuperacion de una subida
+      // cortada.
+      allow list: if puedeCrearTareas() && mismoMundoMaquila(maquilaId);
       // Los chunks SOLO se escriben con la tarea en 'preparando': el archivo
       // no se puede cambiar debajo de una tarea que la maquila ya esta viendo.
       // El ID es de dos digitos 00..16 (tope 17 chunks = 15 MB): el espacio
@@ -2992,7 +3017,9 @@ service cloud.firestore {
       let yo = perfilResumido();
       return yo.creaTareas
         && mismoMundoMaquilaSegun(maquilaId, yo.esPrueba)
-        && chunkId.matches('^(0[0-9]|1[0-6])$')
+        // '03' (los de antes) o '<16 hex de la huella>-03' (desde el 15-sep:
+        // dos subidas a la vez ya no se pisan los pedazos).
+        && chunkId.matches('^([0-9a-f]{16}-)?(0[0-9]|1[0-6])$')
         && get(/databases/$(database)/documents/portalMaquila/$(maquilaId)/tareasEnsamble/$(tareaId)).data.estado == 'preparando'
         && request.resource.data.keys().hasAll(['maquilaId', 'datos'])
         && request.resource.data.keys().hasOnly(['maquilaId', 'datos'])
