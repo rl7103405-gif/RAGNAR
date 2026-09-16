@@ -50,9 +50,23 @@ no puede pisar nada**.
 
 ## El recorrido
 
-### 1 · América sube los folios del día *(con tu cuenta real)*
+### 1 · Los folios del día
 
-**Carga de ruteo → sube `1-RUTEO-del-dia-PRUEBA.xlsx`.**
+**La forma recomendada (16-09-2026): sembrarlos, sin tocar el ruteo real.**
+
+```
+cd web && EJECUTAR=1 node scripts/sembrar_ensayo.mjs
+```
+
+Siembra los 12 folios `ZZTEST-*` con el SDK de administrador **y los tres
+precios de la maquila de prueba** (SFT106 $6.50, SFT113 $7.00, SFT419 $6.00).
+Los precios importan: viven en `portalMaquila/demo_maquila/preciosEnsamble` y
+`limpiar_datos_prueba.mjs` borra ese portal completo, así que **cada barrido
+del corral se los lleva** y sin ellos la remisión sale en blanco (pasó el
+16-09, justo antes de esta corrida).
+
+Si en vez de eso quieres enseñar la carga del Excel en vivo:
+**Carga de ruteo → sube `1-RUTEO-del-dia-PRUEBA.xlsx`** *(con tu cuenta real)*.
 
 Deben entrar **12 folios, 72 docenas, 3 órdenes de trabajo** (9901, 9902,
 9903).
@@ -89,8 +103,24 @@ capturados. Ahí nace el **folio interno** del documento.
 
 ### 4 · Lindbergh encarga la tarea (`demo_tareas`)
 
-**Tareas → nueva tarea**, elige la **maquila de pruebas** y sube
-`2-TAREA-para-la-maquila-PRUEBA.xlsx`.
+**Maquilas → Encargar a la maquila**, elige la **maquila de pruebas**.
+
+> ⚠️ **Corregido el 16-09-2026, al correr el ensayo por primera vez.** Este
+> paso decía "sube `2-TAREA-para-la-maquila-PRUEBA.xlsx`", y eso **no se puede
+> hacer**: en esa pantalla el único campo de archivo es el del **tech pack**.
+> "Importar tareas desde Excel" existe, pero vive en otra pestaña y crea tareas
+> INTERNAS, no encargos a maquila. Los seis códigos se **teclean a mano** con
+> "+ Otro modelo" (el Excel sirve de guía, y se puede adjuntar como tech pack
+> para que la maquila lo vea en pantalla).
+
+Los seis renglones, en docenas: `1506-I 12`, `1508-I 12`, `1527-I 10`,
+`1528-I 10`, `7934-J 14`, `7935-J 14`. Orden de trabajo: `9901`.
+
+> **Otro hallazgo del 16-09:** la tarea tiene **una sola** orden de trabajo, y
+> el Excel trae tres (9901, 9902, 9903). Al encargarlo todo bajo la 9901, la
+> remisión acaba diciendo "ORDEN DE TRABAJO 9901" en los seis renglones —
+> cuatro de ellos cobran contra una OT que no es la suya. Es un pendiente real,
+> no un error de quien sigue el guion.
 
 > ⚠️ Va a decir que son tareas **"especiales" / fuera del plan maestro**. Es
 > correcto y conviene adelantarlo: las OT 9901-9903 son inventadas y no están

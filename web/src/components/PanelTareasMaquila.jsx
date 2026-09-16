@@ -769,9 +769,20 @@ export default function PanelTareasMaquila() {
   }
 
   const onTerminar = async (tarea, estado) => {
+    // Cerrar da por buena la entrega y no se puede deshacer: la pregunta dice
+    // QUE se esta dando por bueno, no solo que se borra el tech pack (ensayo
+    // del flujo completo, 16-sep).
+    const noCuadran = diferenciasDeLaEntrega(tarea)
     const pregunta =
       estado === 'terminada'
-        ? `¿Terminar "${tarea.titulo}"? ${tarea.techPack ? 'El tech pack SE BORRA y la maquila deja de verlo.' : ''}`
+        ? `¿Terminar "${tarea.titulo}"?\n` +
+          (tarea.entregaDeclarada?.renglones?.length
+            ? noCuadran.length
+              ? `OJO: ${noCuadran.length} renglon(es) NO cuadran con lo que pediste (${noCuadran.slice(0, 4).join('; ')}${noCuadran.length > 4 ? '...' : ''}).\n` +
+                'Si lo cierras, lo das por bueno. Si no cuadra, mejor "Regresarsela".\n'
+              : 'Lo que declaro cuadra con lo que pediste.\n'
+            : 'La maquila no capturo lo que entrego.\n') +
+          (tarea.techPack ? 'El tech pack SE BORRA y la maquila deja de verlo.' : '')
         : `¿Cancelar "${tarea.titulo}"? ${tarea.techPack ? 'El tech pack SE BORRA.' : ''}`
     if (!window.confirm(pregunta)) return
     setError('')
@@ -1053,6 +1064,12 @@ export default function PanelTareasMaquila() {
           )}
         </div>
       )}
+      {/* LO QUE DIJO QUE ENTREGO, junto a lo que se le pidio. Antes la tarjeta
+          solo mostraba el encargo: se le pedia a Lindbergh "confirma si cuadro"
+          sin una sola cifra de lo declarado enfrente, y "Confirmar y cerrar" es
+          irreversible y cierra el dinero (ensayo del flujo completo, 16-sep).
+          El dato ya se guardaba desde el 14-sep; solo faltaba pintarlo. */}
+      <LoQueEntrego tarea={t} />
       {t.notaMaquila && (
         <p style={{ fontSize: 13, margin: '4px 0 0' }}>
           <strong>Nota de la maquila:</strong> {t.notaMaquila}
@@ -1761,4 +1778,105 @@ export default function PanelTareasMaquila() {
       )}
     </>
   )
+}
+
+// LO QUE LA MAQUILA DIJO QUE ENTREGO, enfrente de lo que se le pidio.
+//
+// Sale del ensayo del flujo completo (16-sep): la tarjeta le pedia a Lindbergh
+// "si no cuadro lo que entregaron, regresasela", pero no mostraba NI UNA cifra
+// de lo declarado -- y "Confirmar y cerrar" no se puede deshacer y es donde se
+// cierra el dinero. Confirmar a ciegas es justo la pena que se quiere evitar.
+//
+// Se compara EN LA UNIDAD PEDIDA: si el encargo fue en docenas se miran las
+// docenas declaradas, y si fue en packs, los packs. Comparar packs contra
+// docenas fue el error que en la junta del 14-sep dio "132%".
+function LoQueEntrego({ tarea }) {
+  const decl = tarea?.entregaDeclarada
+  const renglonesDecl = decl?.renglones || []
+  if (!renglonesDecl.length) return null
+  const porCodigo = new Map(renglonesDecl.map((r) => [r.codigo, r]))
+  const filas = (tarea.renglones || []).map((r) => {
+    const d = porCodigo.get(r.codigo) || {}
+    const enPacks = String(r.unidad || '').toLowerCase() === 'packs'
+    const entregado = enPacks ? d.packs : d.docenas
+    const pedido = Number(r.cantidad) || 0
+    const falta = entregado == null ? null : Math.round((pedido - entregado) * 100) / 100
+    return { codigo: r.codigo, unidad: r.unidad, pedido, entregado, falta, caja: d.caja, observaciones: d.observaciones }
+  })
+  // Renglones que la maquila declaro y que NO venian en el encargo.
+  const dePilon = renglonesDecl.filter((d) => !(tarea.renglones || []).some((r) => r.codigo === d.codigo))
+  const conDiferencia = filas.filter((f) => f.falta !== null && f.falta !== 0).length + dePilon.length
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        padding: '8px 10px',
+        borderRadius: 8,
+        border: '1px solid ' + (conDiferencia ? '#fca5a5' : '#bbf7d0'),
+        background: conDiferencia ? '#fff1f2' : '#f0fdf4'
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+        Lo que dice que entregó
+        {conDiferencia ? (
+          <span style={{ color: '#b91c1c' }}> · {conDiferencia} {conDiferencia === 1 ? 'renglón no cuadra' : 'renglones no cuadran'}</span>
+        ) : (
+          <span style={{ color: '#15803d' }}> · cuadra con lo que pediste</span>
+        )}
+        {decl.bultos != null ? <span className="texto-suave" style={{ fontWeight: 400 }}> · {decl.bultos} bultos/cajas</span> : null}
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="tabla-datos" style={{ fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Pediste</th>
+              <th>Entregó</th>
+              <th>Diferencia</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.codigo} style={f.falta ? { background: '#fee2e2' } : undefined}>
+                <td><strong>{f.codigo}</strong>{f.caja ? <span className="texto-suave"> · caja {f.caja}</span> : null}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>{f.pedido} {f.unidad}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {f.entregado == null ? <span className="texto-suave">no lo capturó</span> : `${f.entregado} ${f.unidad}`}
+                </td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {f.falta === null ? '—' : f.falta === 0 ? 'igual' : f.falta > 0 ? `faltan ${f.falta}` : `sobran ${Math.abs(f.falta)}`}
+                  {f.observaciones ? <div className="texto-suave" style={{ fontSize: 11 }}>{f.observaciones}</div> : null}
+                </td>
+              </tr>
+            ))}
+            {dePilon.map((d) => (
+              <tr key={'x-' + d.codigo} style={{ background: '#fee2e2' }}>
+                <td><strong>{d.codigo}</strong></td>
+                <td className="texto-suave">no venía en el encargo</td>
+                <td style={{ whiteSpace: 'nowrap' }}>{d.docenas != null ? `${d.docenas} docenas` : d.packs != null ? `${d.packs} packs` : '—'}</td>
+                <td>revísalo</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/** Los renglones donde lo declarado no cuadra con lo pedido, en texto corto.
+ *  Misma comparacion que pinta LoQueEntrego: en la UNIDAD PEDIDA. */
+function diferenciasDeLaEntrega(tarea) {
+  const porCodigo = new Map((tarea?.entregaDeclarada?.renglones || []).map((r) => [r.codigo, r]))
+  if (!porCodigo.size) return []
+  return (tarea.renglones || [])
+    .map((r) => {
+      const d = porCodigo.get(r.codigo) || {}
+      const entregado = String(r.unidad || '').toLowerCase() === 'packs' ? d.packs : d.docenas
+      if (entregado == null) return `${r.codigo} sin capturar`
+      const falta = Math.round(((Number(r.cantidad) || 0) - entregado) * 100) / 100
+      if (!falta) return null
+      return `${r.codigo} ${falta > 0 ? 'faltan' : 'sobran'} ${Math.abs(falta)} ${r.unidad}`
+    })
+    .filter(Boolean)
 }
