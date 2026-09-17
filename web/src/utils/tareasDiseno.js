@@ -47,6 +47,9 @@ import { lineasDeOc, planVigente } from './planMaestro'
 import { normalizarOc, normalizarOt } from './planMaestroNucleo'
 import { CHECKLIST_VERSION, codigoComoId, datosDelTechPack } from './techPacks'
 import { RUBROS_TECH_PACK } from './completadoTechPack'
+// `avanceDeOt` se importa ADEMAS de re-exportarse: avanceDeEncargo la usa aqui
+// dentro, y un `export ... from` no deja un binding local.
+import { avanceDeOt } from './avanceTechPacks'
 
 export class ErrorDiseno extends Error {}
 
@@ -556,108 +559,11 @@ export async function historialDeAsignacion(asignacionId) {
 // ---------------------------------------------------------------------------
 // El avance, derivado de la biblioteca
 // ---------------------------------------------------------------------------
-
-/** codigo -> documento de la biblioteca (incluye los alias, que se siguen). */
-export function indexarBiblioteca(biblioteca) {
-  const m = new Map()
-  ;(biblioteca || []).forEach((b) => {
-    m.set(b.codigo, b)
-    // Cuenta de prueba: la biblioteca guarda 'ZZTEST<codigo>' y la OT dice
-    // '<codigo>'. Sin esto el avance del corral nunca veia lo subido
-    // (code-reviewer, 15-sep). Un documento real con ese codigo gana.
-    const s = String(b.codigo || '')
-    if (b.esPrueba && s.startsWith('ZZTEST') && !m.has(s.slice(6))) m.set(s.slice(6), b)
-  })
-  return m
-}
-
-// Los documentos de la biblioteca que responden por un codigo del plan: el
-// exacto (siguiendo un alias si lo es) o, si no existe, sus variantes por
-// talla (WKD225T401 -> WKD225T401-4-6, -7-9, -10-13).
 //
-// OJO: el plan NO dice cuantas tallas debe tener un codigo, asi que aqui se
-// evaluan las variantes que EXISTEN. Que existan todas las que deberian es
-// criterio de Lety, no de la app (lo levanto Codex: "encontradas" no es lo
-// mismo que "requeridas").
-function documentosDe(codigo, indice) {
-  const id = codigoComoId(codigo)
-  let d = indice.get(id)
-  if (d?.apuntaA) d = indice.get(d.apuntaA) || null
-  if (d && !d.apuntaA) return [d]
-  const pref = id + '-'
-  return [...new Set(indice.values())].filter((b) => {
-    const cod = String(b.codigo)
-    return !b.apuntaA && (cod.startsWith(pref) || (b.esPrueba && cod.startsWith('ZZTEST' + pref)))
-  })
-}
-
-// "Listo" sin ambiguedad: hay archivo, los siete rubros estan marcados,
-// ninguno en "falta", al menos uno "ya esta", y el checklist es de la version
-// vigente. Un tech pack sin revisar NO esta listo aunque tenga archivo.
-function evaluarDocumento(b) {
-  const tiene = Boolean(b?.techPack?.totalChunks)
-  const d = datosDelTechPack(b)
-  const c = d.checklist || {}
-  const ids = RUBROS_TECH_PACK.map((r) => r.id)
-  const valores = ids.map((k) => c[k])
-  const presentes = valores.every(Boolean)
-  const completos = valores.filter((v) => v === 'completo').length
-  const cuentan = valores.filter((v) => v !== 'no_aplica').length
-  const porcentaje = cuentan ? Math.round((completos / cuentan) * 100) : 0
-  const listo =
-    tiene &&
-    presentes &&
-    valores.every((v) => v === 'completo' || v === 'no_aplica') &&
-    completos >= 1 &&
-    d.checklistVersion === CHECKLIST_VERSION
-  return {
-    tiene,
-    listo,
-    porcentaje,
-    revisado: valores.some(Boolean),
-    quien: b?.actualizadoPorNombre || '',
-    cuando: b?.actualizadoEn || null
-  }
-}
-
-/** El estado de UN codigo del plan frente a la biblioteca. */
-export function estadoDelCodigo(codigo, indice) {
-  const lista = documentosDe(codigo, indice)
-  // pentester C2: coercion defensiva, por si algo cuela un codigo que no es
-  // string (el panel lo pinta directo y React no acepta objetos como hijo).
-  if (!lista.length) {
-    return { codigo: String(codigo), tiene: false, listo: false, porcentaje: 0, revisado: false, quien: '', variantes: 0, etiqueta: 'sin tech pack' }
-  }
-  const evals = lista.map(evaluarDocumento)
-  const tiene = evals.some((e) => e.tiene)
-  const listo = evals.every((e) => e.listo)
-  const porcentaje = Math.round(evals.reduce((t, e) => t + e.porcentaje, 0) / evals.length)
-  const ultimo = evals.filter((e) => e.quien).sort((a, b) => (b.cuando?.toMillis?.() || 0) - (a.cuando?.toMillis?.() || 0))[0]
-  return {
-    codigo: String(codigo),
-    tiene,
-    listo,
-    porcentaje,
-    revisado: evals.some((e) => e.revisado),
-    quien: ultimo?.quien || '',
-    variantes: lista.length > 1 ? lista.length : 0,
-    etiqueta: listo ? 'listo' : !tiene ? 'sin tech pack' : evals.some((e) => e.revisado) ? 'a medias' : 'sin revisar'
-  }
-}
-
-/** El avance de una OT: todos sus codigos evaluados. */
-export function avanceDeOt(codigos, indice) {
-  // pentester C2: un 'codigos: [{}]' escrito desde la consola (la regla solo
-  // valida que sea list, no el tipo de cada elemento) llegaba crudo hasta el
-  // panel y React tronaba ("Objects are not valid as a React child"). Se
-  // filtra a strings no vacios antes de evaluar.
-  const validos = (codigos || []).filter((c) => typeof c === 'string' && c.trim())
-  const estados = validos.map((c) => estadoDelCodigo(c, indice))
-  const lista = estados.length > 0 && estados.every((e) => e.listo)
-  const porcentaje = estados.length ? Math.round(estados.reduce((t, e) => t + e.porcentaje, 0) / estados.length) : 0
-  const quienes = [...new Set(estados.map((e) => e.quien).filter(Boolean))]
-  return { estados, lista, porcentaje, quienes, total: estados.length, listos: estados.filter((e) => e.listo).length, sinTechPack: estados.filter((e) => !e.tiene).length }
-}
+// Vive en avanceTechPacks.js desde el 16-sep: son funciones PURAS y este
+// archivo importa `db`, asi que no se podian correr en Node contra la
+// biblioteca real. Se re-exportan para no tocar a quien ya las importaba.
+export { indexarBiblioteca, documentosDe, evaluarDocumento, estadoDelCodigo, avanceDeOt } from './avanceTechPacks'
 
 /**
  * El avance de un encargo: OTs listas / OTs del encargo (el "3 de 5 = 60%"

@@ -46,9 +46,12 @@ import { normalizarCodigo, normalizarOt, normalizarOc } from './planMaestroNucle
 import { renglonesDeLaOt, otsDeLaOc } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
 import { cargarWorkbook } from './excelJs'
-import { esPlantilla, leerPlantilla } from './leerPlantillaTechPack'
-import { IDENTIDAD_VACIA, coincideTechPack, identidadDePlantilla, modelosDelTechPack, textoDe } from './clienteModeloTechPack'
+import { esPlantilla, leerPlantilla, medirPlantilla } from './leerPlantillaTechPack'
+import { medirCompletado } from './completadoTechPack'
+import { extraerTechPackViejo } from './migrarTechPackViejo'
+import { IDENTIDAD_VACIA, coincideTechPack, identidadDePlantilla, identidadDeTechPackViejo, modelosDelTechPack, textoDe } from './clienteModeloTechPack'
 import { idPedazo, idPedazoViejo } from './pedazosTechPack'
+import { CHECKLIST_VERSION, codigoComoId, datosDelTechPack } from './techPackNucleo'
 import {
   CHUNK_BYTES,
   MAX_CHUNKS,
@@ -70,15 +73,12 @@ export const TIPOS = {
 const refDoc = (codigo) => doc(db, 'techPacks', codigo)
 const colChunks = (codigo) => collection(db, 'techPacks', codigo, 'chunks')
 
-/** El codigo como id de documento: normalizado y sin caracteres que Firestore
- *  no admite en un id ('/' y los que empiezan con '__'). */
-export function codigoComoId(codigo) {
-  const limpio = normalizarCodigo(codigo)
-  if (!limpio) return ''
-  if (limpio.includes('/') || limpio.startsWith('__') || limpio.length > 60) return ''
-  if (limpio === '.' || limpio === '..') return ''
-  return limpio
-}
+// codigoComoId, CHECKLIST_VERSION y datosDelTechPack viven en techPackNucleo.js
+// (sin Firebase, para poder probar el avance en Node) y se re-exportan aqui
+// para no tocar los 22 archivos que ya los importaban de este.
+// Se IMPORTAN y se reexportan (no `export ... from`): este archivo tambien las
+// usa, y un reexport a secas no deja la funcion disponible aqui dentro.
+export { codigoComoId, CHECKLIST_VERSION, datosDelTechPack }
 
 function validarTipo(tipo) {
   if (!TIPOS[tipo]) throw new ErrorBiblioteca('Tipo de documento desconocido.')
@@ -140,11 +140,27 @@ export async function guardarEnBiblioteca({
     identidad = { ...IDENTIDAD_VACIA }
     if (formato === 'xlsx') {
       try {
-        onProgreso('Leyendo cliente y modelo de la plantilla...')
+        onProgreso('Leyendo el archivo (cliente, modelo y codigos)...')
         const Workbook = await cargarWorkbook()
         const libro = new Workbook()
         await libro.xlsx.load(contenido)
-        if (esPlantilla(libro)) identidad = identidadDePlantilla(leerPlantilla(libro))
+        if (esPlantilla(libro)) {
+          const lectura = leerPlantilla(libro)
+          identidad = identidadDePlantilla(lectura)
+          identidad.medicion = { ...medirPlantilla(lectura), hojas: libro.worksheets.length, medidoEn: new Date(), version: '2026-09-v2-plantilla' }
+        } else {
+          // FORMATO VIEJO (el de Lety): el archivo SI trae cliente, marca,
+          // modelo y sus codigos. Monica subio 12 asi el 15-sep y quedaron
+          // todos en "(sin cliente)" porque solo se leia la plantilla
+          // (Roberto, 16-sep).
+          identidad = identidadDeTechPackViejo(extraerTechPackViejo(libro, { codigo: id }))
+          identidad.medicion = {
+            ...medirCompletado({ hojas: libro.worksheets.map((h) => ({ nombre: h.name, imagenes: h.getImages() })) }),
+            hojas: libro.worksheets.length,
+            medidoEn: new Date(),
+            version: '2026-09-v1'
+          }
+        }
       } catch (err) {
         // Leer la identidad es un adorno de busqueda: si falla, el archivo se
         // sube igual y queda "sin cliente" hasta la siguiente subida.
@@ -234,6 +250,10 @@ export async function guardarEnBiblioteca({
   lote.update(refDoc(id), {
     [def.campo]: manifiestoNuevo,
     ...(identidad || {}),
+    // UN ARCHIVO NUEVO VUELVE A LA BANDEJA DE LETY: nadie hereda el visto
+    // bueno del archivo anterior (Roberto, 16-sep). Subir la FTT no toca la
+    // aprobacion del tech pack, y las reglas exigen las dos cosas.
+    ...(def.campo === 'techPack' ? { aprobacion: null } : {}),
     actualizadoEn: serverTimestamp(),
     actualizadoPorUid: usuario.uid,
     actualizadoPorNombre: String(usuario.nombre).slice(0, 120)
@@ -330,6 +350,9 @@ export async function quitarDeBiblioteca({ codigo, tipo, usuario, onProgreso = (
   // Primero el manifiesto: en cuanto se va, nadie intenta leer los chunks.
   await updateDoc(refDoc(id), {
     [def.campo]: null,
+    // Quitar el archivo quita el visto bueno: no queda un sello colgando de un
+    // tech pack que ya no existe (pentester, 16-sep).
+    ...(def.campo === 'techPack' ? { aprobacion: null } : {}),
     actualizadoEn: serverTimestamp(),
     actualizadoPorUid: usuario?.uid || '',
     actualizadoPorNombre: String(usuario?.nombre || '').slice(0, 120)
@@ -349,7 +372,7 @@ export async function quitarDeBiblioteca({ codigo, tipo, usuario, onProgreso = (
 // 'datosEditables' es lo que Lety teclea; los campos sueltos modelo/talla/color
 // que traen los documentos viejos son lo que dijo el CATALOGO y quedan
 // congelados. Cuando los dos existen, MANDA el de Lety: ella ve el Drive.
-export const CHECKLIST_VERSION = '2026-09-v1'
+// (CHECKLIST_VERSION se re-exporta arriba, desde techPackNucleo.js)
 
 // Compara dos mapas por CONTENIDO, sin importar el ORDEN de llaves. La regla
 // de Firestore ('datosEditables != resource.data...') compara mapas por
@@ -369,18 +392,7 @@ export function mismosDatos(a, b) {
   return serializarOrdenado(a ?? {}) === serializarOrdenado(b ?? {})
 }
 
-export function datosDelTechPack(b) {
-  const e = b?.datosEditables || {}
-  return {
-    modelo: e.modelo ?? b?.modelo ?? '',
-    talla: e.talla ?? b?.talla ?? '',
-    color: e.color ?? b?.color ?? '',
-    notas: e.notas ?? '',
-    checklist: e.checklist || null,
-    checklistVersion: e.checklistVersion || '',
-    codigos: Array.isArray(e.codigos) ? e.codigos : []
-  }
-}
+// (datosDelTechPack se re-exporta arriba, desde techPackNucleo.js)
 
 /**
  * Guarda los datos que Lety escribio Y su renglon de historial, en un solo
@@ -478,6 +490,47 @@ export async function historialDelTechPack(codigo, cuantos = 30) {
     query(collection(db, 'techPacks', id, 'historial'), orderBy('cuando', 'desc'), limit(cuantos))
   )
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+/**
+ * APROBAR un tech pack (o retirarle la aprobación). Roberto, 16-sep: lo que
+ * sube el equipo de Lety no entra a la biblioteca —ni se le puede mandar a una
+ * maquila— hasta que ella lo revisa y lo aprueba.
+ *
+ * La aprobación es DE ESTA VERSIÓN: guarda la huella y el número del archivo
+ * que se está aprobando. Si alguien subió otro mientras tanto, el servidor lo
+ * rechaza en vez de aprobar a ciegas lo que no se vio (Codex, 16-sep).
+ */
+export async function aprobarTechPack({ codigo, techPack, usuario, aprobar = true }) {
+  const id = codigoComoId(codigo)
+  if (!id) throw new ErrorBiblioteca('Codigo invalido.')
+  if (!usuario?.uid || !usuario?.nombre) throw new ErrorBiblioteca('Tu cuenta no tiene nombre configurado.')
+  if (aprobar && !techPack?.sha256) throw new ErrorBiblioteca('Ese codigo no tiene archivo que aprobar.')
+  try {
+    await updateDoc(refDoc(id), {
+      aprobacion: aprobar
+        ? { version: techPack.version || 1, sha256: techPack.sha256, porUid: usuario.uid, porNombre: String(usuario.nombre).slice(0, 120), en: serverTimestamp() }
+        : null,
+      actualizadoEn: serverTimestamp(),
+      actualizadoPorUid: usuario.uid,
+      actualizadoPorNombre: String(usuario.nombre).slice(0, 120)
+    })
+  } catch (e) {
+    if (e?.code === 'permission-denied') {
+      throw new ErrorBiblioteca(
+        aprobar
+          ? 'No se aprobo: es probable que alguien haya subido otra version mientras lo revisabas. Recarga y vuelve a verlo antes de aprobar.'
+          : 'No se pudo retirar la aprobacion. Recarga la pagina e intenta otra vez.'
+      )
+    }
+    throw e
+  }
+}
+
+/** ¿Este tech pack ya lo aprobó Lety, y para el archivo que tiene hoy? */
+export function estaAprobado(b) {
+  const a = b?.aprobacion
+  return Boolean(a && b?.techPack?.sha256 && a.sha256 === b.techPack.sha256)
 }
 
 /** Las versiones subidas (tech pack y FTT), la mas nueva primero. [] si falla. */
@@ -681,8 +734,11 @@ export async function buscarTechPacksPorModeloOCliente(texto, esPrueba) {
       modelo: modelosDelTechPack(real).join(', '),
       talla: textoDe(real.tallaPlantilla) || real.datosEditables?.talla || real.talla || ''
     }
-    if (real.techPack) conTechPack.push({ ...renglon, techPack: real.techPack })
-    else sinTechPack.push(renglon)
+    // SIN APROBAR NO SE MANDA A UNA MAQUILA (Roberto, 16-sep): lo que sube el
+    // equipo de Lety espera su visto bueno. Aqui se trata como "todavia no hay
+    // tech pack", que es lo que es para quien encarga.
+    if (real.techPack && estaAprobado(real)) conTechPack.push({ ...renglon, techPack: real.techPack })
+    else sinTechPack.push({ ...renglon, porAprobar: Boolean(real.techPack) })
   }
   const directo = exacto ? porId.get(exacto) : null
   if (directo) agrega(directo, directo.apuntaA ? exacto : '')
@@ -729,7 +785,7 @@ export async function techPacksDeLaOt(ot, esPrueba, renglonesYaLeidos = null) {
     const codigo = codigos[i]
     const fuente = real || d
     const delMundo = fuente && (fuente.esPrueba === true) === (esPrueba === true)
-    if (delMundo && fuente.techPack?.totalChunks) {
+    if (delMundo && fuente.techPack?.totalChunks && estaAprobado(fuente)) {
       conTechPack.push({
         // El codigo que se usa para BAJAR el archivo es el real; el folio se
         // conserva para decir por que se encontro.
@@ -768,8 +824,9 @@ export async function techPacksDeLaOt(ot, esPrueba, renglonesYaLeidos = null) {
       // como fallo, no como "falta subirlo".
       throw new ErrorBiblioteca(`No se pudo consultar la biblioteca de tallas de ${codigo}: ${err?.message || err}`)
     }
-    if (tallas.length) {
-      tallas.forEach((t) =>
+    const aprobadas = tallas.filter((t) => estaAprobado(t))
+    if (aprobadas.length) {
+      aprobadas.forEach((t) =>
         conTechPack.push({
           codigo: t.codigo,
           folio: null,

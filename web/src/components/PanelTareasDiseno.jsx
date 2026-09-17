@@ -698,11 +698,22 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
           <span className="texto-suave">sin codigos en el plan</span>
         ) : (
           fila.estados.map((c) => (
-            <span key={c.codigo} className={`td-codigo td-${c.etiqueta.replace(/ /g, '-')}`} title={`${c.etiqueta}${c.variantes ? ` · ${c.variantes} tallas` : ''}${c.quien ? ` · ${c.quien}` : ''}`}>
+            <span key={c.codigo} className={`td-codigo td-${c.etiqueta.replace(/ /g, '-')}`} title={`${c.etiqueta}${c.de ? ` · lo cubre el tech pack ${c.de}` : ''}${c.variantes ? ` · ${c.variantes} tallas` : ''}${c.quien ? ` · ${c.quien}` : ''}`}>
               {c.codigo}{c.variantes ? `×${c.variantes}` : ''}
             </span>
           ))
         )}
+        {/* UN SIX PACK ES UN SOLO TECH PACK (Roberto, 16-sep). Si el archivo
+            dice cubrir codigos que esta OT no pide, casi siempre es un dedazo
+            en el Excel: el six pack PC70493 trae "63-95-K" donde la orden pide
+            "6395-K". Se avisa en vez de contarlo como si cuadrara. */}
+        {(fila.ajenos || []).map((x) => (
+          <div key={x.codigo} className={x.dedazos.length ? 'tp-pill tp-pill-falta' : 'texto-suave'} style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            {x.dedazos.length
+              ? `El tech pack ${x.codigo} dice ${x.dedazos.map((d) => `"${d.dice}" donde esta OT pide "${d.deberiaDecir}"`).join(' y ')}: parece un dedazo en el Excel`
+              : `El tech pack ${x.codigo} cubre ${x.cubre} códigos; ${x.fuera.join(', ')} son de otra orden`}
+          </div>
+        ))}
         {/* Subir desde aqui (Roberto, 15-sep: Lety no sabia como subir los
             tech packs de lo que repartio). */}
         {subir && fila.estados.length > 0 && (
@@ -954,6 +965,15 @@ function MisAsignaciones({ asignaciones, indice, subir }) {
           </div>
         </div>
         {a.notas && <p className="texto-suave" style={{ fontSize: 13 }}>{a.notas}</p>}
+        {/* El tech pack dice cubrir codigos que esta OT no pide: casi siempre
+            es un dedazo en el Excel (Roberto, 16-sep). */}
+        {(av.ajenos || []).map((x) => (
+          <div key={x.codigo} className={x.dedazos.length ? 'tp-pill tp-pill-falta' : 'texto-suave'} style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            {x.dedazos.length
+              ? `Tu tech pack ${x.codigo} dice ${x.dedazos.map((d) => `"${d.dice}" donde esta OT pide "${d.deberiaDecir}"`).join(' y ')}: parece un dedazo en el Excel`
+              : `Tu tech pack ${x.codigo} cubre ${x.cubre} códigos; ${x.fuera.join(', ')} son de otra orden`}
+          </div>
+        ))}
         <table className="tabla-datos" style={{ marginTop: 10 }}>
           <thead>
             <tr>
@@ -968,7 +988,12 @@ function MisAsignaciones({ asignaciones, indice, subir }) {
             {av.estados.map((c) => (
               <tr key={c.codigo}>
                 <td><span className="tp-codigo">{c.codigo}</span>{c.variantes ? <span className="texto-suave" style={{ fontSize: 12 }}> · {c.variantes} tallas</span> : null}</td>
-                <td><span className={`td-codigo td-${c.etiqueta.replace(/ /g, '-')}`}>{c.etiqueta}</span></td>
+                <td>
+                  <span className={`td-codigo td-${c.etiqueta.replace(/ /g, '-')}`}>{c.etiqueta}</span>
+                  {/* De qué tech pack sale, cuando es el del MODELO y no el de
+                      este código (un six pack: un tech pack, seis códigos). */}
+                  {c.de ? <div className="texto-suave" style={{ fontSize: 11 }}>lo cubre {c.de}</div> : null}
+                </td>
                 <td>{c.tiene ? `${c.porcentaje}%` : <span className="texto-suave">{subir ? 'falta el archivo' : 'sube el archivo en Tech packs'}</span>}</td>
                 <td className="texto-suave" style={{ fontSize: 13 }}>{c.quien || '—'}</td>
                 {subir && (

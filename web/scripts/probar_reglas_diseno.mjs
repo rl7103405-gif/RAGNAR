@@ -210,6 +210,8 @@ const JEFA_BAJA = { ...JEFA, activo: false }
 const REAL_JEFA = { ...JEFA, uid: 'REALJEFA000000000000000000000', esPrueba: false, nombreCompleto: 'JEFA REAL' }
 // Quien solo VE tech packs (rol completo, como Lindbergh): mismo perfil demo, otro rol.
 const VISOR = { ...ADMIN, uid: 'VISORDEMO0000000000000000000', rol: 'completo', nombreCompleto: 'PRUEBA - visor' }
+// El sello de aprobacion que corresponde al archivo de TP_SUBIDO (version 1).
+const APROBACION = (u) => ({ version: 1, sha256: 'a'.repeat(64), porUid: u.uid, porNombre: u.nombreCompleto, en: T })
 const P_VER_TP1 = P_TP + '/versiones/tp-1-' + 'a'.repeat(64)
 const VERSION_TP1 = { tipo: 'tp', version: 1, nombre: 'TECH PACK ZZTEST.xlsx', tamano: 123456, sha256: 'a'.repeat(64), subidoEn: T, subidoPorUid: JEFA.uid, subidoPorNombre: JEFA.nombreCompleto }
 const sinResultado = (fn, path) => ({ function: fn, args: [{ exactValue: path }], result: { undefined: {} } })
@@ -391,6 +393,60 @@ Object.assign(ESCENARIOS, {
     que: 'Lety (sube tech packs) puede listar los pedazos',
     request: { auth: { uid: JEFA.uid }, method: 'list', path: P_TP + '/chunks/tp-00', time: T },
     functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SUBIDO)]
+  },
+  // APROBACION (16-sep): lo que sube el equipo espera el visto bueno de Lety.
+  // El sello es DE UNA VERSION: lleva la huella del archivo que se aprobo.
+  // ⚠️ ESTOS TRES MODELAN EL PAYLOAD LITERAL DEL CLIENTE: al subir o al quitar,
+  // guardarEnBiblioteca escribe 'aprobacion: null' JUNTO al manifiesto. El
+  // arnes no lo hacia y por eso no vio que la regla de aprobacion bloqueaba
+  // TODA subida (pentester, 16-sep). Una prueba que modela algo que la app no
+  // hace no prueba nada.
+  'techpack-archivo-limpia-aprobacion': {
+    que: 'Lety sube el archivo y en la MISMA escritura limpia la aprobacion (lo que hace la app)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: null, ...sellos(JEFA) }) },
+    resource: doc(TP_SIN), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_VER_TP1)]
+  },
+  'techpack-archivo-sobre-aprobado': {
+    que: 'sube una version NUEVA sobre uno ya aprobado: vuelve a quedar pendiente',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, techPack: manifiesto(2), aprobacion: null, ...sellos(JEFA) }) },
+    resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA) }),
+    functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_TP + '/versiones/tp-2-' + 'a'.repeat(64))]
+  },
+  'techpack-quitar-aprobado': {
+    que: 'QUITAR el archivo de un tech pack aprobado (se va el archivo y el sello)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SIN, aprobacion: null, ...sellos(JEFA) }) },
+    resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA) }), functionMocks: [...perfilMocks([JEFA])]
+  },
+  'techpack-aprobar': {
+    que: 'Lety APRUEBA un tech pack (entra a la biblioteca)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA), ...sellos(JEFA) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA])]
+  },
+  'techpack-retirar-aprobacion': {
+    que: 'Lety RETIRA la aprobacion (sale de la biblioteca)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: null, ...sellos(JEFA) }) },
+    resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA) }), functionMocks: [...perfilMocks([JEFA])]
+  },
+  'neg-aprobar-el-equipo': {
+    expectation: 'DENY', que: 'NEG: alguien del equipo (Monica) se aprueba su propio tech pack',
+    request: { auth: { uid: EQUIPO.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(EQUIPO), ...sellos(EQUIPO) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([EQUIPO])]
+  },
+  'neg-aprobar-otra-version': {
+    expectation: 'DENY', que: 'NEG: aprobar con la huella de OTRO archivo (subieron uno nuevo mientras revisaba)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: { ...APROBACION(JEFA), sha256: 'b'.repeat(64) }, ...sellos(JEFA) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA])]
+  },
+  'neg-aprobar-firma-ajena': {
+    expectation: 'DENY', que: 'NEG: aprobar firmando con el nombre de otra persona',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: { ...APROBACION(JEFA), porNombre: 'Roberto Linares' }, ...sellos(JEFA) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA])]
+  },
+  'neg-subir-conservando-aprobacion': {
+    expectation: 'DENY', que: 'NEG: subir una version NUEVA conservando el visto bueno de la anterior',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, techPack: manifiesto(2), aprobacion: APROBACION(JEFA), ...sellos(JEFA) }) },
+    resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA) }),
+    functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_TP + '/versiones/tp-2-' + 'a'.repeat(64))]
   },
   'neg-techpack-talla-sin-archivo': {
     expectation: 'DENY', que: 'NEG: cambiar la talla colandola en un cambio de descripcion, sin subir tech pack',

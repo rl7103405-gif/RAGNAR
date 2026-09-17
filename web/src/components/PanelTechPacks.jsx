@@ -32,6 +32,8 @@ import {
   editarDatosTechPack,
   ErrorBiblioteca,
   escucharBiblioteca,
+  aprobarTechPack,
+  estaAprobado,
   guardarEnBiblioteca,
   historialDelTechPack,
   versionesDelTechPack,
@@ -210,10 +212,17 @@ function PorcentajeHecho({ avance }) {
 // Las acciones de UN tech pack, en el MISMO orden y del MISMO ancho en todos
 // los cuadros: Editar · % hecho · Ver (Roberto, 11-sep: "algunos empiezan con
 // hecho, despues ver y despues editar, esta mal... darle simetria").
-function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tech pack', titulo, avance, puedeEditar, onEditar, onVer, onConsultar, puedeSubir, onReemplazar, onQuitar, ocupado }) {
+function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tech pack', titulo, avance, puedeEditar, onEditar, onVer, onConsultar, onDesaprobar, puedeSubir, onReemplazar, onQuitar, ocupado }) {
   const tiene = Boolean(b.techPack?.totalChunks)
   return (
     <div className="tp-acciones">
+      {/* Retirar el visto bueno: sale de la biblioteca y vuelve a la bandeja.
+          Solo para quien puede aprobar (Lety o el admin). */}
+      {onDesaprobar && tiene && (
+        <button className="btn-secundario tp-btn-chico" disabled={ocupado} onClick={() => onDesaprobar(b)} title="Lo saca de la biblioteca hasta que lo vuelvas a aprobar">
+          Quitar aprobación
+        </button>
+      )}
       {onConsultar && (
         <button className="btn-secundario tp-btn-chico" onClick={() => onConsultar(b)} title="Ver quien lo subio o lo cambio, sin entrar a Editar">
           Quién lo modificó
@@ -316,7 +325,7 @@ function OrdenDeCompra({ o, resumen, mb, setVisor, avanceDe, puedeEditar, onEdit
 }
 
 export default function PanelTechPacks() {
-  const { authUser, perfil, esPrueba, puedeSubirTechPacks, puedeEditarTechPacks, puedeAsignarDiseno, esEquipoDiseno } = useAuth()
+  const { authUser, perfil, esPrueba, puedeSubirTechPacks, puedeEditarTechPacks, puedeAprobarTechPacks, puedeAsignarDiseno, esEquipoDiseno } = useAuth()
   const [biblioteca, setBiblioteca] = useState([])
   const [error, setError] = useState('')
   const [aviso, setAviso] = useState('')
@@ -574,6 +583,27 @@ export default function PanelTechPacks() {
     }
   }
 
+  // Aprobar (o retirar el visto bueno). La aprobación es de ESTA versión del
+  // archivo: si alguien subió otra mientras se revisaba, el servidor lo rechaza
+  // y aquí se dice por qué (Codex, 16-sep).
+  const onAprobar = async (item, aprobar) => {
+    if (!aprobar && !window.confirm(`¿Quitarle la aprobación a ${item.codigo}? Sale de la biblioteca hasta que lo vuelvas a aprobar.`)) return
+    setTrabajando(true)
+    setError('')
+    try {
+      await aprobarTechPack({ codigo: item.codigo, techPack: item.techPack, usuario, aprobar })
+      setAviso(
+        aprobar
+          ? `${item.codigo} aprobado: ya está en la biblioteca y se le puede mandar a una maquila.`
+          : `${item.codigo} salió de la biblioteca: vuelve a "Por aprobar".`
+      )
+    } catch (err) {
+      reportar(err)
+    } finally {
+      setTrabajando(false)
+    }
+  }
+
   const onQuitar = async (item, tipo) => {
     if (!window.confirm(`¿Quitar ${TIPOS[tipo].titulo.toLowerCase()} de ${item.codigo}? Las tareas que ya lo tienen pegado no se tocan.`)) return
     setTrabajando(true)
@@ -706,7 +736,15 @@ export default function PanelTechPacks() {
 
   // LA VISTA ESTANDAR: cliente -> modelo -> tech packs (Roberto, 2026-09-15:
   // "ya no se manejan por OC ni OT sino por modelo y cliente").
-  const porCliente = useMemo(() => agruparPorClienteYModelo(biblioteca), [biblioteca])
+  // LO QUE ESPERA EL VISTO BUENO DE LETY (Roberto, 16-sep). Mientras no lo
+  // apruebe no entra a la biblioteca ni se le puede mandar a una maquila: por
+  // eso sale en su propia bandeja y NO en la vista por cliente y modelo.
+  const porAprobar = useMemo(
+    () => biblioteca.filter((b) => !b.apuntaA && b.techPack?.totalChunks && !estaAprobado(b)),
+    [biblioteca]
+  )
+  const aprobados = useMemo(() => biblioteca.filter((b) => b.apuntaA || !b.techPack?.totalChunks || estaAprobado(b)), [biblioteca])
+  const porCliente = useMemo(() => agruparPorClienteYModelo(aprobados), [aprobados])
   const totalClientes = porCliente.filter((c) => c.clave !== '~SIN').length
   const totalTechPacksCliente = porCliente.reduce((n, c) => n + c.total, 0)
 
@@ -863,7 +901,7 @@ export default function PanelTechPacks() {
                     {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
                   </div>
                   <div className="tp-acciones-lista">
-                    <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} onConsultar={setConsultando} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
+                    <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} onConsultar={setConsultando} onDesaprobar={puedeAprobarTechPacks ? (x) => onAprobar(x, false) : null} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                     {b.ftt?.totalChunks ? (
                       <div className="tp-acciones">
                         <button className="btn-secundario tp-btn-chico tp-acc-ver" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
@@ -888,6 +926,52 @@ export default function PanelTechPacks() {
           abren y se cierran (Roberto, 2026-09-10). Cada uno responde a una
           pregunta distinta: que hay por orden de compra, que trae orden de
           trabajo pero todavia no de compra, y que no cuelga de nada. */}
+      {/* ---------------------------------- POR APROBAR. Lo que subió el equipo
+          y espera el visto bueno de Lety (Roberto, 16-sep). Va PRIMERO: es lo
+          único de esta pantalla que tiene a alguien esperando. */}
+      {porAprobar.length > 0 && (
+        <div className="tarjeta tp-cuadro" style={{ borderLeft: '4px solid #d97706' }}>
+          <div className="tp-cuadro-cab">
+            <strong style={{ fontSize: 16 }}>Por aprobar ({porAprobar.length})</strong>
+            <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
+              {puedeAprobarTechPacks
+                ? 'Revísalos y apruébalos: hasta entonces no entran a la biblioteca ni se le pueden mandar a una maquila.'
+                : 'Ya se subieron. Entran a la biblioteca cuando Lety los apruebe.'}
+            </span>
+          </div>
+          <div className="tp-disenos">
+            {porAprobar.map((b) => (
+              <div key={b.id} className="tp-diseno">
+                <div className="tp-diseno-info">
+                  <span className="tp-codigo">{b.codigo}</span>
+                  {textoDe(b.cliente) ? <span className="tp-meta"><strong>{textoDe(b.cliente)}</strong></span> : <span className="tp-meta texto-suave">sin cliente</span>}
+                  {modelosDelTechPack(b).length ? <span className="tp-meta">{modelosDelTechPack(b).join(', ')}</span> : null}
+                  {(b.codigosCubiertos || []).length > 1 && (
+                    <span className="tp-meta" title={b.codigosCubiertos.join(', ')}>cubre {b.codigosCubiertos.length} códigos</span>
+                  )}
+                  {b.medicion?.porcentaje != null && (
+                    <span className="tp-meta" title={(b.medicion.faltan || []).join(', ')}>
+                      calificación {b.medicion.porcentaje}%{(b.medicion.faltan || []).length ? ` · falta ${b.medicion.faltan.join(', ')}` : ''}
+                    </span>
+                  )}
+                  <span className="tp-meta texto-suave" style={{ fontSize: 12 }}>
+                    lo subió {b.techPack?.subidoPorNombre || '?'} · {fecha(b.techPack?.subidoEn)}
+                  </span>
+                </div>
+                <div className="tp-acciones">
+                  <button className="btn-secundario tp-btn-chico" onClick={() => verTechPack(b)}>Ver tech pack</button>
+                  {puedeAprobarTechPacks && (
+                    <button className="btn-primario tp-btn-chico" disabled={trabajando} onClick={() => onAprobar(b, true)}>
+                      Aprobar
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ---------------------------------- LA VISTA ESTANDAR: por cliente y
           modelo (Roberto, 2026-09-15). Va antes que el arbol de ordenes. */}
       {porCliente.length > 0 && (
@@ -947,7 +1031,7 @@ export default function PanelTechPacks() {
                             </span>
                           </div>
                           <div className="tp-acciones-lista">
-                            <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} onConsultar={setConsultando} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
+                            <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} onConsultar={setConsultando} onDesaprobar={puedeAprobarTechPacks ? (x) => onAprobar(x, false) : null} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                             {b.ftt?.totalChunks ? (
                               <div className="tp-acciones">
                                 <button className="btn-secundario tp-btn-chico tp-acc-ver" onClick={() => setVisor({ codigo: b.codigo, tipo: 'ftt', manifiesto: b.ftt })}>
@@ -1065,7 +1149,7 @@ export default function PanelTechPacks() {
                     {/* Editar AQUI mismo (2026-09-11): este cuadro es donde Lety
                         liga cada tech pack a sus codigos u ordenes. */}
                     <div className="tp-acciones-lista">
-                      <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} onConsultar={setConsultando} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
+                      <AccionesTechPack b={b} avance={avanceDe(b)} puedeEditar={puedeEditarTechPacks} onEditar={editarTechPack} onVer={verTechPack} onConsultar={setConsultando} onDesaprobar={puedeAprobarTechPacks ? (x) => onAprobar(x, false) : null} puedeSubir={puedeSubirTechPacks} onReemplazar={onReemplazar} onQuitar={onQuitar} ocupado={trabajando} />
                     </div>
                   </div>
                 ))}

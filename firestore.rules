@@ -3226,7 +3226,7 @@ service cloud.firestore {
         // un script con Admin SDK (web/scripts/medir_tech_packs.mjs), NUNCA el
         // cliente; va en el hasOnly para que un documento medido siga siendo
         // valido cuando Lety lo edite desde la app.
-        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes', 'datosEditables', 'revision', 'ultimaEdicionId', 'medicion', 'cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla'])
+        && d.keys().hasOnly(['codigo', 'descripcion', 'techPack', 'ftt', 'creadoEn', 'creadoPorUid', 'creadoPorNombre', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre', 'esPrueba', 'apuntaA', 'modelo', 'talla', 'color', 'faltantes', 'datosEditables', 'revision', 'ultimaEdicionId', 'medicion', 'cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla', 'codigosCubiertos', 'aprobacion'])
         // Lo que Lety TECLEA vive junto, en 'datosEditables', separado de los
         // manifiestos y de lo inmutable. Asi el historial guarda un snapshot
         // exacto de ese mapa y la regla puede compararlo entero, en vez de
@@ -3653,8 +3653,17 @@ service cloud.firestore {
         // en cada subida de FTT.
         // Y SOLO con una subida real del tech pack (manifiesto nuevo): la
         // identidad describe el archivo, no se cambia sola (pentester, 15-sep).
-        && (!despues.diff(antes).affectedKeys().hasAny(['cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla'])
+        // Desde el 16-sep viajan igual 'codigosCubiertos' (un six pack es UN
+        // tech pack con seis codigos) y 'medicion' (la calificacion que la app
+        // saca sola al subir, antes solo la escribia un script).
+        && (!despues.diff(antes).affectedKeys().hasAny(['cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla', 'codigosCubiertos', 'medicion'])
             || (despues.techPack != null && despues.techPack != antes.techPack && identidadTechPackOk(despues)))
+        // UNA VERSION NUEVA NO HEREDA EL VISTO BUENO: subir el tech pack deja
+        // la aprobacion en null y vuelve a la bandeja de Lety. Subir la FTT no
+        // la toca (Codex, 16-sep). Solo la rama de aprobacion la puede poner.
+        && (despues.techPack == antes.techPack
+            ? despues.get('aprobacion', null) == antes.get('aprobacion', null)
+            : despues.get('aprobacion', null) == null)
         // QUIEN LO MODIFICO (Roberto, 15-sep: "arreglalo"): cada archivo nuevo
         // (tech pack o FTT) deja en el MISMO batch su renglon en versiones/,
         // que nadie edita ni borra. Antes solo quedaba el ultimo manifiesto y
@@ -3667,13 +3676,23 @@ service cloud.firestore {
             || existsAfter(/databases/$(database)/documents/techPacks/$(codigo)/versiones/$('ftt-' + string(despues.ftt.version) + '-' + despues.ftt.sha256)))
         && despues.diff(antes).affectedKeys()
              .hasOnly(['techPack', 'ftt', 'descripcion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre',
-                       'cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla']);
+                       'cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla', 'codigosCubiertos', 'medicion', 'aprobacion']);
     }
     function identidadTechPackOk(d) {
       return (d.get('cliente', null) == null || (d.cliente is string && d.cliente.size() > 0 && d.cliente.size() <= 120))
         && (d.get('marca', null) == null || (d.marca is string && d.marca.size() > 0 && d.marca.size() <= 120))
         && (d.get('modeloPlantilla', null) == null || (d.modeloPlantilla is string && d.modeloPlantilla.size() > 0 && d.modeloPlantilla.size() <= 200))
-        && (d.get('tallaPlantilla', null) == null || (d.tallaPlantilla is string && d.tallaPlantilla.size() > 0 && d.tallaPlantilla.size() <= 120));
+        && (d.get('tallaPlantilla', null) == null || (d.tallaPlantilla is string && d.tallaPlantilla.size() > 0 && d.tallaPlantilla.size() <= 120))
+        // Los codigos que cubre el archivo: lista acotada. Las reglas NO pueden
+        // mirar dentro de una lista (Codex), asi que esto es un INDICE para
+        // buscar, no la prueba de que el Excel los traiga.
+        && (d.get('codigosCubiertos', null) == null || (d.codigosCubiertos is list && d.codigosCubiertos.size() <= 60))
+        // La calificacion que saca la app al subir. Su forma la valida quien la
+        // lee; aqui se acota a un mapa con su porcentaje.
+        && (d.get('medicion', null) == null || (d.medicion is map && d.medicion.porcentaje is int && d.medicion.porcentaje >= 0 && d.medicion.porcentaje <= 100
+            // La lista de lo que le falta se acota: por ahi no entra un texto
+            // gigante (pentester, 16-sep).
+            && (d.medicion.get('faltan', []) is list && d.medicion.get('faltan', []).size() <= 12)));
     }
     // El renglon de una version subida: copia fiel del manifiesto que queda en
     // el padre DESPUES de este batch, de la misma persona y a esta hora. El id
@@ -3758,7 +3777,25 @@ service cloud.firestore {
       // Selector barato de rama (Codex): lo que toca archivo/descripcion va
       // por la rama de archivo; lo demas, por la de datos con historial. Una
       // escritura mixta cae en la de archivo y su hasOnly la rechaza.
-      let tocaArchivo = despues.diff(antes).affectedKeys().hasAny(['techPack', 'ftt', 'descripcion']);
+      let cambios = despues.diff(antes).affectedKeys();
+      let tocaArchivo = cambios.hasAny(['techPack', 'ftt', 'descripcion']);
+      // APROBAR (Roberto, 16-sep): Lety revisa lo que sube su equipo y hasta
+      // que ella aprueba, el tech pack entra a la biblioteca. Va como TERCERA
+      // RAMA y no como otro `allow`: un allow que falla le cobra sus
+      // expresiones al siguiente (lo medimos el 16-sep en las tareas de
+      // maquila). Se elige antes que la de archivo porque aprobar NO toca el
+      // manifiesto; una escritura mixta cae aqui y su hasOnly la rechaza.
+      //
+      // ⚠️ '&& !tocaArchivo': al SUBIR, el cliente escribe el manifiesto y
+      // 'aprobacion: null' en la MISMA escritura (una version nueva no hereda
+      // el visto bueno). Escribir null donde la llave no existia TAMBIEN cuenta
+      // en affectedKeys, asi que sin esto toda subida caia en la rama de
+      // aprobacion y su hasOnly la rechazaba: el equipo entero se quedaba sin
+      // poder subir nada (pentester, 16-sep; el arnes no lo vio porque sus
+      // escenarios no escribian 'aprobacion' junto al archivo). La rama de
+      // archivo ya trae su propio candado: si el manifiesto cambia exige
+      // aprobacion == null, y si no cambia exige que quede igual.
+      let tocaAprobacion = cambios.hasAny(['aprobacion']) && !tocaArchivo;
       return yo.subeTechPacks
         && antes.esPrueba == yo.esPrueba
         // La FORMA del documento entero (techPackDocValido) se exige al
@@ -3770,11 +3807,48 @@ service cloud.firestore {
         // expresiones (medido: escenario techpack-datos-2m).
         // Las marcas de quien y cuando se exigen en las DOS ramas.
         && sellosDeEdicionSegun(despues, yo.nombre)
-        && ((tocaArchivo && updateDeArchivoTechPack(codigo, antes, despues, yo.nombre))
+        && ((tocaAprobacion && updateDeAprobacionTechPack(antes, despues, yo))
+            || (!tocaAprobacion && tocaArchivo && updateDeArchivoTechPack(codigo, antes, despues, yo.nombre))
             // Editar los DATOS (modelo, codigos, checklist) es SOLO de Lety y
             // su equipo (Roberto, 11-sep: "serian las unicas personas que lo
             // podrian estar modificando"). Subir archivo sigue abierto al admin.
-            || (!tocaArchivo && yo.rol == 'desarrollo' && updateDeDatosTechPack(codigo, antes, despues)));
+            || (!tocaArchivo && !tocaAprobacion && yo.rol == 'desarrollo' && updateDeDatosTechPack(codigo, antes, despues)));
+    }
+    // RAMA 3: APROBAR (o retirar la aprobacion de) un tech pack.
+    //
+    // Roberto, 16-sep: "cuando Monica sube un tech pack la app lo califica, y
+    // cuando Lety lo apruebe se pasa ya directo a los tech packs". Hasta que
+    // se aprueba no entra a la biblioteca ni se le puede mandar a una maquila.
+    //
+    // La aprobacion es DE UNA VERSION, no del codigo: guarda la huella y el
+    // numero de version del archivo aprobado. Si Lety tiene abierto el archivo
+    // A y el equipo sube el B, aprobar desde esa pantalla NO aprueba el B
+    // (Codex, 16-sep). Y cada subida nueva borra la aprobacion anterior
+    // (updateDeArchivoTechPack la exige en null), asi que nadie hereda el
+    // visto bueno de un archivo que ya no esta.
+    function updateDeAprobacionTechPack(antes, despues, yo) {
+      return despues.diff(antes).affectedKeys()
+             .hasOnly(['aprobacion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        // Solo la JEFA de diseno (Lety) o el admin. Ni el equipo se aprueba
+        // solo, ni un alias se aprueba nunca (no tiene archivo propio).
+        && (yo.jefaDiseno || yo.admin)
+        && !antes.keys().hasAny(['apuntaA'])
+        && (
+          // APROBAR: la huella y la version tienen que ser las del archivo que
+          // esta AHORA en el documento, y el sello lo firma el servidor.
+          ( despues.aprobacion is map
+            && despues.aprobacion.keys().hasOnly(['version', 'sha256', 'porUid', 'porNombre', 'en'])
+            && antes.techPack != null
+            && despues.aprobacion.sha256 == antes.techPack.sha256
+            && despues.aprobacion.version == antes.techPack.version
+            && despues.aprobacion.porUid == request.auth.uid
+            && despues.aprobacion.porNombre == yo.nombre
+            && despues.aprobacion.en == request.time )
+          ||
+          // RETIRAR la aprobacion ("me equivoque, esto no va"): se limpia y el
+          // tech pack sale de la biblioteca hasta que se vuelva a aprobar.
+          despues.get('aprobacion', null) == null
+        );
     }
     // El renglon de historial de una edicion. 'antes' tiene que ser el
     // estado real previo del padre, el padre tiene que cambiar en este mismo
@@ -3836,7 +3910,9 @@ service cloud.firestore {
         // solo entran con la subida (updateDeArchivoTechPack). Sin esto un
         // cliente-mapa creado a mano tumbaba la biblioteca entera (pentester,
         // 15-sep).
-        && !d.keys().hasAny(['datosEditables', 'revision', 'ultimaEdicionId', 'apuntaA', 'cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla'])
+        // 'aprobacion', 'codigosCubiertos' y 'medicion' tampoco nacen aqui: un
+        // codigo no puede nacer ya aprobado ni calificado (16-sep).
+        && !d.keys().hasAny(['datosEditables', 'revision', 'ultimaEdicionId', 'apuntaA', 'cliente', 'marca', 'modeloPlantilla', 'tallaPlantilla', 'codigosCubiertos', 'medicion', 'aprobacion'])
         && d.creadoEn == request.time
         && sellosDeEdicionSegun(d, yo.nombre);
     }

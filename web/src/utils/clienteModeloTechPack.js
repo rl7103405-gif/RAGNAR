@@ -56,7 +56,10 @@ export function identidadDePlantilla(lectura) {
     cliente: texto(c.TP_CLIENTE, 120),
     marca: texto(c.TP_MARCA, 120),
     modeloPlantilla: texto(c.TP_MODELO, 200),
-    tallaPlantilla: tallaDePlantilla(lectura)
+    tallaPlantilla: tallaDePlantilla(lectura),
+    // Los códigos del modelo que trae la tabla: un six pack es UN tech pack
+    // con seis códigos (Roberto, 16-sep), no seis tech packs.
+    codigosCubiertos: codigosDeRenglones(lectura?.tablas?.TP_TABLA_PEDIDO)
   }
 }
 
@@ -77,7 +80,56 @@ export function tallaDePlantilla(lectura) {
   return texto(tallas.length ? tallas.join(' / ') : lectura?.campos?.TP_SISTEMA_TALLA, 120)
 }
 
-export const IDENTIDAD_VACIA = Object.freeze({ cliente: null, marca: null, modeloPlantilla: null, tallaPlantilla: null })
+export const IDENTIDAD_VACIA = Object.freeze({ cliente: null, marca: null, modeloPlantilla: null, tallaPlantilla: null, codigosCubiertos: [] })
+
+/**
+ * La identidad de un tech pack del FORMATO VIEJO (el de Lety, antes de la
+ * plantilla TP-Quini), leída con extraerTechPackViejo. Roberto, 16-sep: Mónica
+ * subió 12 así y quedaron todos en "(sin cliente)" porque solo se leía la
+ * plantilla — el archivo sí traía cliente BEZDEK, marca PIERRE y su modelo.
+ *
+ * @param {{datos: object}} extraido lo que devuelve extraerTechPackViejo
+ */
+export function identidadDeTechPackViejo(extraido) {
+  const d = extraido?.datos || {}
+  return {
+    cliente: texto(d.cliente, 120),
+    marca: texto(d.marca, 120),
+    modeloPlantilla: texto(d.modelo, 200),
+    // El formato viejo no tiene tabla de tallas por renglón como la plantilla:
+    // la talla es el "sistema de talla" (CABALLERO, DAMA, 4-6...).
+    tallaPlantilla: texto(d.sistemaTalla || [...new Set((d.renglones || []).map((r) => r?.talla).filter(Boolean))].join(' / '), 120),
+    codigosCubiertos: codigosDeRenglones(d.renglones)
+  }
+}
+
+/**
+ * LOS CÓDIGOS QUE CUBRE UN TECH PACK. Roberto, 16-sep: "un six pack tiene un
+ * modelo y un solo tech pack, aunque vengan seis códigos". El archivo trae esa
+ * lista en su tabla de códigos; sin ella la app exigía un tech pack por código.
+ * Sin repetidos y acotada: es un índice para buscar, no la prueba de nada.
+ */
+export function codigosDeRenglones(renglones, max = 60) {
+  const vistos = new Set()
+  const salida = []
+  for (const r of renglones || []) {
+    const c = textoDe(r?.codigo ?? r).replace(/\s+/g, '').trim().toUpperCase()
+    // Un código SIEMPRE trae un número (6729-K, 1442-I, 4845, WKD225T401). Sin
+    // esto se colaban encabezados sueltos del Excel viejo como "TEJIDO" o
+    // "COLOR", que después se buscarían como si fueran códigos (medido el
+    // 16-sep en el archivo de 6729-K).
+    if (!c || c.length > 60 || !/[0-9]/.test(c) || vistos.has(c)) continue
+    vistos.add(c)
+    salida.push(c)
+    if (salida.length >= max) break
+  }
+  return salida
+}
+
+/** Los códigos que cubre un tech pack ya guardado (lista vacía si no se sabe). */
+export function codigosCubiertosDe(b) {
+  return Array.isArray(b?.codigosCubiertos) ? b.codigosCubiertos.filter((c) => typeof c === 'string' && c) : []
+}
 
 /** El campo como texto, o '' si no lo es. Defensa: un cliente que no sea texto
  *  (un mapa, un numero) tumbaba la biblioteca entera al pintarse o al ordenar
