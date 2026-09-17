@@ -12,7 +12,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { planVigente } from '../utils/planMaestro'
-import { ErrorBiblioteca, escucharBiblioteca, guardarEnBiblioteca } from '../utils/techPacks'
+import { descargarDeBiblioteca, ErrorBiblioteca, escucharBiblioteca, guardarEnBiblioteca } from '../utils/techPacks'
+import { resumenDeConversion } from '../utils/convertirTechPackAlSubir'
+import { documentosDe } from '../utils/avanceTechPacks'
+import VisorTechPack from './VisorTechPack'
 import { formatoDeArchivo, MAX_TECHPACK_BYTES } from '../utils/tareasEnsamble'
 import {
   asignarOt,
@@ -47,6 +50,8 @@ export default function PanelTareasDiseno() {
   const vista = esAdmin ? 'admin' : puedeAsignarDiseno ? 'jefa' : 'equipo'
 
   const [biblioteca, setBiblioteca] = useState([])
+  // Ver el tech pack desde la tarea, sin ir a Tech packs (Roberto, 17-sep).
+  const [visor, setVisor] = useState(null) // null | { codigo, manifiesto }
   const [encargos, setEncargos] = useState([])
   const [asignaciones, setAsignaciones] = useState([])
   const [lineasPorOt, setLineasPorOt] = useState(new Map())
@@ -69,10 +74,15 @@ export default function PanelTareasDiseno() {
   }
 
   // Subir el tech pack desde la tarea (Lety y su equipo). null = no puede subir.
+  const verTechPack = (codigo) => {
+    const d = documentosDe(codigo, indice).find((b) => b.techPack?.totalChunks)
+    if (d) setVisor({ codigo: d.codigo, manifiesto: d.techPack })
+  }
   const subir = puedeSubirTechPacks
     ? {
         usuario,
         esPrueba,
+        onVer: verTechPack,
         onAviso: (m) => { setError(''); setAviso(m) },
         onError: (e) => {
           setAviso('')
@@ -353,6 +363,13 @@ export default function PanelTareasDiseno() {
       )}
 
       {vista === 'equipo' && <MisAsignaciones asignaciones={asignaciones} indice={indice} subir={subir} />}
+      {visor && (
+        <VisorTechPack
+          techPack={visor.manifiesto}
+          cargar={() => descargarDeBiblioteca({ codigo: visor.codigo, tipo: 'tp', manifiesto: visor.manifiesto })}
+          onCerrar={() => setVisor(null)}
+        />
+      )}
     </div>
   )
 }
@@ -615,7 +632,7 @@ function ListaEncargos({ encargos, avances, asignaciones, equipo, equipoPorJefa,
         </summary>
         {e.notas && <p className="texto-suave" style={{ fontSize: 13 }}>{e.notas}</p>}
         <div style={{ overflowX: 'auto', marginTop: 10 }}>
-          <table className="tabla-datos">
+          <table className="tabla-datos td-tabla-ots">
             <thead>
               <tr>
                 <th>OT</th>
@@ -671,15 +688,14 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
   const persona = equipoDisponible.find((u) => u.id === dest)
   return (
     <tr className={fila.lista ? 'td-lista' : undefined}>
-      <td><span className="tp-codigo">{fila.ot}</span></td>
-      <td style={{ fontSize: 13 }}>
+      <td className="td-col-ot"><span className="tp-codigo">{fila.ot}</span></td>
+      <td className="td-col-codigos">
         {fila.alcanceAlterado && (() => {
           const m = fila.codigosDelPlan?.length || 0
           const n = (fila.codigosDelPlan || []).filter((c) => (fila.codigosAsignados || []).includes(c)).length
           return (
             <span
-              className="tp-pill tp-pill-falta"
-              style={{ display: 'block', marginBottom: 4 }}
+              className="td-nota td-nota-alerta"
               title={`El plan tiene ${m} codigos para esta OT; la asignacion trae ${n} de esos ${m}. Se esta contando el avance contra el plan completo, no contra lo que trae la asignacion.`}
             >
               alcance alterado: la asignacion trae {n} de {m} codigos del plan
@@ -690,43 +706,43 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
             > 1 con la asignacion todavia abierta), el admin lo tiene que ver
             junto a los chips: el denominador de la barra cambio. */}
         {fila.revision > 1 && a?.estado === 'abierta' && (
-          <span className="tp-pill tp-pill-falta" style={{ display: 'block', marginBottom: 4 }}>
+          <span className="td-nota td-nota-alerta">
             alcance corregido (rev {fila.revision})
           </span>
         )}
         {fila.estados.length === 0 ? (
           <span className="texto-suave">sin codigos en el plan</span>
         ) : (
-          fila.estados.map((c) => (
+          <div className="td-chips">{fila.estados.map((c) => (
             <span key={c.codigo} className={`td-codigo td-${c.etiqueta.replace(/ /g, '-')}`} title={`${c.etiqueta}${c.de ? ` · lo cubre el tech pack ${c.de}` : ''}${c.variantes ? ` · ${c.variantes} tallas` : ''}${c.quien ? ` · ${c.quien}` : ''}`}>
               {c.codigo}{c.variantes ? `×${c.variantes}` : ''}
             </span>
-          ))
+          ))}</div>
         )}
         {/* UN SIX PACK ES UN SOLO TECH PACK (Roberto, 16-sep). Si el archivo
             dice cubrir codigos que esta OT no pide, casi siempre es un dedazo
             en el Excel: el six pack PC70493 trae "63-95-K" donde la orden pide
             "6395-K". Se avisa en vez de contarlo como si cuadrara. */}
         {(fila.ajenos || []).map((x) => (
-          <div key={x.codigo} className={x.dedazos.length ? 'tp-pill tp-pill-falta' : 'texto-suave'} style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+          <div key={x.codigo} className={x.dedazos.length ? 'td-nota td-nota-alerta' : 'td-nota'}>
             {x.dedazos.length
               ? `El tech pack ${x.codigo} dice ${x.dedazos.map((d) => `"${d.dice}" donde esta OT pide "${d.deberiaDecir}"`).join(' y ')}: parece un dedazo en el Excel`
-              : `El tech pack ${x.codigo} cubre ${x.cubre} códigos; ${x.fuera.join(', ')} son de otra orden`}
+              : `${x.codigos.length > 1 ? `${x.codigos.length} tech packs (${x.codigos.join(', ')}) cubren` : `El tech pack ${x.codigo} cubre`} códigos de otra orden: ${x.fuera.join(', ')}`}
           </div>
         ))}
         {/* Subir desde aqui (Roberto, 15-sep: Lety no sabia como subir los
             tech packs de lo que repartio). */}
         {subir && fila.estados.length > 0 && (
-          <div style={{ marginTop: 6 }}>
+          <div className="td-subir">
             <button type="button" className="btn-secundario tp-btn-chico" onClick={() => setSubiendoAbierto((v) => !v)}>
-              {subiendoAbierto ? 'Ocultar' : 'Subir tech pack'}
+              {subiendoAbierto ? 'Ocultar' : fila.estados.every((c) => c.tiene) ? 'Ver o reemplazar tech packs' : fila.estados.some((c) => c.tiene) ? 'Ver o subir tech packs' : 'Subir tech pack'}
             </button>
             {subiendoAbierto && (
               <div className="td-subir-lista">
                 {fila.estados.map((c) => (
                   <div key={c.codigo} className="td-subir-renglon">
                     <span className="tp-codigo">{c.codigo}</span>
-                    <SubirTechPackDeCodigo codigo={c.codigo} tiene={c.tiene} variantes={c.variantes} ocupado={ocupado} {...subir} />
+                    <SubirTechPackDeCodigo codigo={c.codigo} tiene={c.tiene} variantes={c.variantes} de={c.de} ocupado={ocupado} {...subir} />
                   </div>
                 ))}
               </div>
@@ -734,27 +750,33 @@ function FilaOt({ fila, encargo, equipo, equipoPorJefa, puedeRepartir, cargandoL
           </div>
         )}
       </td>
-      <td style={{ fontSize: 13 }}>
+      <td className="td-col-quien">
         {a ? (
           <>
-            {a.asignadoANombre}
-            {a.estado !== 'abierta' && <span className="tp-pill" style={{ marginLeft: 6 }}>{a.estado}</span>}
-            <div className="texto-suave" style={{ fontSize: 12 }}>
-              desde {fecha(a.creadoEn)}{a.fechaObjetivo ? ` · para el ${fecha(a.fechaObjetivo)}` : ''}
+            <div className="td-quien-nombre">
+              {a.asignadoANombre}
+              {a.estado !== 'abierta' && <span className="tp-pill" style={{ marginLeft: 6 }}>{a.estado}</span>}
             </div>
+            {/* Dos renglones cortos a proposito: "desde ... · para el ..." en
+                uno solo partia en seis (Roberto, 17-sep: "se ve muy desordenado"). */}
+            <div className="td-quien-fecha">desde {fecha(a.creadoEn)}</div>
+            {a.fechaObjetivo && <div className="td-quien-fecha">para el {fecha(a.fechaObjetivo)}</div>}
             <HistorialAsignacion asignacion={a} />
           </>
         ) : (
           <span className="tp-pill tp-pill-falta">sin asignar</span>
         )}
       </td>
-      <td style={{ whiteSpace: 'nowrap' }}>
-        <Barra porcentaje={fila.porcentaje} chica />
-        <span style={{ marginLeft: 6, fontSize: 13 }}>{fila.lista ? 'lista' : fila.total ? `${fila.listos} de ${fila.total} codigos` : 'sin codigos todavia'}</span>
+      <td className="td-col-avance">
+        <div className="td-avance-linea">
+          <Barra porcentaje={fila.porcentaje} chica />
+          <span>{fila.lista ? 'lista' : fila.total ? `${fila.listos} de ${fila.total}` : 'sin codigos'}</span>
+        </div>
+        {!fila.lista && fila.total > 0 && fila.porcentaje > 0 && <div className="td-quien-fecha">{fila.porcentaje}% en promedio</div>}
         {/* usuario-real (10-sep): "Asignada a" y "Quien lo ha trabajado" se
             peleaban en dos columnas y la tabla no cabia (987 px en 818).
             Quien ha tocado los tech packs va aqui, chiquito, solo si hay. */}
-        {fila.quienes.length > 0 && <div className="texto-suave" style={{ fontSize: 12 }} title="Quien ha subido o editado los tech packs de estos codigos">tech packs de {fila.quienes.join(', ')}</div>}
+        {fila.quienes.length > 0 && <div className="td-quien-fecha" title="Quien ha subido o editado los tech packs de estos codigos">subió {fila.quienes.join(', ')}</div>}
       </td>
       <td>
         {puedeRepartir && (!a || reasignando) && (
@@ -968,10 +990,10 @@ function MisAsignaciones({ asignaciones, indice, subir }) {
         {/* El tech pack dice cubrir codigos que esta OT no pide: casi siempre
             es un dedazo en el Excel (Roberto, 16-sep). */}
         {(av.ajenos || []).map((x) => (
-          <div key={x.codigo} className={x.dedazos.length ? 'tp-pill tp-pill-falta' : 'texto-suave'} style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+          <div key={x.codigo} className={x.dedazos.length ? 'td-nota td-nota-alerta' : 'td-nota'}>
             {x.dedazos.length
               ? `Tu tech pack ${x.codigo} dice ${x.dedazos.map((d) => `"${d.dice}" donde esta OT pide "${d.deberiaDecir}"`).join(' y ')}: parece un dedazo en el Excel`
-              : `Tu tech pack ${x.codigo} cubre ${x.cubre} códigos; ${x.fuera.join(', ')} son de otra orden`}
+              : `${x.codigos.length > 1 ? `${x.codigos.length} tech packs (${x.codigos.join(', ')}) cubren` : `Tu tech pack ${x.codigo} cubre`} códigos de otra orden: ${x.fuera.join(', ')}`}
           </div>
         ))}
         <table className="tabla-datos" style={{ marginTop: 10 }}>
@@ -997,7 +1019,7 @@ function MisAsignaciones({ asignaciones, indice, subir }) {
                 <td>{c.tiene ? `${c.porcentaje}%` : <span className="texto-suave">{subir ? 'falta el archivo' : 'sube el archivo en Tech packs'}</span>}</td>
                 <td className="texto-suave" style={{ fontSize: 13 }}>{c.quien || '—'}</td>
                 {subir && (
-                  <td><SubirTechPackDeCodigo codigo={c.codigo} tiene={c.tiene} variantes={c.variantes} {...subir} /></td>
+                  <td><SubirTechPackDeCodigo codigo={c.codigo} tiene={c.tiene} variantes={c.variantes} de={c.de} {...subir} /></td>
                 )}
               </tr>
             ))}
@@ -1013,11 +1035,32 @@ function MisAsignaciones({ asignaciones, indice, subir }) {
 // codigo). Guarda exactamente igual que la biblioteca (guardarEnBiblioteca:
 // version, "quien lo modifico", cliente/modelo/talla), y el avance de la
 // tarea se mueve solo porque sale de la biblioteca en vivo.
-function SubirTechPackDeCodigo({ codigo, tiene, variantes, ocupado, usuario, esPrueba, onAviso, onError }) {
+function SubirTechPackDeCodigo({ codigo, tiene, variantes, de, ocupado, usuario, esPrueba, onAviso, onError, onVer }) {
   const [subiendo, setSubiendo] = useState('')
   // Un codigo con varias tallas vive como varios tech packs (uno por talla):
   // subir al codigo base crearia uno nuevo y suelto. Eso se hace en Tech packs.
-  if (variantes) return <span className="texto-suave" style={{ fontSize: 12 }}>{variantes} tallas: en Tech packs</span>
+  // Se puede VER (abre la primera talla; onVer ya la resuelve con
+  // documentosDe), solo no se sube desde aqui.
+  if (variantes) {
+    return (
+      <span className="tp-fila" style={{ gap: 6 }}>
+        {onVer && <button type="button" className="btn-primario tp-btn-chico" onClick={() => onVer(codigo)}>Ver tech pack</button>}
+        <span className="texto-suave" style={{ fontSize: 12 }}>{variantes} tallas: en Tech packs</span>
+      </span>
+    )
+  }
+  // Lo cubre el tech pack de OTRO modelo (un six pack): "Ver" y "Reemplazar"
+  // apuntaban a documentos distintos -- Reemplazar creaba un documento suelto
+  // bajo el codigo de la tarea que nadie pidio (Roberto: un six pack es UN
+  // tech pack con sus codigos). Aqui solo se puede VER el que lo cubre.
+  if (de) {
+    return (
+      <span className="tp-fila" style={{ gap: 6 }}>
+        {onVer && <button type="button" className="btn-primario tp-btn-chico" onClick={() => onVer(codigo)}>Ver tech pack</button>}
+        <span className="texto-suave" style={{ fontSize: 12 }}>lo cubre el tech pack {de}</span>
+      </span>
+    )
+  }
   const elegir = async (file) => {
     if (!file) return
     const formato = formatoDeArchivo(file.name)
@@ -1026,8 +1069,9 @@ function SubirTechPackDeCodigo({ codigo, tiene, variantes, ocupado, usuario, esP
     if (tiene && !window.confirm(`${codigo} ya tiene tech pack. Lo vas a REEMPLAZAR por "${file.name}" (el anterior queda en su historial). ¿Seguir?`)) return
     setSubiendo('Subiendo...')
     try {
-      const id = await guardarEnBiblioteca({ codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setSubiendo })
-      onAviso(`Tech pack de ${id || codigo} guardado. Para que cuente como listo, llena su checklist en Tech packs (boton Editar).`)
+      let convertido = null
+      const id = await guardarEnBiblioteca({ codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setSubiendo, onConvertido: (r) => { convertido = r } })
+      onAviso(`Tech pack de ${id || codigo} guardado. Entra a la biblioteca cuando Lety lo apruebe.` + resumenDeConversion(convertido))
     } catch (err) {
       onError(err)
     } finally {
@@ -1036,10 +1080,17 @@ function SubirTechPackDeCodigo({ codigo, tiene, variantes, ocupado, usuario, esP
   }
   const apagado = ocupado || Boolean(subiendo)
   return (
-    <label className={`${tiene ? 'btn-secundario' : 'btn-primario'} tp-btn-chico tp-btn-archivo ${apagado ? 'apagado' : ''}`} title="PDF o Excel, maximo 15 MB">
-      {subiendo || (tiene ? 'Reemplazar' : 'Subir tech pack')}
-      <input type="file" accept=".pdf,.xlsx" style={{ display: 'none' }} disabled={apagado} onChange={(e) => { elegir(e.target.files?.[0]); e.target.value = '' }} />
-    </label>
+    <span className="tp-fila" style={{ gap: 6 }}>
+      {/* Lo que ya se subio se VE desde aqui; "Subir" solo cuando no hay nada
+          (Roberto, 17-sep: "no entiendo por que dice subir si ya se subieron"). */}
+      {tiene && onVer && (
+        <button type="button" className="btn-primario tp-btn-chico" onClick={() => onVer(codigo)}>Ver tech pack</button>
+      )}
+      <label className={`${tiene ? 'btn-secundario' : 'btn-primario'} tp-btn-chico tp-btn-archivo ${apagado ? 'apagado' : ''}`} title="PDF o Excel, maximo 15 MB">
+        {subiendo || (tiene ? 'Reemplazar' : 'Subir tech pack')}
+        <input type="file" accept=".pdf,.xlsx" style={{ display: 'none' }} disabled={apagado} onChange={(e) => { elegir(e.target.files?.[0]); e.target.value = '' }} />
+      </label>
+    </span>
   )
 }
 

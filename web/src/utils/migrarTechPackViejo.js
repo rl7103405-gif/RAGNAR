@@ -546,7 +546,9 @@ export function extraerTechPackViejo(libro, ctx = {}) {
     renglones,
     codigosRuta,
     ruta,
-    avios: avios.map(({ clave, descripcion, usa, comoSeUsa, talla, imagen }) => ({ clave, descripcion, usa, comoSeUsa, talla, imagen })),
+    // `confianza` viaja con el avio: al convertir al subir, un USA adivinado del
+    // texto de CANTIDAD (baja) se deja vacio en vez de escribirlo como dato.
+    avios: avios.map(({ clave, descripcion, usa, comoSeUsa, talla, imagen, confianza }) => ({ clave, descripcion, usa, comoSeUsa, talla, imagen, confianza })),
     textos,
     packsPorBolsa: packsPorBolsa || undefined,
     docenasPorCaja: docenasPorCaja || undefined,

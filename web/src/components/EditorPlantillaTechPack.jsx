@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import { LISTAS, ZONAS_FOTO } from '../utils/plantillaTechPack'
 import { descargarDeBiblioteca, ErrorBiblioteca, guardarEnBiblioteca } from '../utils/techPacks'
+import { resumenDeConversion } from '../utils/convertirTechPackAlSubir'
 import { cargarWorkbook, ErrorLibreriaExcel } from '../utils/excelJs'
 import { esPlantilla, leerPedidoV1, leerPlantilla } from '../utils/leerPlantillaTechPack'
 import { generarPlantillaTechPack } from '../utils/generarPlantillaTechPack'
@@ -128,7 +129,10 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
           sobrantes: l.noMigrado || [],
           // Lo que el tech pack traia del pedido (v1): no se ve, pero se conserva.
           // Abrir un v1 y guardarlo lo convierte a v2 sin perder el dato.
-          pedidoAnterior: l.pedidoAnterior || leerPedidoV1(libro) || null
+          pedidoAnterior: l.pedidoAnterior || leerPedidoV1(libro) || null,
+          // De donde salio este tech pack (si se convirtio al subir): se conserva.
+          migradoDe: l.migradoDe || null,
+          reporteMigracion: l.reporteMigracion || null
         })
         setEstado('listo')
       } catch (err) {
@@ -171,13 +175,18 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
           paresPorPack: num(d.paresPorPack), packsPorBolsa: num(d.packsPorBolsa), docenasPorCaja: num(d.docenasPorCaja),
           renglones: d.renglones.map((r) => ({ talla: r.talla, codigo: r.codigo, claveMicrosip: r.claveMicrosip, descripcion: r.descripcion, upc: r.upc })),
           pedidoAnterior: d.pedidoAnterior || null,
+          migradoDe: d.migradoDe || null,
+          reporteMigracion: d.reporteMigracion || null,
           avios: d.avios.map((a) => ({ ...a, usa: num(a.usa) ?? null })),
           generadoPorUid: usuario.uid, generadoPorNombre: usuario.nombre
         }
       })
       const contenido = await libro.xlsx.writeBuffer()
-      await guardarEnBiblioteca({ codigo: item.codigo, tipo: 'tp', contenido, nombre: nombreDeArchivo(item.codigo), formato: 'xlsx', usuario, esPrueba, onProgreso: setProgreso })
-      onGuardado(`Tech pack de ${item.codigo} guardado (version ${(item.techPack?.version || 1) + 1}). La calificacion se actualiza en la siguiente medicion.`)
+      let convertido = null
+      await guardarEnBiblioteca({ codigo: item.codigo, tipo: 'tp', contenido, nombre: nombreDeArchivo(item.codigo), formato: 'xlsx', usuario, esPrueba, onProgreso: setProgreso, onConvertido: (r) => { convertido = r } })
+      // guardarEnBiblioteca ya calcula la medicion al guardar (no en una
+      // "siguiente medicion" que no existe como tal).
+      onGuardado(`Tech pack de ${item.codigo} guardado (version ${(item.techPack?.version || 1) + 1}). Calificación actualizada.` + resumenDeConversion(convertido))
     } catch (err) {
       console.error('[EditorPlantilla] guardar', err)
       setError(err instanceof ErrorBiblioteca ? err.message : 'No se pudo guardar: ' + (err?.message || err))

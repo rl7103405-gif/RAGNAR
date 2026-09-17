@@ -157,7 +157,20 @@ export function estadoDelCodigo(codigo, indice) {
     porcentaje,
     revisado: evals.some((e) => e.revisado),
     quien: ultimo?.quien || '',
-    variantes: lista.length > 1 ? lista.length : 0,
+    // xN solo cuando son TALLAS del mismo codigo (WKD225T401-4-6, -7-9...). Los
+    // tech packs de otros modelos que declaran cubrirlo no son variantes: ocho
+    // BEZDEK viejos cubren 6052-K y el chip decia '6052-K x8' (Roberto, 17-sep).
+    // Igual que documentosDe: una cuenta de prueba guarda 'ZZTEST<codigo>-...',
+    // no '<codigo>-...'. Sin el prefijo, dos tallas de prueba contaban 0 y se
+    // perdia la proteccion de "N tallas: en Tech packs" (Codex, 17-sep).
+    variantes: (() => {
+      const base = codigoComoId(codigo)
+      const n = lista.filter((b) => {
+        const c = String(b.codigo)
+        return c.startsWith(base + '-') || (b.esPrueba && c.startsWith('ZZTEST' + base + '-'))
+      }).length
+      return n > 1 ? n : 0
+    })(),
     de: otro,
     etiqueta: listo
       ? 'listo'
@@ -202,7 +215,12 @@ export function avanceDeOt(codigos, indice) {
     const dedazos = fuera
       .map((c) => ({ dice: c, deberiaDecir: pedidosPelados.get(pelado(c)) }))
       .filter((x) => x.deberiaDecir)
-    ajenos.push({ codigo: String(b.codigo), cubre: cubre.length, fuera, dedazos })
+    // Varios tech packs con los MISMOS codigos de otra orden (los ocho BEZDEK
+    // viejos que cubren 6052-K) son UNA nota, no ocho iguales (Roberto, 17-sep:
+    // "se ve muy desordenado"). Los dedazos no se agrupan: cada uno es suyo.
+    const igual = !dedazos.length && ajenos.find((x) => !x.dedazos.length && x.fuera.join('|') === fuera.join('|'))
+    if (igual) { igual.codigos.push(String(b.codigo)); continue }
+    ajenos.push({ codigo: String(b.codigo), codigos: [String(b.codigo)], cubre: cubre.length, fuera, dedazos })
   }
   return {
     estados,

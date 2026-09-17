@@ -306,6 +306,34 @@ function campo(hoja, nombre, libro, valor) {
  *                                  Si trae oc, packs, u ot/docenas por renglon, se ignoran
  *                                  (solo `ot` se anota en _RAGNAR como generadoDesdeOt).
  */
+// Una celda de Excel aguanta 32,000 caracteres. Cortar el JSON a la mitad lo
+// vuelve ilegible: Codex (17-sep) metio 300 sobrantes y al releer salian CERO.
+// Se quitan registros COMPLETOS hasta que quepa, y se deja constancia.
+const MAX_CELDA = 32000
+function jsonQueCabe(valor) {
+  let s = JSON.stringify(valor)
+  if (s.length <= MAX_CELDA) return s
+  if (Array.isArray(valor)) {
+    let lista = valor
+    // De UNO en uno desde el final: al 20% una lista corta se vaciaba de
+    // golpe y el visor no alcanzaba a mostrar el marcador (Codex, 17-sep).
+    while (lista.length && s.length > MAX_CELDA) {
+      lista = lista.slice(0, -1)
+      s = JSON.stringify([...lista, { recortado: true, faltan: valor.length - lista.length }])
+    }
+    return s.length <= MAX_CELDA ? s : ''
+  }
+  // Objeto (el reporte de migracion): primero fuera 'campos', que es lo largo;
+  // luego se acortan sus listas de a un registro.
+  const o = { ...valor, recortado: true }
+  delete o.campos
+  s = JSON.stringify(o)
+  for (const k of Object.keys(o)) {
+    while (Array.isArray(o[k]) && o[k].length && s.length > MAX_CELDA) { o[k] = o[k].slice(0, -1); s = JSON.stringify(o) }
+  }
+  return s.length <= MAX_CELDA ? s : ''
+}
+
 export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = {} }) {
   const libro = new Workbook()
   libro.creator = 'RAGNAR'
@@ -334,7 +362,13 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
   // ---------------------------------------------------------------- 1 PEDIDO
   const pedido = hojas.pedido
   libro.definedNames.add(referencia('pedido', CAMPOS.TP_PLANTILLA.celda), 'TP_PLANTILLA')
-  const fecha = datos.fecha instanceof Date && !isNaN(datos.fecha) ? datos.fecha : datos.ahora ? new Date(datos.ahora) : new Date()
+  // sinRellenos (el convertidor de formatos viejos): sin fecha explicita NO
+  // se inventa "hoy" -- la celda queda vacia y la calificacion lo marca como
+  // faltante de verdad, en vez de dar por bueno un dato que nadie capturo.
+  const ahoraGen = datos.ahora ? new Date(datos.ahora) : new Date()
+  const fecha = datos.fecha instanceof Date && !isNaN(datos.fecha)
+    ? datos.fecha
+    : datos.sinRellenos ? undefined : ahoraGen
   for (const [nombre, valor] of [
     ['TP_MODELO', datos.modelo], ['TP_FECHA', fecha],
     ['TP_CLIENTE', datos.cliente], ['TP_MARCA', datos.marca], ['TP_ELABORO', datos.elaboro]
@@ -386,7 +420,12 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
   }
   const extraCod = Math.max(0, nRenglones - TABLAS.TP_TABLA_CODIGOS.filasReservadas)
   const primeraRuta = tabla(codigos, 'TP_RUTA', libro, 0, extraCod)
-  const rutaBase = Array.isArray(datos.ruta) && datos.ruta.length ? datos.ruta.slice(0, 7) : ['TEJIDO', 'CERRADO', 'VOLTEADO', 'HORMADO', 'PAREADO', 'HABILITADO', 'EMBALAJE']
+  // sinRellenos: sin ruta explicita se deja VACIA, no los 7 procesos por
+  // default -- si no, un formato viejo sin ruta calificaba "ruta" como
+  // completa con un dato que nadie capturo.
+  const rutaBase = Array.isArray(datos.ruta) && datos.ruta.length
+    ? datos.ruta.slice(0, 7)
+    : datos.sinRellenos ? [] : ['TEJIDO', 'CERRADO', 'VOLTEADO', 'HORMADO', 'PAREADO', 'HABILITADO', 'EMBALAJE']
   rutaBase.forEach((p, i) => { codigos.getCell(primeraRuta, i + 1).value = p })
 
   // ------------------------------------------------------------------ 3 AVIOS
@@ -455,17 +494,17 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
   const valores = {
     plantilla: PLANTILLA.id,
     version: PLANTILLA.version,
-    generadoEn: fecha.toISOString(),
+    generadoEn: ahoraGen.toISOString(),
     generadoDesdeOt: datos.ot || '',
     generadoPorUid: datos.generadoPorUid || '',
     generadoPorNombre: datos.generadoPorNombre || '',
     migradoDe: datos.migradoDe ? JSON.stringify(datos.migradoDe) : '',
-    reporteMigracion: datos.reporteMigracion ? JSON.stringify(datos.reporteMigracion).slice(0, 32000) : '',
+    reporteMigracion: datos.reporteMigracion ? jsonQueCabe(datos.reporteMigracion) : '',
     // Textos del original que el convertidor no supo acomodar: se guardan
     // para que el visor los ensene y Lety los ponga donde van.
     // Lo que un v1 traia del pedido (OC, packs, OT y docenas): oculto, no se tira.
     pedidoAnterior: textoPedidoAnterior(datos.pedidoAnterior).texto,
-    noMigrado: Array.isArray(datos.sobrantes) && datos.sobrantes.length ? JSON.stringify(datos.sobrantes).slice(0, 32000) : '',
+    noMigrado: Array.isArray(datos.sobrantes) && datos.sobrantes.length ? jsonQueCabe(datos.sobrantes) : '',
     // Los rangos REALES de este libro (las tablas pueden haber crecido).
     manifiesto: JSON.stringify({ ...manifiesto(), nombres: Object.fromEntries((libro.definedNames.model || []).map((d) => [d.name, d.ranges[0]])) })
   }

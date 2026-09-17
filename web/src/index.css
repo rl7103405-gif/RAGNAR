@@ -712,6 +712,22 @@ table th, table td {
 .tp-busca-input::-webkit-search-cancel-button { display: none; }
 .tp-busca-limpiar { flex: none; width: 30px; height: 30px; border: 0; border-radius: 50%; background: #e2e8f0; color: #334155; font-size: 20px; line-height: 1; cursor: pointer; }
 .tp-busca-limpiar:hover { background: #cbd5e1; }
+/* LA TABLA DE OT DE UN ENCARGO. Roberto la vio en vivo (17-sep): "se ve muy
+   desordenado". Cada columna con su ancho, todo arriba alineado, el nombre de
+   la persona en un renglon, las fechas en dos cortos, y los avisos como notas
+   discretas en vez de pildoras en bloque. */
+.td-tabla-ots th { white-space: nowrap; }
+.td-tabla-ots td { vertical-align: top; font-size: 13px; }
+.td-tabla-ots .td-col-ot { width: 56px; }
+.td-tabla-ots .td-col-quien { min-width: 170px; white-space: nowrap; }
+.td-tabla-ots .td-col-avance { min-width: 150px; }
+.td-chips { display: flex; flex-wrap: wrap; gap: 2px 0; }
+.td-nota { display: block; margin-top: 5px; font-size: 12px; color: var(--texto-suave); line-height: 1.35; max-width: 640px; }
+.td-nota-alerta { color: #b91c1c; background: #fef2f2; border-left: 3px solid #fca5a5; padding: 3px 8px; border-radius: 4px; }
+.td-subir { margin-top: 8px; }
+.td-quien-nombre { font-weight: 600; }
+.td-quien-fecha { font-size: 12px; color: var(--texto-suave); margin-top: 2px; }
+.td-avance-linea { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .td-subir-lista { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
 .td-subir-renglon { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tp-subir-cab { border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; }
@@ -845,8 +861,10 @@ table th, table td {
 .tpv-paso { background: #eff6ff; color: #1e40af; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
 .tpv-texto { margin: 0; white-space: pre-wrap; }
 .tpv-fotos { display: flex; flex-wrap: wrap; gap: 8px; }
-.tpv-foto { border: 1px solid var(--borde); border-radius: 6px; padding: 0; background: #fff; cursor: zoom-in; overflow: hidden; height: 150px; }
-.tpv-foto img { height: 100%; width: auto; max-width: 320px; object-fit: contain; display: block; }
+/* Fotos GRANDES (Roberto, 17-sep: "lo de las fotos, hacerla grande, que quede
+   bien"). La maquila arma el par mirando la foto: chica no sirve. */
+.tpv-foto { border: 1px solid var(--borde); border-radius: 6px; padding: 0; background: #fff; cursor: zoom-in; overflow: hidden; height: 240px; }
+.tpv-foto img { height: 100%; width: auto; max-width: min(520px, 90vw); object-fit: contain; display: block; }
 .tpv-foto-mini { height: 40px; }
 .tpv-foto-mini img { max-width: 60px; }
 .tpv-sinfoto { color: #b45309; font-size: 12px; font-style: italic; }
@@ -859,8 +877,8 @@ table th, table td {
 .tpv-pestana.con-falta .tpv-num { background: #fee2e2; color: #991b1b; }
 .tpv-pestana.activa { background: #1e40af; border-color: #1e40af; color: #fff; }
 .tpv-pestana.activa .tpv-num { background: rgba(255,255,255,.25); color: #fff; }
-.tpv-foto-grande { height: 260px; }
-.tpv-foto-grande img { max-width: 520px; }
+.tpv-foto-grande { height: 380px; }
+.tpv-foto-grande img { max-width: min(800px, 90vw); }
 
 .tp-desplegar { background: none; border: none; padding: 0; font: inherit; color: var(--acento, #1e40af); cursor: pointer; font-weight: 600; }
 .tp-lista-falta { display: flex; flex-wrap: wrap; gap: 6px 14px; }

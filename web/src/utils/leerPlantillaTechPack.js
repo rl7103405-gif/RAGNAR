@@ -50,7 +50,13 @@ export function leerPlantilla(libro) {
   const nombres = new Map()
   for (const d of libro.definedNames?.model || []) if (d?.name && d.ranges?.[0]) nombres.set(d.name, d.ranges[0])
   for (const n of [...Object.keys(CAMPOS), ...Object.keys(TABLAS), ...Object.keys(ZONAS_FOTO)]) {
-    if (!nombres.has(n)) faltaEstructura.push(`nombre ${n}`)
+    if (!nombres.has(n)) { faltaEstructura.push(`nombre ${n}`); continue }
+    // El nombre existe pero puede apuntar a una hoja borrada o a un rango que
+    // no se puede leer: eso tambien es plantilla danada, no un dato ausente
+    // (Codex, 17-sep: TP_CLIENTE apuntando a una hoja inexistente se aceptaba
+    // con faltaEstructura vacio y el cliente salia null en vez de rechazarse).
+    const r = parsearRango(nombres.get(n))
+    if (!r || !libro.getWorksheet(r.hoja)) faltaEstructura.push(`nombre ${n}`)
   }
 
   const leerCelda = (hoja, fila, col) => {
@@ -133,6 +139,10 @@ export function leerPlantilla(libro) {
   let noMigrado = []
   let pedidoAnterior = null
   let version = 1
+  // La traza de donde salio (migradoDe, reporteMigracion) tambien se lee: el
+  // editor regenera el libro y sin esto la perdia (Codex, 17-sep).
+  let migradoDe = null
+  let reporteMigracion = null
   const hr = libro.getWorksheet(HOJAS.ragnar)
   if (hr) {
     for (let f = 1; f <= Math.min(hr.rowCount, 20); f++) {
@@ -144,11 +154,15 @@ export function leerPlantilla(libro) {
         try { pedidoAnterior = JSON.parse(String(valor)) } catch { pedidoAnterior = null }
       } else if (clave === 'version') {
         version = Number(valor) || 1
+      } else if (clave === 'migradoDe' && valor) {
+        try { migradoDe = JSON.parse(String(valor)) } catch { migradoDe = null }
+      } else if (clave === 'reporteMigracion' && valor) {
+        try { reporteMigracion = JSON.parse(String(valor)) } catch { reporteMigracion = null }
       }
     }
   }
 
-  return { faltaEstructura, campos, tablas, fotos, imagenesZona, imagenesAvios, noMigrado, pedidoAnterior, version }
+  return { faltaEstructura, campos, tablas, fotos, imagenesZona, imagenesAvios, noMigrado, pedidoAnterior, version, migradoDe, reporteMigracion }
 }
 
 /**

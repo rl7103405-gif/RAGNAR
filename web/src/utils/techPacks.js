@@ -46,10 +46,8 @@ import { normalizarCodigo, normalizarOt, normalizarOc } from './planMaestroNucle
 import { renglonesDeLaOt, otsDeLaOc } from './planMaestro'
 import { datosDeCodigos } from './datosDelCatalogo'
 import { cargarWorkbook } from './excelJs'
-import { esPlantilla, leerPlantilla, medirPlantilla } from './leerPlantillaTechPack'
-import { medirCompletado } from './completadoTechPack'
-import { extraerTechPackViejo } from './migrarTechPackViejo'
-import { IDENTIDAD_VACIA, coincideTechPack, identidadDePlantilla, identidadDeTechPackViejo, modelosDelTechPack, textoDe } from './clienteModeloTechPack'
+import { ErrorConversion, pasarAlFormatoTPQuini } from './convertirTechPackAlSubir'
+import { IDENTIDAD_VACIA, coincideTechPack, identidadDePlantilla, modelosDelTechPack, textoDe } from './clienteModeloTechPack'
 import { idPedazo, idPedazoViejo } from './pedazosTechPack'
 import { CHECKLIST_VERSION, codigoComoId, datosDelTechPack } from './techPackNucleo'
 import {
@@ -101,7 +99,8 @@ export async function guardarEnBiblioteca({
   formato,
   usuario,
   esPrueba,
-  onProgreso = () => {}
+  onProgreso = () => {},
+  onConvertido = () => {}
 }) {
   const def = validarTipo(tipo)
   let id = codigoComoId(codigo)
@@ -121,53 +120,62 @@ export async function guardarEnBiblioteca({
   if (!usuario?.uid || !usuario?.nombre) throw new ErrorBiblioteca('Tu cuenta no tiene nombre configurado.')
   if (formato !== 'pdf' && formato !== 'xlsx') throw new ErrorBiblioteca('El archivo tiene que ser .pdf o .xlsx. Mejor PDF.')
 
-  const bytes = new Uint8Array(contenido)
+  let bytes = new Uint8Array(contenido)
+  let nombreFinal = nombre
   if (bytes.length === 0) throw new ErrorBiblioteca('El archivo esta vacio.')
   if (bytes.length > MAX_TECHPACK_BYTES) throw new ErrorBiblioteca('El archivo rebasa los 15 MB.')
+
+  // TODO TECH PACK DE EMPAQUE EN EXCEL ENTRA EN LA PLANTILLA TP-QUINI v2
+  // (Roberto, 17-sep: "el sistema se debe encargar de pasarlo al formato; no
+  // deberiamos tener nada de OT ni OC en los tech packs"). Un formato viejo se
+  // convierte aqui, antes de calcular huella y pedazos: lo que se sube ES el
+  // convertido. Si no se puede convertir, NO se sube nada y el archivo
+  // vigente no se toca (ver convertirTechPackAlSubir.js). De la plantilla
+  // salen tambien cliente, marca, modelo, codigos y la calificacion. Un PDF
+  // no se puede convertir ni leer: queda sin cliente y sin calificar.
+  let identidad = null
+  let conversion = null
+  if (def.campo === 'techPack') {
+    identidad = { ...IDENTIDAD_VACIA }
+    if (formato === 'xlsx') {
+      onProgreso('Pasando el archivo al formato TP-Quini...')
+      try {
+        const Workbook = await cargarWorkbook()
+        const { LOGO_QUINI_PNG_BASE64 } = await import('../assets/logoQuini.js')
+        conversion = await pasarAlFormatoTPQuini({
+          contenido,
+          codigo: id,
+          nombre,
+          sha256Original: await sha256Hex(contenido),
+          usuarioNombre: usuario.nombre,
+          Workbook,
+          logoBase64: LOGO_QUINI_PNG_BASE64
+        })
+      } catch (err) {
+        // Solo la conversion vive en este catch: lo que falle al publicar
+        // (permisos, concurrencia) sale con su propio error mas abajo.
+        if (err instanceof ErrorConversion) throw new ErrorBiblioteca(err.message)
+        throw new ErrorBiblioteca('No se pudo pasar el archivo al formato TP-Quini: ' + (err?.message || err))
+      }
+      bytes = conversion.contenido
+      nombreFinal = conversion.nombre
+      if (bytes.length > MAX_TECHPACK_BYTES) throw new ErrorBiblioteca('Al pasarlo a la plantilla el archivo rebasa los 15 MB: reduce las fotos e intenta de nuevo.')
+      identidad = identidadDePlantilla(conversion.lectura)
+      identidad.medicion = { ...conversion.medicion, hojas: conversion.hojas, medidoEn: new Date(), version: '2026-09-v2-plantilla' }
+    } else {
+      // Un PDF no se puede calificar: sin este null, update() solo toca las
+      // llaves que manda y la medicion del Excel anterior seguia viva --un
+      // PDF nuevo salia con el 100% de otro archivo (Codex, 17-sep).
+      identidad.medicion = null
+    }
+  }
   const totalChunks = Math.ceil(bytes.length / CHUNK_BYTES)
   if (totalChunks > MAX_CHUNKS) throw new ErrorBiblioteca('El archivo rebasa los 15 MB.')
 
   onProgreso('Preparando el archivo...')
-  const sha256 = await sha256Hex(contenido)
-
-  // CLIENTE, MARCA y MODELO salen del archivo (Roberto, 15-sep: los tech
-  // packs se manejan por modelo y cliente). Se leen ANTES de escribir nada, y
-  // solo del tech pack de empaque: la FTT no cambia la identidad. Un PDF o un
-  // Excel que no es la plantilla deja los tres en null: no se heredan del
-  // archivo anterior, porque ya no lo describirian.
-  let identidad = null
-  if (def.campo === 'techPack') {
-    identidad = { ...IDENTIDAD_VACIA }
-    if (formato === 'xlsx') {
-      try {
-        onProgreso('Leyendo el archivo (cliente, modelo y codigos)...')
-        const Workbook = await cargarWorkbook()
-        const libro = new Workbook()
-        await libro.xlsx.load(contenido)
-        if (esPlantilla(libro)) {
-          const lectura = leerPlantilla(libro)
-          identidad = identidadDePlantilla(lectura)
-          identidad.medicion = { ...medirPlantilla(lectura), hojas: libro.worksheets.length, medidoEn: new Date(), version: '2026-09-v2-plantilla' }
-        } else {
-          // FORMATO VIEJO (el de Lety): el archivo SI trae cliente, marca,
-          // modelo y sus codigos. Monica subio 12 asi el 15-sep y quedaron
-          // todos en "(sin cliente)" porque solo se leia la plantilla
-          // (Roberto, 16-sep).
-          identidad = identidadDeTechPackViejo(extraerTechPackViejo(libro, { codigo: id }))
-          identidad.medicion = {
-            ...medirCompletado({ hojas: libro.worksheets.map((h) => ({ nombre: h.name, imagenes: h.getImages() })) }),
-            hojas: libro.worksheets.length,
-            medidoEn: new Date(),
-            version: '2026-09-v1'
-          }
-        }
-      } catch (err) {
-        // Leer la identidad es un adorno de busqueda: si falla, el archivo se
-        // sube igual y queda "sin cliente" hasta la siguiente subida.
-        console.warn('[TechPacks] No se pudo leer cliente/modelo del archivo:', err?.message || err)
-      }
-    }
-  }
+  // La huella del manifiesto es la del archivo que de verdad se guarda (el
+  // convertido); la del original queda en _RAGNAR.migradoDe.
+  const sha256 = await sha256Hex(bytes)
 
   // El documento padre tiene que existir ANTES que los chunks: las reglas de
   // los chunks leen su esPrueba para el corral. Si es nuevo, nace aqui con la
@@ -233,7 +241,7 @@ export async function guardarEnBiblioteca({
   const vigente = await getDoc(refDoc(id))
   const previo = vigente.exists() ? vigente.data()[def.campo] : null
   const manifiestoNuevo = {
-    nombre: String(nombre || def.clave).slice(0, 200),
+    nombre: String(nombreFinal || def.clave).slice(0, 200),
     formato,
     tamano: bytes.length,
     totalChunks,
@@ -293,6 +301,8 @@ export async function guardarEnBiblioteca({
   // siempre este completo. Despues se limpian los de versiones anteriores.
   await reponerPedazos(id, def, sha256, bytes, totalChunks)
   await limpiarPedazosSobrantes(id, def, sha256, manifiestoNuevo.version)
+  // Lo que paso al convertir (que falta, que revisar), para el aviso en pantalla.
+  if (conversion) onConvertido(conversion)
   // El id con el que QUEDO guardado (con ZZTEST si es de prueba), para que el
   // aviso en pantalla diga lo mismo que la tabla.
   return id

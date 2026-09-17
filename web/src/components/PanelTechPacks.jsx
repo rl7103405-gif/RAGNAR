@@ -25,6 +25,7 @@ import { nombreDeArchivo } from '../utils/plantillaTechPack'
 import { normalizarOt } from '../utils/planMaestroNucleo'
 import { codigosDeOtAsignada } from '../utils/tareasDiseno'
 import { formatoDeArchivo, MAX_TECHPACK_BYTES } from '../utils/tareasEnsamble'
+import { resumenDeConversion } from '../utils/convertirTechPackAlSubir'
 import {
   codigoComoId,
   datosDelTechPack,
@@ -545,6 +546,7 @@ export default function PanelTechPacks() {
     }
     setTrabajando(true)
     try {
+      let convertido = null
       const idFinal = await guardarEnBiblioteca({
         codigo: id,
         tipo,
@@ -553,13 +555,15 @@ export default function PanelTechPacks() {
         formato,
         usuario,
         esPrueba,
-        onProgreso: setProgreso
+        onProgreso: setProgreso,
+        onConvertido: (r) => { convertido = r }
       })
       // Ya no se habla de OT ni de Adrian: el estandar es cliente y modelo, que
       // salen de la plantilla y se ven en la vista de abajo.
       setAviso(
         `${TIPOS[tipo].titulo} de ${idFinal || id} guardado.` +
-          (tipo === 'tp' ? ' Queda con el cliente y el modelo que dice su plantilla (si es PDF, sin cliente).' : '')
+          (tipo === 'tp' ? ' Queda con el cliente y el modelo que dice su plantilla (si es PDF, sin cliente).' : '') +
+          resumenDeConversion(convertido)
       )
       setCruce(null)
     } catch (err) {
@@ -581,8 +585,9 @@ export default function PanelTechPacks() {
     if (!window.confirm(`¿Reemplazar el tech pack de ${item.codigo} por "${file.name}"? El anterior queda en el historial de versiones.`)) return
     setTrabajando(true)
     try {
-      await guardarEnBiblioteca({ codigo: item.codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setProgreso })
-      setAviso(`Tech pack de ${item.codigo} reemplazado (version ${(item.techPack?.version || 1) + 1}).`)
+      let convertido = null
+      await guardarEnBiblioteca({ codigo: item.codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setProgreso, onConvertido: (r) => { convertido = r } })
+      setAviso(`Tech pack de ${item.codigo} reemplazado (version ${(item.techPack?.version || 1) + 1}).` + resumenDeConversion(convertido))
       setCruce(null)
     } catch (err) {
       reportar(err)

@@ -187,7 +187,10 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
           <div className="tabla-marco">
             <table className="tpv-tabla">
               <thead><tr><th>Hoja</th><th>Celda</th><th>Texto</th></tr></thead>
-              <tbody>{lectura.noMigrado.map((x, i) => <tr key={i}><td>{x.hoja}</td><td>{x.celda}</td><td>{x.texto}</td></tr>)}</tbody>
+              <tbody>{lectura.noMigrado.map((x, i) => x.recortado
+                ? <tr key={i}><td colSpan={3} className="texto-suave">… y {x.faltan} texto{x.faltan === 1 ? '' : 's'} mas del original que no cupieron; consérvalo aparte.</td></tr>
+                : <tr key={i}><td>{x.hoja}</td><td>{x.celda}</td><td>{x.texto}</td></tr>
+              )}</tbody>
             </table>
           </div>
         </details>
