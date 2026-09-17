@@ -744,6 +744,12 @@ export default function PanelTechPacks() {
     [biblioteca]
   )
   const aprobados = useMemo(() => biblioteca.filter((b) => b.apuntaA || !b.techPack?.totalChunks || estaAprobado(b)), [biblioteca])
+  // Los que tienen archivo pero su archivo no dice de qué cliente es: se
+  // muestran aparte para que nadie los pierda de vista (Roberto, 17-sep).
+  const sinCliente = useMemo(
+    () => aprobados.filter((b) => !b.apuntaA && b.techPack?.totalChunks && !textoDe(b.cliente).trim()),
+    [aprobados]
+  )
   const porCliente = useMemo(() => agruparPorClienteYModelo(aprobados), [aprobados])
   const totalClientes = porCliente.filter((c) => c.clave !== '~SIN').length
   const totalTechPacksCliente = porCliente.reduce((n, c) => n + c.total, 0)
@@ -926,6 +932,44 @@ export default function PanelTechPacks() {
           abren y se cierran (Roberto, 2026-09-10). Cada uno responde a una
           pregunta distinta: que hay por orden de compra, que trae orden de
           trabajo pero todavia no de compra, y que no cuelga de nada. */}
+      {/* ---------------------------------- SIN CLIENTE. Roberto, 17-sep, con
+          Lety enfrente: "no pueden quedar ningún tech pack así suelto". Antes
+          caían al final de la lista, en "(sin cliente)", y nadie los veía. */}
+      {sinCliente.length > 0 && (
+        <div className="tarjeta tp-cuadro" style={{ borderLeft: '4px solid #b45309' }}>
+          <div className="tp-cuadro-cab">
+            <strong style={{ fontSize: 16 }}>Sin cliente ({sinCliente.length})</strong>
+            <span className="texto-suave" style={{ marginLeft: 10, fontSize: 13 }}>
+              No salen en “Por cliente y modelo” porque su archivo no dice de qué cliente es.
+              Casi siempre es un PDF: vuelve a subirlo en Excel y el cliente se llena solo.
+            </span>
+          </div>
+          <div className="tp-disenos">
+            {sinCliente.map((b) => (
+              <div key={b.id} className="tp-diseno">
+                <div className="tp-diseno-info">
+                  <span className="tp-codigo">{b.codigo}</span>
+                  <span className="tp-meta texto-suave">{b.techPack?.formato === 'pdf' ? 'es PDF: no se puede leer por dentro' : 'el Excel no trae el cliente'}</span>
+                  {b.descripcion ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
+                </div>
+                <AccionesTechPack
+                  b={b}
+                  avance={avanceDe(b)}
+                  puedeEditar={puedeEditarTechPacks}
+                  onEditar={editarTechPack}
+                  onVer={verTechPack}
+                  onConsultar={setConsultando}
+                  puedeSubir={puedeSubirTechPacks}
+                  onReemplazar={onReemplazar}
+                  onQuitar={onQuitar}
+                  ocupado={trabajando}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ---------------------------------- POR APROBAR. Lo que subió el equipo
           y espera el visto bueno de Lety (Roberto, 16-sep). Va PRIMERO: es lo
           único de esta pantalla que tiene a alguien esperando. */}

@@ -66,7 +66,17 @@ export function normalizarModelo(valor) {
 }
 
 export function normalizarCodigo(valor) {
-  return String(valor ?? '').trim().toUpperCase().replace(/\s+/g, '')
+  return String(valor ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    // GUIONES TIPOGRAFICOS -> guion normal. Word, Excel y el Drive convierten
+    // solos el '-' en '–' al escribir, y quien copia y pega el codigo se lo
+    // trae. El 17-sep eso creo DOS tech packs fantasma: 'CIW11–513090001' y
+    // 'CIW11-513090001' eran el MISMO archivo (misma huella) en dos codigos
+    // distintos, y ninguno cuadraba con el plan. Aqui se empareja lo que
+    // cambia sin querer al copiar, igual que los espacios y las mayusculas.
+    .replace(/[‐‑‒–—―−]/g, '-')
 }
 
 /**
