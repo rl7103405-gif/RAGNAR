@@ -779,7 +779,11 @@ table th, table td {
    fijos para que queden alineadas renglon con renglon. */
 .tp-diseno {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* El codigo NUNCA se encima con los botones: la columna de la izquierda
+     tiene un minimo que le cabe a un codigo largo (CIW10-513089001), y si no
+     hay ancho, los botones bajan de renglon en vez de pisar el texto
+     (Roberto, 17-sep: "hay algunos nombres que se ven feos"). */
+  grid-template-columns: minmax(190px, 1fr) minmax(0, auto);
   align-items: center;
   gap: 8px 16px;
   padding: 8px 12px;
@@ -802,7 +806,7 @@ table th, table td {
 .tp-bandeja .tp-diseno-info { flex-wrap: wrap; row-gap: 2px; }
 .tp-bandeja .tp-meta { white-space: normal; overflow: visible; text-overflow: clip; }
 .tp-acciones-lista { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.tp-acciones { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.tp-acciones { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .tp-acc-pill { width: 104px; margin: 0; text-align: center; box-sizing: border-box; }
 .tp-acc-ver { width: 150px; white-space: nowrap; }
 .tp-acc-falta { width: 262px; margin: 0; text-align: center; box-sizing: border-box; }
