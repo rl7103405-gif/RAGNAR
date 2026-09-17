@@ -15,6 +15,7 @@
 //
 // Funcion pura sobre un Workbook de ExcelJS ya abierto: no toca Firestore.
 import { normalizarClaveAvio, valorPlano } from './aviosTechPack.js'
+import { LISTAS } from './plantillaTechPack.js'
 
 const norm = (v) =>
   String(valorPlano(v) ?? '')
@@ -41,6 +42,17 @@ const PXR = (h) => Math.round((h || 15) * 96 / 72)
 const dir = (hoja, fila, col) => `${hoja.name}!${hoja.getRow(fila).getCell(col).address}`
 
 const ETIQUETAS_BLOQUE = ['CLIENTE', 'MODELO', 'TALLAS', 'PRENDA', 'MARCA', 'TIPO DE TEJIDO', 'FECHA', 'ELABORO']
+// UN RENGLON DE RUTA SIN SU TITULO. En los tech packs de BEZDEK que subio
+// Monica, la ruta (TEJIDO | CERRADO | HORMADO Y PAREADO | HABILITADO |
+// EMBALAJE) viene pegada debajo de los codigos SIN el encabezado "PROCESO 1".
+// El lector la tomaba por un codigo mas ("TEJIDO" con talla "HABILITADO") y
+// dejaba la ruta vacia (Roberto lo vio en el visor, 17-sep: "no se puede
+// quedar asi... no solo este, todo ese tipo de diseno"). Un renglon cuya
+// primera celda es un proceso conocido ES la ruta.
+const PROCESOS = new Set(LISTAS.procesos.map((x) => norm(x)))
+const partesDeProceso = (n) => String(n || '').split(/\s+Y\s+|\s*\/\s*|\s*,\s*/).map((x) => x.trim()).filter(Boolean)
+const esRenglonDeRuta = (n) => { const partes = partesDeProceso(n); return partes.length > 0 && partes.every((x) => PROCESOS.has(x)) }
+
 const PIE = /^(RECIBE Y AUTORIZA|ENTREGA|COPIA DE AUTORIZACION|COPIA DP|COPIAS? PROCESOS)/
 
 /** Primera celda cuyo texto normalizado sea exactamente una de las etiquetas. */
@@ -258,8 +270,10 @@ export function extraerTechPackViejo(libro, ctx = {}) {
   // ------------------------------------------------ codigos internos y ruta
   const codigosRuta = []
   let ruta = []
+  let filaRutaSuelta = 0
   if (codigos) {
-    const cab = encabezado(codigos, ['CODIGO'], ['DESCRIPCION', 'MODELO', 'TALLA', 'COLOR/CUERPO', 'BORDADO', 'COLOR DE HILO/ LECHUGAR', 'COLOR DE HILO/LECHUGA', 'COLOR DE HILO'])
+    // 'COLOR' a secas tambien es el color del cuerpo (asi viene en los BEZDEK).
+    const cab = encabezado(codigos, ['CODIGO'], ['DESCRIPCION', 'MODELO', 'TALLA', 'COLOR/CUERPO', 'COLOR CUERPO', 'COLOR DE CUERPO', 'COLOR', 'BORDADO', 'COLOR DE HILO/ LECHUGAR', 'COLOR DE HILO/LECHUGA', 'COLOR DE HILO'])
     if (cab) {
       const col = (...nombres) => nombres.map((n) => cab.cols[n]).find((x) => x !== undefined)
       for (let f = cab.fila + 1; f <= Math.min(codigos.rowCount, cab.fila + 60); f++) {
@@ -268,6 +282,7 @@ export function extraerTechPackViejo(libro, ctx = {}) {
         const n = norm(cod)
         if (!n) { if (codigosRuta.length) break; continue }
         if (/^RUTA DE PROCESO|^PROCESO 1/.test(n) || PIE.test(n)) break
+        if (esRenglonDeRuta(n)) { filaRutaSuelta = f; break }
         const g = (c) => (c ? String(texto(fila.getCell(c).value)) : '')
         codigosRuta.push({
           fila: f,
@@ -275,22 +290,29 @@ export function extraerTechPackViejo(libro, ctx = {}) {
           talla: g(col('TALLA')),
           modelo: g(col('MODELO')),
           descripcion: g(col('DESCRIPCION')),
-          colorCuerpo: g(col('COLOR/CUERPO')),
+          colorCuerpo: g(col('COLOR/CUERPO', 'COLOR CUERPO', 'COLOR DE CUERPO', 'COLOR')),
           bordado: g(col('BORDADO')),
           hilo: g(col('COLOR DE HILO/ LECHUGAR', 'COLOR DE HILO/LECHUGA', 'COLOR DE HILO'))
         })
       }
     } else faltantes.push('tabla de codigos internos (CODIGO / COLOR)')
     const pr = buscar(codigos, ['PROCESO 1'], 80)
-    if (pr) {
-      const fila = codigos.getRow(pr.fila + 1)
+    // Con titulo "PROCESO 1", la ruta es el renglon de abajo; sin titulo, es el
+    // renglon de procesos que se encontro pegado a los codigos.
+    const filaRuta = pr ? pr.fila + 1 : filaRutaSuelta
+    if (filaRuta) {
+      const fila = codigos.getRow(filaRuta)
       const vistos = []
       for (let c = 1; c <= 14; c++) {
         const n = norm(fila.getCell(c).value)
-        if (n && !vistos.includes(n)) vistos.push(n)
+        if (!n) continue
+        // "HORMADO Y PAREADO" son DOS procesos de la lista de Lety: se separan
+        // (solo cuando cada parte es un proceso conocido; si no, se deja tal cual).
+        for (const parte of esRenglonDeRuta(n) ? partesDeProceso(n) : [n]) if (!vistos.includes(parte)) vistos.push(parte)
       }
+      if (vistos.length > 7) conflictos.push(`la ruta trae ${vistos.length} procesos y la plantilla tiene lugar para 7: se pusieron los primeros 7`)
       ruta = vistos.slice(0, 7)
-      if (ruta.length) nota('TP_RUTA', ruta.join(' > '), `${codigos.name}!fila ${pr.fila + 1}`)
+      if (ruta.length) nota('TP_RUTA', ruta.join(' > '), `${codigos.name}!fila ${filaRuta}`)
     }
   } else faltantes.push('hoja CODIGOS-RUTA DE PROCESOS')
 

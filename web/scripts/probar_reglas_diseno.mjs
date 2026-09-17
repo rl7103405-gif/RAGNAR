@@ -432,6 +432,11 @@ Object.assign(ESCENARIOS, {
     request: { auth: { uid: EQUIPO.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(EQUIPO), ...sellos(EQUIPO) }) },
     resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([EQUIPO])]
   },
+  'neg-aprobar-el-admin': {
+    expectation: 'DENY', que: 'NEG: el ADMIN (Direccion) aprueba un tech pack: solo Lety puede (Roberto, 17-sep)',
+    request: { auth: { uid: ADMIN.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(ADMIN), ...sellos(ADMIN) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([ADMIN])]
+  },
   'neg-aprobar-otra-version': {
     expectation: 'DENY', que: 'NEG: aprobar con la huella de OTRO archivo (subieron uno nuevo mientras revisaba)',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: { ...APROBACION(JEFA), sha256: 'b'.repeat(64) }, ...sellos(JEFA) }) },

@@ -82,7 +82,7 @@ function Fotos({ lista, onCambiar, titulo }) {
   )
 }
 
-export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCerrar, onGuardado }) {
+export default function EditorPlantillaTechPack({ item, usuario, esPrueba, aprobarAlSubir = false, onCerrar, onGuardado }) {
   const [estado, setEstado] = useState('cargando')
   const [mensaje, setMensaje] = useState('Bajando el tech pack...')
   const [d, setD] = useState(null)
@@ -183,7 +183,7 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, onCer
       })
       const contenido = await libro.xlsx.writeBuffer()
       let convertido = null
-      await guardarEnBiblioteca({ codigo: item.codigo, tipo: 'tp', contenido, nombre: nombreDeArchivo(item.codigo), formato: 'xlsx', usuario, esPrueba, onProgreso: setProgreso, onConvertido: (r) => { convertido = r } })
+      await guardarEnBiblioteca({ codigo: item.codigo, tipo: 'tp', contenido, nombre: nombreDeArchivo(item.codigo), formato: 'xlsx', usuario, esPrueba, onProgreso: setProgreso, onConvertido: (r) => { convertido = r }, aprobarAlSubir })
       // guardarEnBiblioteca ya calcula la medicion al guardar (no en una
       // "siguiente medicion" que no existe como tal).
       onGuardado(`Tech pack de ${item.codigo} guardado (version ${(item.techPack?.version || 1) + 1}). Calificación actualizada.` + resumenDeConversion(convertido))

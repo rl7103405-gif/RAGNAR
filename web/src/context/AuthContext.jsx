@@ -153,10 +153,11 @@ export function AuthProvider({ children }) {
     // Maria Fernanda traen supervisorDisenoUid y solo ven lo suyo. Sin esto
     // las tres tienen el mismo rol y nada las distingue.
     puedeAsignarDiseno: esInterno && rol === 'desarrollo' && perfil?.puedeAsignarDiseno === true,
-    // APROBAR un tech pack para que entre a la biblioteca: la JEFA de diseno
-    // (Lety) y el admin. Roberto, 16-sep: "cuando Leti apruebe ese tech pack se
-    // pasa ya directo a los tech packs". Las reglas exigen lo mismo.
-    puedeAprobarTechPacks: esInterno && (rol === 'admin' || (rol === 'desarrollo' && perfil?.puedeAsignarDiseno === true)),
+    // APROBAR un tech pack para que entre a la biblioteca: SOLO la JEFA de
+    // diseno (Lety). Roberto, 17-sep, tras verlo con la cuenta de Direccion:
+    // "no deberian tener el permiso, excepto Lety". Ni el admin. Las reglas
+    // exigen lo mismo (updateDeAprobacionTechPack).
+    puedeAprobarTechPacks: esInterno && rol === 'desarrollo' && perfil?.puedeAsignarDiseno === true,
     esEquipoDiseno: esInterno && rol === 'desarrollo' && Boolean(perfil?.supervisorDisenoUid),
     supervisorDisenoUid: perfil?.supervisorDisenoUid || '',
     cargando,

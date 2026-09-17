@@ -547,6 +547,7 @@ export default function PanelTechPacks() {
     setTrabajando(true)
     try {
       let convertido = null
+      let aprobado = false
       const idFinal = await guardarEnBiblioteca({
         codigo: id,
         tipo,
@@ -556,13 +557,16 @@ export default function PanelTechPacks() {
         usuario,
         esPrueba,
         onProgreso: setProgreso,
-        onConvertido: (r) => { convertido = r }
+        onConvertido: (r) => { convertido = r },
+        aprobarAlSubir: puedeAprobarTechPacks,
+        onAprobado: (ok) => { aprobado = ok }
       })
       // Ya no se habla de OT ni de Adrian: el estandar es cliente y modelo, que
       // salen de la plantilla y se ven en la vista de abajo.
       setAviso(
         `${TIPOS[tipo].titulo} de ${idFinal || id} guardado.` +
           (tipo === 'tp' ? ' Queda con el cliente y el modelo que dice su plantilla (si es PDF, sin cliente).' : '') +
+          (tipo === 'tp' ? `${aprobado ? ' Quedó aprobado: lo subiste tú.' : ' Espera el visto bueno de Lety.'}` : '') +
           resumenDeConversion(convertido)
       )
       setCruce(null)
@@ -586,8 +590,9 @@ export default function PanelTechPacks() {
     setTrabajando(true)
     try {
       let convertido = null
-      await guardarEnBiblioteca({ codigo: item.codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setProgreso, onConvertido: (r) => { convertido = r } })
-      setAviso(`Tech pack de ${item.codigo} reemplazado (version ${(item.techPack?.version || 1) + 1}).` + resumenDeConversion(convertido))
+      let aprobado = false
+      await guardarEnBiblioteca({ codigo: item.codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setProgreso, onConvertido: (r) => { convertido = r }, aprobarAlSubir: puedeAprobarTechPacks, onAprobado: (ok) => { aprobado = ok } })
+      setAviso(`Tech pack de ${item.codigo} reemplazado (version ${(item.techPack?.version || 1) + 1}).` + `${aprobado ? ' Quedó aprobado: lo subiste tú.' : ' Espera el visto bueno de Lety.'}` + resumenDeConversion(convertido))
       setCruce(null)
     } catch (err) {
       reportar(err)
@@ -1031,6 +1036,19 @@ export default function PanelTechPacks() {
                   <span className="tp-meta texto-suave" style={{ fontSize: 12 }}>
                     lo subió {b.techPack?.subidoPorNombre || '?'} · {fecha(b.techPack?.subidoEn)}
                   </span>
+                  {/* Aprobar un tech pack NUEVO no es lo mismo que aprobar un
+                      REEMPLAZO (Roberto, 17-sep): se dice cual es, y el detalle
+                      de cada version esta en "Quien lo modifico". */}
+                  <span className={`tp-pill ${(b.techPack?.version || 1) > 1 && !String(b.actualizadoPorUid || '').startsWith('conversion-tp-quini') ? 'tp-pill-falta' : ''}`} style={{ fontSize: 11 }}>
+                    {/* Los que RAGNAR paso al formato son version 2 sin que nadie
+                        los haya aprobado nunca: decir "reemplazo" invitaria a
+                        revisarlos por encima (code-reviewer, 17-sep). */}
+                    {String(b.actualizadoPorUid || '').startsWith('conversion-tp-quini')
+                      ? 'nuevo · RAGNAR lo pasó al formato; nadie lo ha aprobado todavía'
+                      : (b.techPack?.version || 1) > 1
+                        ? `reemplazo · versión ${b.techPack.version} (sustituye a la ${b.techPack.version - 1})`
+                        : 'nuevo · versión 1'}
+                  </span>
                 </div>
                 <AccionesTechPack
                   b={b}
@@ -1254,6 +1272,10 @@ export default function PanelTechPacks() {
             <p className="texto-suave" style={{ margin: '4px 0 0' }}>
               Sube el tech pack de un código, o reemplaza el que ya tiene.
             </p>
+            <p className="texto-suave" style={{ margin: '4px 0 0', fontSize: 13 }}>
+              RAGNAR pasa solo tu Excel al formato TP-Quini (sin OT, sin OC). <strong>Conserva tu archivo original</strong>:
+              aquí se guarda la versión en la plantilla. {puedeAprobarTechPacks ? 'Lo que subas tú queda aprobado de una vez.' : 'Lo que subas o reemplaces espera el visto bueno de Lety.'}
+            </p>
           </div>
           <div className="tp-paso">
             <span className="tp-num">1</span>
@@ -1404,6 +1426,7 @@ export default function PanelTechPacks() {
           item={editandoContenido}
           usuario={{ uid: authUser?.uid || '', nombre: perfil?.nombreCompleto || '' }}
           esPrueba={esPrueba}
+          aprobarAlSubir={puedeAprobarTechPacks}
           onCerrar={() => setEditandoContenido(null)}
           onGuardado={(msg) => { setEditandoContenido(null); setAviso(msg); setCruce(null) }}
         />

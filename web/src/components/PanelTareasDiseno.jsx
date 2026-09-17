@@ -44,7 +44,7 @@ const fecha = (t) => (t?.toDate ? t.toDate().toLocaleDateString('es-MX') : '—'
 const aFecha = (s) => (s ? new Date(s + 'T12:00:00') : null)
 
 export default function PanelTareasDiseno() {
-  const { authUser, perfil, esPrueba, esAdmin, puedeAsignarDiseno, puedeSubirTechPacks } = useAuth()
+  const { authUser, perfil, esPrueba, esAdmin, puedeAsignarDiseno, puedeSubirTechPacks, puedeAprobarTechPacks } = useAuth()
   const uid = authUser?.uid || ''
   const usuario = { uid, nombre: perfil?.nombreCompleto || '' }
   const vista = esAdmin ? 'admin' : puedeAsignarDiseno ? 'jefa' : 'equipo'
@@ -83,6 +83,7 @@ export default function PanelTareasDiseno() {
         usuario,
         esPrueba,
         onVer: verTechPack,
+        aprobarAlSubir: puedeAprobarTechPacks,
         onAviso: (m) => { setError(''); setAviso(m) },
         onError: (e) => {
           setAviso('')
@@ -1035,7 +1036,7 @@ function MisAsignaciones({ asignaciones, indice, subir }) {
 // codigo). Guarda exactamente igual que la biblioteca (guardarEnBiblioteca:
 // version, "quien lo modifico", cliente/modelo/talla), y el avance de la
 // tarea se mueve solo porque sale de la biblioteca en vivo.
-function SubirTechPackDeCodigo({ codigo, tiene, variantes, de, ocupado, usuario, esPrueba, onAviso, onError, onVer }) {
+function SubirTechPackDeCodigo({ codigo, tiene, variantes, de, ocupado, usuario, esPrueba, aprobarAlSubir = false, onAviso, onError, onVer }) {
   const [subiendo, setSubiendo] = useState('')
   // Un codigo con varias tallas vive como varios tech packs (uno por talla):
   // subir al codigo base crearia uno nuevo y suelto. Eso se hace en Tech packs.
@@ -1070,8 +1071,9 @@ function SubirTechPackDeCodigo({ codigo, tiene, variantes, de, ocupado, usuario,
     setSubiendo('Subiendo...')
     try {
       let convertido = null
-      const id = await guardarEnBiblioteca({ codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setSubiendo, onConvertido: (r) => { convertido = r } })
-      onAviso(`Tech pack de ${id || codigo} guardado. Entra a la biblioteca cuando Lety lo apruebe.` + resumenDeConversion(convertido))
+      let aprobado = false
+      const id = await guardarEnBiblioteca({ codigo, tipo: 'tp', contenido: await file.arrayBuffer(), nombre: file.name, formato, usuario, esPrueba, onProgreso: setSubiendo, onConvertido: (r) => { convertido = r }, aprobarAlSubir, onAprobado: (ok) => { aprobado = ok } })
+      onAviso(`Tech pack de ${id || codigo} guardado.${aprobado ? ' Quedó aprobado: lo subiste tú.' : ' Entra a la biblioteca cuando Lety lo apruebe.'}` + resumenDeConversion(convertido))
     } catch (err) {
       onError(err)
     } finally {

@@ -950,3 +950,7 @@ el tile "Sin OT", aunque el pegado por OT SI las encuentra (busca por prefijo
 del codigo base). Falta que `LigueAlPlan` en `PanelTechPacks.jsx` tambien
 mire el codigo base (todo antes del ultimo `-N-N`). Cosmetico; 12 renglones
 hoy.
+
+## Pestañas agrupadas para quien ve todo (Roberto, 17-sep-2026)
+
+Dirección ya no cabe en una sola fila de pestañas (Captura, Tareas internas, Folios del día, Historial, Reportes, Indicadores, Maquilas, Órdenes…). La idea: UNA fila de arriba con apartados —**Procesos iniciales** (lo de América: captura, folios del día, ruteo), **Procesos finales / PT**, **Diseño**, **Maquilas**, y lo transversal (reportes, indicadores)— y debajo las pestañas de ese apartado. Solo para los roles que ven mucho: Dirección/admin y Lindbergh ("el segundo que más permisos tiene"). Al equipo de Lety NO se le agrega: tienen pocas pestañas y una fila les basta. Ojo al hacerlo: toca la navegación de todos los roles; que un rol con un solo apartado no vea la fila de arriba.

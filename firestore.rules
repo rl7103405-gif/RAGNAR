@@ -3829,9 +3829,13 @@ service cloud.firestore {
     function updateDeAprobacionTechPack(antes, despues, yo) {
       return despues.diff(antes).affectedKeys()
              .hasOnly(['aprobacion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
-        // Solo la JEFA de diseno (Lety) o el admin. Ni el equipo se aprueba
-        // solo, ni un alias se aprueba nunca (no tiene archivo propio).
-        && (yo.jefaDiseno || yo.admin)
+        // SOLO la JEFA de diseno (Lety). Ni el equipo se aprueba solo, ni un
+        // alias se aprueba nunca (no tiene archivo propio), NI EL ADMIN: Roberto
+        // entro con la cuenta de Direccion, vio el boton Aprobar y lo quito
+        // (17-sep: "no deberian tener el permiso, excepto Lety, de aprobar lo
+        // que se le deja al equipo de diseno"). El visto bueno es de quien
+        // conoce el tech pack, no de quien manda.
+        && yo.jefaDiseno
         && !antes.keys().hasAny(['apuntaA'])
         && (
           // APROBAR: la huella y la version tienen que ser las del archivo que

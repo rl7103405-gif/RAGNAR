@@ -100,7 +100,9 @@ export async function guardarEnBiblioteca({
   usuario,
   esPrueba,
   onProgreso = () => {},
-  onConvertido = () => {}
+  onConvertido = () => {},
+  aprobarAlSubir = false,
+  onAprobado = () => {}
 }) {
   const def = validarTipo(tipo)
   let id = codigoComoId(codigo)
@@ -301,6 +303,24 @@ export async function guardarEnBiblioteca({
   // siempre este completo. Despues se limpian los de versiones anteriores.
   await reponerPedazos(id, def, sha256, bytes, totalChunks)
   await limpiarPedazosSobrantes(id, def, sha256, manifiestoNuevo.version)
+  // LO QUE SUBE LETY NO ESPERA A NADIE (Roberto, 17-sep: "cuando Lety lo sube,
+  // nadie le tiene que aprobar; cuando su equipo reemplaza un archivo, si").
+  // El manifiesto SIEMPRE nace sin aprobacion (las reglas lo exigen) y el visto
+  // bueno es una segunda escritura, la misma del boton Aprobar: si quien sube
+  // no es la jefa de diseno ni el admin, las reglas la rechazan y el archivo se
+  // queda en la bandeja, que es justo lo que debe pasar. Por eso el candado no
+  // es esta bandera: es el servidor.
+  if (aprobarAlSubir && def.campo === 'techPack') {
+    try {
+      await aprobarTechPack({ codigo: id, techPack: { version: manifiestoNuevo.version, sha256 }, usuario })
+      // El aviso en pantalla se arma con lo que PASO, no con la intencion: si
+      // esta escritura falla, decir "quedo aprobado" seria mentirle a Lety
+      // (code-reviewer, 17-sep).
+      onAprobado(true)
+    } catch (e) {
+      console.warn('[TechPacks] Se subio pero no se pudo aprobar en automatico; queda en la bandeja:', e?.message || e)
+    }
+  }
   // Lo que paso al convertir (que falta, que revisar), para el aviso en pantalla.
   if (conversion) onConvertido(conversion)
   // El id con el que QUEDO guardado (con ZZTEST si es de prueba), para que el
