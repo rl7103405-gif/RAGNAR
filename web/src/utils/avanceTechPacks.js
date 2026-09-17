@@ -33,14 +33,24 @@ export function indexarBiblioteca(biblioteca) {
   return m
 }
 
+// Mismo criterio que estaAprobado() de techPacks.js, reescrito a mano: este
+// archivo es deliberadamente puro (sin Firebase) para poder probarse con la
+// biblioteca real desde un script.
+const aprobadoDe = (b) => Boolean(b?.aprobacion?.sha256 && b.aprobacion.sha256 === b?.techPack?.sha256)
+
 // Los documentos de la biblioteca que responden por un codigo del plan:
-//   1. el exacto CON ARCHIVO (siguiendo un alias si lo es),
-//   2. el tech pack del MODELO que declara cubrirlo (six pack),
-//   3. sus variantes por talla (WKD225T401 -> WKD225T401-4-6, -7-9...),
-//   4. el exacto aunque no tenga archivo, para poder decir "sin tech pack".
+//   1. el exacto CON ARCHIVO y APROBADO (siguiendo un alias si lo es),
+//   2. el tech pack del MODELO que declara cubrirlo y esta APROBADO (six pack),
+//   3. el exacto CON ARCHIVO aunque este pendiente (para decir "por aprobar"),
+//   4. el six pack pendiente que lo cubre,
+//   5. sus variantes por talla (WKD225T401 -> WKD225T401-4-6, -7-9...),
+//   6. el exacto aunque no tenga archivo, para poder decir "sin tech pack".
 //
 // El orden importa: devolver primero el documento exacto aunque estuviera
-// VACÍO tapaba el six pack que sí lo cubre (Codex, 16-sep).
+// VACÍO tapaba el six pack que sí lo cubre (Codex, 16-sep). Y un exacto
+// PENDIENTE tampoco puede tapar un six pack ya APROBADO que sigue cubriendo
+// el codigo: eso le quitaba a Lindbergh una OT que ya podia mandar a la
+// maquila en cuanto alguien subia un suelto sin revisar (Codex, 17-sep).
 //
 // OJO: el plan NO dice cuántas tallas debe tener un codigo, así que aquí se
 // evalúan las variantes que EXISTEN. Que existan todas las que deberían es
@@ -50,9 +60,15 @@ export function documentosDe(codigo, indice) {
   const id = codigoComoId(codigo)
   let d = indice.get(id)
   if (d?.apuntaA) d = indice.get(d.apuntaA) || null
-  if (d && !d.apuntaA && d.techPack) return [d]
-  const cubren = (indice.cubiertos?.get(id) || []).filter((b) => b.techPack && !b.apuntaA)
-  if (cubren.length) return cubren
+  const dConArchivo = d && !d.apuntaA && d.techPack
+  if (dConArchivo && aprobadoDe(d)) return [d]
+  const cubrenConArchivo = (indice.cubiertos?.get(id) || []).filter((b) => b.techPack && !b.apuntaA)
+  const cubrenAprobados = cubrenConArchivo.filter(aprobadoDe)
+  if (cubrenAprobados.length) return cubrenAprobados
+  // Nada aprobado cubre este codigo: aqui si preferir lo pendiente que haya,
+  // para poder decir "por aprobar" en vez de "sin tech pack".
+  if (dConArchivo) return [d]
+  if (cubrenConArchivo.length) return cubrenConArchivo
   if (d && !d.apuntaA) return [d]
   const pref = id + '-'
   return [...new Set(indice.values())].filter((b) => {
@@ -66,23 +82,50 @@ export function documentosDe(codigo, indice) {
 // vigente. Un tech pack sin revisar NO esta listo aunque tenga archivo.
 export function evaluarDocumento(b) {
   const tiene = Boolean(b?.techPack?.totalChunks)
+  // Un tech pack que Lety todavía no aprueba NO puede dar una OT por lista: no
+  // se le puede mandar a una maquila, así que no está listo (17-sep).
+  const aprobado = aprobadoDe(b)
   const d = datosDelTechPack(b)
   const c = d.checklist || {}
   const ids = RUBROS_TECH_PACK.map((r) => r.id)
-  const valores = ids.map((k) => c[k])
+  // Donde Lety NO marco nada a mano, cuenta lo que midio la maquina
+  // (`b.medicion`, ver medir_tech_packs.mjs): sin esto, los 134 tech packs de
+  // la biblioteca -con checklist manual vacio pero YA medidos- salian todos
+  // 'sin revisar' y 0%, aunque la medicion real dijera 43-57% (Roberto, 17-sep).
+  // Por ID o por TITULO: mismo motivo que en completadoTechPack.js y arriba.
+  const medido = b?.medicion?.porcentaje != null ? b.medicion : null
+  const valores = ids.map((k, i) => {
+    if (c[k]) return c[k]
+    if (!medido) return undefined
+    const r = RUBROS_TECH_PACK[i]
+    const falta = (medido.faltan || []).includes(r.id) || (medido.faltan || []).includes(r.titulo)
+    return falta ? 'pendiente' : 'completo'
+  })
   const presentes = valores.every(Boolean)
   const completos = valores.filter((v) => v === 'completo').length
   const cuentan = valores.filter((v) => v !== 'no_aplica').length
   const porcentaje = cuentan ? Math.round((completos / cuentan) * 100) : 0
-  const listo =
+  // El chequeo de version es del checklist MANUAL (Lety marcando a mano); si
+  // ningun rubro trae marca manual, los valores vienen todos de la medicion
+  // automatica -vigente del 15-sep- y no hay version que exigir. Si SI hay
+  // marca manual (aunque sea parcial), la version sigue mandando como antes.
+  const huboManual = ids.some((k) => c[k])
+  // Todo lo que exige "listo", MENOS la aprobación: sirve para distinguir
+  // "por aprobar" (ya esta todo, solo falta la firma de Lety) de "a medias"
+  // (con variantes mixtas, !evals.some(aprobado) mentia "por aprobar" aunque
+  // faltara checklist de verdad — usuario-real, 17-sep).
+  const listoSalvoAprobacion =
     tiene &&
     presentes &&
     valores.every((v) => v === 'completo' || v === 'no_aplica') &&
     completos >= 1 &&
-    d.checklistVersion === CHECKLIST_VERSION
+    (!huboManual || d.checklistVersion === CHECKLIST_VERSION)
+  const listo = listoSalvoAprobacion && aprobado
   return {
     tiene,
+    aprobado,
     listo,
+    listoSalvoAprobacion,
     porcentaje,
     revisado: valores.some(Boolean),
     quien: b?.actualizadoPorNombre || '',
@@ -116,7 +159,15 @@ export function estadoDelCodigo(codigo, indice) {
     quien: ultimo?.quien || '',
     variantes: lista.length > 1 ? lista.length : 0,
     de: otro,
-    etiqueta: listo ? 'listo' : !tiene ? 'sin tech pack' : evals.some((e) => e.revisado) ? 'a medias' : 'sin revisar'
+    etiqueta: listo
+      ? 'listo'
+      : !tiene
+        ? 'sin tech pack'
+        : evals.every((e) => e.listoSalvoAprobacion)
+          ? 'por aprobar'
+          : evals.some((e) => e.revisado)
+            ? 'a medias'
+            : 'sin revisar'
   }
 }
 

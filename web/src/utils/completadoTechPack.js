@@ -134,7 +134,12 @@ export function avanceDelTechPack(item) {
     let tiene
     if (marca === 'completo') tiene = true
     else if (marca === 'pendiente') tiene = false
-    else if (medido) tiene = !(medido.faltan || []).includes(r.id)
+    // Por ID o por TITULO: medirCompletado (formato viejo) guarda los faltantes
+    // con su TITULO ("Empaque de packs en bolsa") y medirPlantilla con su ID
+    // ("bolsa"). Comparando solo contra el id, lo medido con el formato viejo
+    // nunca cuadraba y TODO salia completo: el mismo tech pack decia 71% en la
+    // bandeja y 100% aqui (usuario-real como Lety, 17-sep).
+    else if (medido) tiene = !(medido.faltan || []).includes(r.id) && !(medido.faltan || []).includes(r.titulo)
     else continue
     cuentan++
     if (tiene) completos++

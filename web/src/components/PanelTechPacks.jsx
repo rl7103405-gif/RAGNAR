@@ -79,7 +79,11 @@ function AvanceDeTechPacks({ biblioteca, onVer, onEditar, puedeEditar }) {
       if (suyo === 'no_aplica') return false
       if (suyo === 'completo') return false
       if (suyo === 'pendiente') return true
-      return (b.medicion.faltan || []).includes(r.id)
+      // Por ID o por TITULO: medirCompletado (formato viejo) guarda los
+      // faltantes con su TITULO y medirPlantilla con su ID. Comparar solo
+      // contra el id dejaba "completos" a los tech packs viejos aunque les
+      // faltara ese rubro (mismo defecto ya corregido en completadoTechPack.js).
+      return (b.medicion.faltan || []).includes(r.id) || (b.medicion.faltan || []).includes(r.titulo)
     })
     return { ...r, faltan: falta.length, ejemplos: falta.slice(0, 3).map((b) => b.codigo), lista: falta }
   }).sort((a, b) => b.faltan - a.faltan)
@@ -212,10 +216,19 @@ function PorcentajeHecho({ avance }) {
 // Las acciones de UN tech pack, en el MISMO orden y del MISMO ancho en todos
 // los cuadros: Editar · % hecho · Ver (Roberto, 11-sep: "algunos empiezan con
 // hecho, despues ver y despues editar, esta mal... darle simetria").
-function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tech pack', titulo, avance, puedeEditar, onEditar, onVer, onConsultar, onDesaprobar, puedeSubir, onReemplazar, onQuitar, ocupado }) {
+function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tech pack', titulo, avance, puedeEditar, onEditar, onVer, onConsultar, onAprobar, onDesaprobar, puedeSubir, onReemplazar, onQuitar, ocupado }) {
   const tiene = Boolean(b.techPack?.totalChunks)
   return (
     <div className="tp-acciones">
+      {/* Aprobar desde la bandeja. Antes la tarjeta pendiente solo traia "Ver"
+          y "Aprobar": ni Editar ni "Quien lo modifico", asi que para arreglarle
+          un dato a lo que subio su equipo, Lety tenia que aprobarlo primero
+          (usuario-real, 17-sep). Ahora la bandeja trae las mismas acciones. */}
+      {onAprobar && tiene && (
+        <button className="btn-primario tp-btn-chico" disabled={ocupado} onClick={() => onAprobar(b)} title="Lo pasa a la biblioteca: a partir de ahi se le puede mandar a una maquila">
+          Aprobar
+        </button>
+      )}
       {/* Retirar el visto bueno: sale de la biblioteca y vuelve a la bandeja.
           Solo para quien puede aprobar (Lety o el admin). */}
       {onDesaprobar && tiene && (
@@ -230,7 +243,7 @@ function AccionesTechPack({ b, etiqueta = 'Ver tech pack', faltaTexto = 'sin tec
       )}
 
       {puedeEditar && (
-        <button className="btn-primario tp-btn-chico" onClick={() => onEditar(b)}>
+        <button className={onAprobar ? 'btn-secundario tp-btn-chico' : 'btn-primario tp-btn-chico'} onClick={() => onEditar(b)}>
           Editar
         </button>
       )}
@@ -641,7 +654,12 @@ export default function PanelTechPacks() {
     // Los alias (folio -> codigo real) no cuentan como disenos.
     const reales = biblioteca.filter((b) => !b.apuntaA)
     const total = reales.length
-    const conTp = reales.filter((b) => b.techPack?.totalChunks).length
+    // "Con tech pack" cuenta SOLO lo aprobado: un tech pack pendiente no se le
+    // puede mandar a una maquila, y contarlo aqui hacia ver 133 cuando en la
+    // biblioteca habia 121 (usuario-real como Lety, 17-sep). Los pendientes se
+    // cuentan aparte, en su propio tile.
+    const conTp = reales.filter((b) => b.techPack?.totalChunks && estaAprobado(b)).length
+    const pendientes = reales.filter((b) => b.techPack?.totalChunks && !estaAprobado(b)).length
     const conFtt = reales.filter((b) => b.ftt?.totalChunks).length
     const soloFtt = reales.filter((b) => b.ftt?.totalChunks && !b.techPack?.totalChunks).length
     // Un diseno esta "en el plan" si su codigo o alguno de sus alias (folios) esta
@@ -655,7 +673,7 @@ export default function PanelTechPacks() {
             !(foliosDe.get(b.codigo) || []).some((f) => enPlan.get(f)?.length)
         ).length
       : null
-    return { total, conTp, conFtt, soloFtt, fueraDelPlan, foliosDe }
+    return { total, conTp, pendientes, conFtt, soloFtt, fueraDelPlan, foliosDe }
   }, [biblioteca, enPlan])
 
   // DESCARGAR LA BIBLIOTECA A EXCEL (Lety, 8-sep): "que lo pueda descargar y
@@ -683,6 +701,7 @@ export default function PanelTechPacks() {
         { header: 'Folios de ficha', key: 'folios', width: 26 },
         { header: 'Lo subio', key: 'quien', width: 18 },
         { header: 'Cuando', key: 'cuando', width: 14 },
+        { header: 'Aprobo', key: 'aprobo', width: 18 },
         { header: 'Nombre puesto por', key: 'nombrePuestoPor', width: 16 }
       ]
       hoja.getRow(1).font = { bold: true }
@@ -706,8 +725,9 @@ export default function PanelTechPacks() {
           archivo: b.techPack?.nombre || '',
           ots: ots.join(', '),
           folios: (resumen.foliosDe.get(b.codigo) || []).join(', '),
-          quien: b.actualizadoPorNombre || b.creadoPorNombre || '',
-          cuando: fecha(b.actualizadoEn || b.creadoEn),
+          quien: b.techPack?.subidoPorNombre || b.actualizadoPorNombre || b.creadoPorNombre || '',
+          cuando: fecha(b.techPack?.subidoEn || b.actualizadoEn || b.creadoEn),
+          aprobo: b.aprobacion?.porNombre || '',
           nombrePuestoPor: b.datosEditables?.modelo ? 'Lety' : 'catalogo'
         })
       })
@@ -847,6 +867,7 @@ export default function PanelTechPacks() {
           <Tile titulo="Codigos" valor={resumen.total} />
           <Tile titulo="Clientes" valor={totalClientes} />
           <Tile titulo="Con tech pack" valor={resumen.conTp} tono="ok" />
+          {resumen.pendientes > 0 && <Tile titulo="Por aprobar" valor={resumen.pendientes} tono="aviso" />}
         </div>
       </div>
 
@@ -935,7 +956,7 @@ export default function PanelTechPacks() {
       {/* ---------------------------------- SIN CLIENTE. Roberto, 17-sep, con
           Lety enfrente: "no pueden quedar ningún tech pack así suelto". Antes
           caían al final de la lista, en "(sin cliente)", y nadie los veía. */}
-      {sinCliente.length > 0 && (
+      {sinCliente.length > 0 && (puedeSubirTechPacks || puedeAprobarTechPacks) && (
         <div className="tarjeta tp-cuadro" style={{ borderLeft: '4px solid #b45309' }}>
           <div className="tp-cuadro-cab">
             <strong style={{ fontSize: 16 }}>Sin cliente ({sinCliente.length})</strong>
@@ -944,7 +965,7 @@ export default function PanelTechPacks() {
               Casi siempre es un PDF: vuelve a subirlo en Excel y el cliente se llena solo.
             </span>
           </div>
-          <div className="tp-disenos">
+          <div className="tp-disenos tp-bandeja">
             {sinCliente.map((b) => (
               <div key={b.id} className="tp-diseno">
                 <div className="tp-diseno-info">
@@ -973,7 +994,7 @@ export default function PanelTechPacks() {
       {/* ---------------------------------- POR APROBAR. Lo que subió el equipo
           y espera el visto bueno de Lety (Roberto, 16-sep). Va PRIMERO: es lo
           único de esta pantalla que tiene a alguien esperando. */}
-      {porAprobar.length > 0 && (
+      {porAprobar.length > 0 && (puedeSubirTechPacks || puedeAprobarTechPacks) && (
         <div className="tarjeta tp-cuadro" style={{ borderLeft: '4px solid #d97706' }}>
           <div className="tp-cuadro-cab">
             <strong style={{ fontSize: 16 }}>Por aprobar ({porAprobar.length})</strong>
@@ -983,8 +1004,16 @@ export default function PanelTechPacks() {
                 : 'Ya se subieron. Entran a la biblioteca cuando Lety los apruebe.'}
             </span>
           </div>
-          <div className="tp-disenos">
-            {porAprobar.map((b) => (
+          <div className="tp-disenos tp-bandeja">
+            {porAprobar.map((b) => {
+              // Misma fuente que AccionesTechPack de aqui abajo: si se lee de
+              // b.medicion (la medicion cruda) en vez de avanceDe(b) (que ya
+              // honra el checklist manual de Lety), la tarjeta se contradice
+              // a si misma — "71%" aqui y "100% hecho" al lado (Codex,
+              // 17-sep). b.medicion queda solo de respaldo si avanceDe(b) no
+              // tiene nada que decir.
+              const avance = avanceDe(b) || b.medicion
+              return (
               <div key={b.id} className="tp-diseno">
                 <div className="tp-diseno-info">
                   <span className="tp-codigo">{b.codigo}</span>
@@ -993,25 +1022,31 @@ export default function PanelTechPacks() {
                   {(b.codigosCubiertos || []).length > 1 && (
                     <span className="tp-meta" title={b.codigosCubiertos.join(', ')}>cubre {b.codigosCubiertos.length} códigos</span>
                   )}
-                  {b.medicion?.porcentaje != null && (
-                    <span className="tp-meta" title={(b.medicion.faltan || []).join(', ')}>
-                      calificación {b.medicion.porcentaje}%{(b.medicion.faltan || []).length ? ` · falta ${b.medicion.faltan.join(', ')}` : ''}
+                  {avance?.porcentaje != null && (
+                    <span className="tp-meta" title={(avance.faltan || []).join(', ')}>
+                      calificación {avance.porcentaje}%{(avance.faltan || []).length ? ` · falta ${avance.faltan.join(', ')}` : ''}
                     </span>
                   )}
                   <span className="tp-meta texto-suave" style={{ fontSize: 12 }}>
                     lo subió {b.techPack?.subidoPorNombre || '?'} · {fecha(b.techPack?.subidoEn)}
                   </span>
                 </div>
-                <div className="tp-acciones">
-                  <button className="btn-secundario tp-btn-chico" onClick={() => verTechPack(b)}>Ver tech pack</button>
-                  {puedeAprobarTechPacks && (
-                    <button className="btn-primario tp-btn-chico" disabled={trabajando} onClick={() => onAprobar(b, true)}>
-                      Aprobar
-                    </button>
-                  )}
-                </div>
+                <AccionesTechPack
+                  b={b}
+                  avance={avanceDe(b)}
+                  puedeEditar={puedeEditarTechPacks}
+                  onEditar={editarTechPack}
+                  onVer={verTechPack}
+                  onConsultar={setConsultando}
+                  onAprobar={puedeAprobarTechPacks ? (x) => onAprobar(x, true) : null}
+                  puedeSubir={puedeSubirTechPacks}
+                  onReemplazar={onReemplazar}
+                  onQuitar={onQuitar}
+                  ocupado={trabajando}
+                />
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -1069,9 +1104,14 @@ export default function PanelTechPacks() {
                               <span className="tp-meta">tambien {modelosDelTechPack(b).filter((x) => x !== m.modelo).join(', ')}</span>
                             )}
                             {b.descripcion && !/^Drive:/i.test(b.descripcion) ? <span className="tp-meta" title={b.descripcion}>{b.descripcion}</span> : null}
-                            {/* Lo que antes solo decia la lista completa: version y quien lo cambio. */}
+                            {/* Version, quien SUBIO el archivo y quien lo aprobo. Decia
+                                solo 'actualizadoPorNombre', que al aprobar pasa a ser Lety:
+                                el trabajo de Monica quedaba a nombre de quien lo aprobo
+                                (usuario-real, 17-sep). */}
                             <span className="tp-meta texto-suave" style={{ fontSize: 12 }}>
-                              {b.techPack?.version ? `v${b.techPack.version} · ` : ''}{fecha(b.actualizadoEn)}{b.actualizadoPorNombre ? ` · ${b.actualizadoPorNombre}` : ''}
+                              {b.techPack?.version ? `v${b.techPack.version} · ` : ''}{fecha(b.techPack?.subidoEn || b.actualizadoEn)}
+                              {b.techPack?.subidoPorNombre ? ` · lo subió ${b.techPack.subidoPorNombre}` : b.actualizadoPorNombre ? ` · ${b.actualizadoPorNombre}` : ''}
+                              {b.aprobacion?.porNombre ? ` · aprobó ${b.aprobacion.porNombre}` : ''}
                             </span>
                           </div>
                           <div className="tp-acciones-lista">

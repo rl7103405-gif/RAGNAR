@@ -908,7 +908,11 @@ export async function otsPorCodigo(versionId) {
 export async function otsSinTechPack(biblioteca, versionId) {
   if (!versionId) return []
   const snap = await getDocs(query(collection(db, 'planMaestroLineas'), where('versionId', '==', versionId)))
-  const tienen = new Set(biblioteca.filter((b) => b.techPack?.totalChunks).map((b) => b.codigo))
+  // Igual que el resto de esta pantalla (resumen.conTp, evaluarDocumento,
+  // estadoDelCodigo): un tech pack sin aprobar por Lety no cuenta como
+  // cubierto, o el mismo codigo sale "listo" aqui y "por aprobar" al lado
+  // (Codex, 17-sep).
+  const tienen = new Set(biblioteca.filter((b) => b.techPack?.totalChunks && estaAprobado(b)).map((b) => b.codigo))
   const porOt = new Map()
   snap.docs.forEach((d) => {
     const l = d.data()
