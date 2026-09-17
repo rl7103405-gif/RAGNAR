@@ -26,7 +26,7 @@ const lleno = (v) => v !== null && v !== undefined && String(v).trim() !== ''
 const RENGLON = { talla: '', codigo: '', claveMicrosip: '', descripcion: '', upc: '' }
 const AVIO = { clave: '', descripcion: '', usa: '', comoSeUsa: '', talla: 'TODAS', imagen: null }
 const ZONAS = ['FOTO_REFERENCIA', 'FOTO_INDIVIDUAL', 'FOTO_BOLSA', 'FOTO_CAJA']
-const PANTALLAS = [[1, 'Modelo'], [2, 'Códigos y ruta'], [3, 'Avíos'], [4, 'Empaque individual'], [5, 'Packs en bolsa'], [6, 'Caja']]
+const PANTALLAS = [[1, 'Modelo'], [2, 'Códigos y ruta'], [3, 'Avíos'], [4, 'Empaque individual'], [5, 'Packs en bolsa'], [6, 'Caja o bulto']]
 
 const aFechaInput = (v) => {
   const d = v instanceof Date ? v : lleno(v) ? new Date(v) : null

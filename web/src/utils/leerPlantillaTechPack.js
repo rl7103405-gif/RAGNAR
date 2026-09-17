@@ -12,7 +12,7 @@
 // que la hoja exista.
 //
 // Funcion pura sobre un Workbook de ExcelJS ya abierto.
-import { CAMPOS, HOJAS, ORDEN_HOJAS, PLANTILLA, PEDIDO_V1, TABLAS, ZONAS_FOTO, BANDA, rangoAIndices } from './plantillaTechPack.js'
+import { CAMPOS, HOJAS, ORDEN_HOJAS, PLANTILLA, PEDIDO_V1, TABLAS, ZONAS_FOTO, BANDA, LISTAS, rangoAIndices } from './plantillaTechPack.js'
 import { normalizarClaveAvio, valorPlano } from './aviosTechPack.js'
 import { RUBROS_TECH_PACK } from './completadoTechPack.js'
 
@@ -253,7 +253,11 @@ export function medirPlantilla(l) {
   if (!(f.FOTO_BOLSA > 0)) falta.bolsa.push('foto de la bolsa')
   // CAJA O BULTO (Roberto, 17-sep: "siempre va en bolsa pero no siempre en
   // caja"). Hay que decir cual, y lo demas se nombra con esa palabra.
-  const emb = lleno(c.TP_EMBALAJE) ? String(c.TP_EMBALAJE).trim().toUpperCase() : ''
+  // Un valor que no sea CAJA o BULTO ("BOLSA", "CAJA O BULTO") no es un
+  // embalaje elegido: no calificaba porque solo se comprobaba que no viniera
+  // vacio, y un dato invalido no cuenta como capturado.
+  const embCrudo = lleno(c.TP_EMBALAJE) ? String(c.TP_EMBALAJE).trim().toUpperCase() : ''
+  const emb = LISTAS.embalaje.includes(embCrudo) ? embCrudo : ''
   const enQue = emb === 'BULTO' ? 'bulto' : emb === 'CAJA' ? 'caja' : 'caja o bulto'
   if (!emb) falta.caja.push('si se embarca en caja o en bulto')
   if (!(num(c.TP_DOCENAS_POR_CAJA) > 0)) falta.caja.push(`docenas por ${enQue}`)

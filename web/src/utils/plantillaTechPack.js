@@ -41,7 +41,7 @@ export const TITULOS = {
   avios: 'TECH PACK · 3 AVIOS (cuanto lleva cada pack)',
   individual: 'TECH PACK · 4 EMPAQUE INDIVIDUAL',
   bolsa: 'TECH PACK · 5 PACKS EN BOLSA',
-  caja: 'TECH PACK · 6 CAJA'
+  caja: 'TECH PACK · 6 CAJA O BULTO'
 }
 
 // La banda: filas 1-3 de TODAS las hojas. El logo vive en A1:B3 y en ningun

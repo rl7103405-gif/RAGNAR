@@ -322,14 +322,23 @@ export function extraerTechPackViejo(libro, ctx = {}) {
   // pack. Solo se toma si TODO lo que dice el archivo coincide en un numero.
   if (!paresPorPack) {
     const PALABRAS = [[/\bUNI ?PACK\b/, 1], [/\b(DUO ?PACK|BI ?PACK)\b/, 2], [/\bTRI ?PACK\b/, 3], [/\bSIX ?PACK\b/, 6]]
+    // El numero de "N PACK" solo vale si NO va pegado a otro numero, guion,
+    // punto o diagonal (talla "4-6 PACK" o decimal "1.5 PACK" NO son pares por
+    // pack: un dato adivinado no se escribe como dato, se deja vacio).
+    const RE_N_PACK = /(?<![\d\-./])\b(\d{1,2}) ?PACK\b/g
     const dichos = new Map()
-    const frases = [...microsip.map((m) => m.descripcion), ...codigosRuta.map((c) => c.descripcion), modelo?.valor, prenda?.valor]
+    // MODELO de cada renglon de codigos entra tambien: un SIX PACK dicho ahi
+    // debe poder contradecir a la DESCRIPCION (ver caso UNIPACK/SIX PACK).
+    const frases = [...microsip.map((m) => m.descripcion), ...codigosRuta.map((c) => c.descripcion), ...codigosRuta.map((c) => c.modelo), modelo?.valor, prenda?.valor]
     for (const frase of frases) {
       const t = norm(frase)
       if (!t) continue
       for (const [re, n] of PALABRAS) if (re.test(t)) dichos.set(n, re.exec(t)[0])
-      const m = /\b(\d{1,2}) ?PACK\b/.exec(t)
-      if (m && Number(m[1]) >= 1 && Number(m[1]) <= 24) dichos.set(Number(m[1]), m[0])
+      // TODAS las menciones de "N PACK" de la frase cuentan, no solo la primera
+      // ("3 PACK / 6 PACK" es un conflicto, no un 3).
+      for (const m of t.matchAll(RE_N_PACK)) {
+        if (Number(m[1]) >= 1 && Number(m[1]) <= 24) dichos.set(Number(m[1]), m[0])
+      }
     }
     if (dichos.size === 1) {
       const [n, palabra] = [...dichos.entries()][0]

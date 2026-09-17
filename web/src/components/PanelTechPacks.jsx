@@ -44,7 +44,7 @@ import {
   quitarDeBiblioteca,
   TIPOS
 } from '../utils/techPacks'
-import { avanceDelTechPack, RUBROS_TECH_PACK } from '../utils/completadoTechPack'
+import { avanceDelTechPack, RUBROS_TECH_PACK, faltaElRubro } from '../utils/completadoTechPack'
 import { agruparPorClienteYModelo, coincideTechPack, modelosDelTechPack, textoDe } from '../utils/clienteModeloTechPack'
 import VisorTechPack from './VisorTechPack'
 import EditorPlantillaTechPack from './EditorPlantillaTechPack'
@@ -80,11 +80,11 @@ function AvanceDeTechPacks({ biblioteca, onVer, onEditar, puedeEditar }) {
       if (suyo === 'no_aplica') return false
       if (suyo === 'completo') return false
       if (suyo === 'pendiente') return true
-      // Por ID o por TITULO: medirCompletado (formato viejo) guarda los
-      // faltantes con su TITULO y medirPlantilla con su ID. Comparar solo
+      // Por ID, TITULO o titulo anterior: medirCompletado (formato viejo) guarda
+      // los faltantes con su TITULO y medirPlantilla con su ID. Comparar solo
       // contra el id dejaba "completos" a los tech packs viejos aunque les
       // faltara ese rubro (mismo defecto ya corregido en completadoTechPack.js).
-      return (b.medicion.faltan || []).includes(r.id) || (b.medicion.faltan || []).includes(r.titulo)
+      return faltaElRubro(b.medicion.faltan, r)
     })
     return { ...r, faltan: falta.length, ejemplos: falta.slice(0, 3).map((b) => b.codigo), lista: falta }
   }).sort((a, b) => b.faltan - a.faltan)

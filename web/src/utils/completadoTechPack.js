@@ -54,6 +54,10 @@ export const RUBROS_TECH_PACK = [
   {
     id: 'caja',
     titulo: 'Empaque de caja o bulto',
+    // El titulo era 'Empaque de caja' antes de que Lety pidiera reconocer
+    // tambien el bulto: un faltante viejo guardado con ese titulo no debe
+    // "curarse solo" nada mas por el renombre (ver faltaElRubro).
+    titulosAnteriores: ['Empaque de caja'],
     ayuda: 'Como se acomoda en la caja de embarque.',
     prefijos: ['EMPAQUE CAJA', 'EMPAQUE DE CAJA', 'EMPAQUE BULTO', 'EMPAQUE DE BULTO', 'EMPAQUE EN BULTO', 'EMPAQUE POR BULTO']
   },
@@ -66,6 +70,18 @@ export const RUBROS_TECH_PACK = [
     porImagenes: true
   }
 ]
+
+/**
+ * ¿La lista de faltantes trae este rubro? Compara por ID, por el TITULO
+ * vigente o por alguno de sus `titulosAnteriores`. Un solo lugar para los
+ * tres consumidores que antes repetian esta comparacion cada uno por su
+ * lado (asi nacio el bug: al renombrarse 'Empaque de caja' a '... o bulto'
+ * el faltante historico dejo de reconocerse en las tres copias a la vez).
+ */
+export function faltaElRubro(faltan, rubro) {
+  const lista = faltan || []
+  return lista.includes(rubro.id) || lista.includes(rubro.titulo) || (rubro.titulosAnteriores || []).some((t) => lista.includes(t))
+}
 
 const normaliza = (s) =>
   String(s || '')
@@ -134,12 +150,14 @@ export function avanceDelTechPack(item) {
     let tiene
     if (marca === 'completo') tiene = true
     else if (marca === 'pendiente') tiene = false
-    // Por ID o por TITULO: medirCompletado (formato viejo) guarda los faltantes
-    // con su TITULO ("Empaque de packs en bolsa") y medirPlantilla con su ID
-    // ("bolsa"). Comparando solo contra el id, lo medido con el formato viejo
-    // nunca cuadraba y TODO salia completo: el mismo tech pack decia 71% en la
-    // bandeja y 100% aqui (usuario-real como Lety, 17-sep).
-    else if (medido) tiene = !(medido.faltan || []).includes(r.id) && !(medido.faltan || []).includes(r.titulo)
+    // Por ID, por TITULO o por titulo anterior: medirCompletado (formato
+    // viejo) guarda los faltantes con su TITULO ("Empaque de packs en
+    // bolsa") y medirPlantilla con su ID ("bolsa"); y un rubro que cambio de
+    // titulo (ver 'caja') sigue reconociendo el faltante guardado con el
+    // titulo viejo. Comparando solo contra el id, lo medido con el formato
+    // viejo nunca cuadraba y TODO salia completo: el mismo tech pack decia
+    // 71% en la bandeja y 100% aqui (usuario-real como Lety, 17-sep).
+    else if (medido) tiene = !faltaElRubro(medido.faltan, r)
     else continue
     cuentan++
     if (tiene) completos++

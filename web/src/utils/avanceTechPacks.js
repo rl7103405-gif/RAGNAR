@@ -7,7 +7,7 @@
 // modelo y UN solo tech pack, aunque cubra seis códigos. La app exigía un tech
 // pack por código y por eso una orden entera salía en ceros. Medido ese día:
 // 112 de los 133 tech packs de la biblioteca cubren más de un código.
-import { RUBROS_TECH_PACK } from './completadoTechPack.js'
+import { RUBROS_TECH_PACK, faltaElRubro } from './completadoTechPack.js'
 import { codigosCubiertosDe } from './clienteModeloTechPack.js'
 import { CHECKLIST_VERSION, codigoComoId, datosDelTechPack } from './techPackNucleo.js'
 
@@ -92,14 +92,13 @@ export function evaluarDocumento(b) {
   // (`b.medicion`, ver medir_tech_packs.mjs): sin esto, los 134 tech packs de
   // la biblioteca -con checklist manual vacio pero YA medidos- salian todos
   // 'sin revisar' y 0%, aunque la medicion real dijera 43-57% (Roberto, 17-sep).
-  // Por ID o por TITULO: mismo motivo que en completadoTechPack.js y arriba.
+  // Por ID, TITULO o titulo anterior: mismo motivo que en completadoTechPack.js y arriba.
   const medido = b?.medicion?.porcentaje != null ? b.medicion : null
   const valores = ids.map((k, i) => {
     if (c[k]) return c[k]
     if (!medido) return undefined
     const r = RUBROS_TECH_PACK[i]
-    const falta = (medido.faltan || []).includes(r.id) || (medido.faltan || []).includes(r.titulo)
-    return falta ? 'pendiente' : 'completo'
+    return faltaElRubro(medido.faltan, r) ? 'pendiente' : 'completo'
   })
   const presentes = valores.every(Boolean)
   const completos = valores.filter((v) => v === 'completo').length
