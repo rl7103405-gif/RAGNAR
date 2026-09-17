@@ -54,7 +54,10 @@ export const LISTAS = {
   tejido: ['CIRCULAR', 'RECTILINEO', 'SEAMLESS', 'OTRO'],
   sistemaTalla: ['DAMA', 'CABALLERO', 'UNITALLA', 'NIÑO 0-2', 'NIÑO 2-4', 'NIÑO 4-6', 'NIÑO 7-9', 'NIÑO 8-10', 'NIÑO 10-13', 'JUVENIL'],
   procesos: ['TEJIDO', 'CERRADO', 'VOLTEADO', 'HORMADO', 'PAREADO', 'HABILITADO', 'EMBALAJE', 'BORDADO', 'TENIDO', 'ESTAMPADO', 'PLANCHADO'],
-  tallaAvio: ['TODAS', 'DAMA', 'CABALLERO', 'UNITALLA', '0-2', '2-4', '4-6', '7-9', '8-10', '10-13']
+  tallaAvio: ['TODAS', 'DAMA', 'CABALLERO', 'UNITALLA', '0-2', '2-4', '4-6', '7-9', '8-10', '10-13'],
+  // Roberto, 17-sep: "siempre va en bolsa, pero no siempre en caja: se
+  // transporta en caja o por bulto". La maquila tiene que saber cual.
+  embalaje: ['CAJA', 'BULTO']
 }
 
 // Los campos sueltos: nombre definido -> celda de la hoja 1 (o de su hoja).
@@ -75,6 +78,10 @@ export const CAMPOS = {
   TP_PACKS_POR_BOLSA: { hoja: 'bolsa', celda: 'B5', etiqueta: 'Packs por bolsa', tipo: 'entero', min: 1, rubro: 'bolsa', obligatorio: true },
   TP_BOLSA_TEXTO: { hoja: 'bolsa', celda: 'A7', etiqueta: 'Como se acomodan en la bolsa', tipo: 'texto', rubro: 'bolsa', obligatorio: false },
   TP_DOCENAS_POR_CAJA: { hoja: 'caja', celda: 'B5', etiqueta: 'Docenas por caja o bulto', tipo: 'entero', min: 1, rubro: 'caja', obligatorio: true },
+  // estructuraOpcional: las plantillas generadas ANTES del 17-sep no traen este
+  // nombre definido y NO por eso estan danadas; el dato sale vacio, la
+  // calificacion lo pide, y al guardar desde Editar ya lo llevan.
+  TP_EMBALAJE: { hoja: 'caja', celda: 'E5', etiqueta: 'Se embarca en', etiquetaCorta: 'SE EMBARCA EN', tipo: 'lista', lista: 'embalaje', rubro: 'caja', obligatorio: true, estructuraOpcional: true },
   TP_CAJA_TEXTO: { hoja: 'caja', celda: 'A7', etiqueta: 'Como se acomoda en la caja', tipo: 'texto', rubro: 'caja', obligatorio: false }
 }
 
@@ -134,7 +141,7 @@ export const ZONAS_FOTO = {
   FOTO_REFERENCIA: { hoja: 'pedido', rango: 'A33:J52', etiqueta: 'Foto de referencia del producto', rubro: 'fotos' },
   FOTO_INDIVIDUAL: { hoja: 'individual', rango: 'A8:J40', etiqueta: 'Como se arma el par (fotos y flechas)', rubro: 'individual' },
   FOTO_BOLSA: { hoja: 'bolsa', rango: 'A10:J40', etiqueta: 'Como van los packs en la bolsa', rubro: 'bolsa' },
-  FOTO_CAJA: { hoja: 'caja', rango: 'A10:J40', etiqueta: 'Como se acomoda la caja', rubro: 'caja' }
+  FOTO_CAJA: { hoja: 'caja', rango: 'A10:J40', etiqueta: 'Como se acomoda la caja o el bulto', rubro: 'caja' }
 }
 
 // Lo que se guarda en la hoja oculta _RAGNAR (columna A = clave, B = valor).

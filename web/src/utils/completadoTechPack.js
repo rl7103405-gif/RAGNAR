@@ -53,9 +53,9 @@ export const RUBROS_TECH_PACK = [
   },
   {
     id: 'caja',
-    titulo: 'Empaque de caja',
+    titulo: 'Empaque de caja o bulto',
     ayuda: 'Como se acomoda en la caja de embarque.',
-    prefijos: ['EMPAQUE CAJA', 'EMPAQUE DE CAJA']
+    prefijos: ['EMPAQUE CAJA', 'EMPAQUE DE CAJA', 'EMPAQUE BULTO', 'EMPAQUE DE BULTO', 'EMPAQUE EN BULTO', 'EMPAQUE POR BULTO']
   },
   {
     id: 'fotos',

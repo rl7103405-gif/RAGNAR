@@ -124,7 +124,7 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, aprob
           ruta: Object.values((t.TP_RUTA || [])[0] || {}).filter(lleno),
           avios: (t.TP_TABLA_AVIOS || []).map((r, i) => ({ ...AVIO, ...r, usa: r.usa ?? '', talla: r.talla || 'TODAS', imagen: media(l.imagenesAvios?.[i]) })).filter((r) => lleno(r.clave) || lleno(r.descripcion)),
           textos: { individual: c.TP_INDIVIDUAL_TEXTO || '', bolsa: c.TP_BOLSA_TEXTO || '', caja: c.TP_CAJA_TEXTO || '' },
-          packsPorBolsa: c.TP_PACKS_POR_BOLSA ?? '', docenasPorCaja: c.TP_DOCENAS_POR_CAJA ?? '',
+          packsPorBolsa: c.TP_PACKS_POR_BOLSA ?? '', docenasPorCaja: c.TP_DOCENAS_POR_CAJA ?? '', embalaje: String(c.TP_EMBALAJE || '').toUpperCase(),
           fotos: Object.fromEntries(ZONAS.map((z) => [z, (l.imagenesZona?.[z] || []).map((im) => media(im.imageId)).filter(Boolean)])),
           sobrantes: l.noMigrado || [],
           // Lo que el tech pack traia del pedido (v1): no se ve, pero se conserva.
@@ -172,7 +172,7 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, aprob
         datos: {
           ...d,
           fecha: d.fecha ? new Date(d.fecha + 'T12:00:00') : undefined,
-          paresPorPack: num(d.paresPorPack), packsPorBolsa: num(d.packsPorBolsa), docenasPorCaja: num(d.docenasPorCaja),
+          paresPorPack: num(d.paresPorPack), packsPorBolsa: num(d.packsPorBolsa), docenasPorCaja: num(d.docenasPorCaja), embalaje: d.embalaje || undefined,
           renglones: d.renglones.map((r) => ({ talla: r.talla, codigo: r.codigo, claveMicrosip: r.claveMicrosip, descripcion: r.descripcion, upc: r.upc })),
           pedidoAnterior: d.pedidoAnterior || null,
           migradoDe: d.migradoDe || null,
@@ -329,9 +329,19 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, aprob
             )}
             {pantalla === 6 && (
               <>
-                <div className="tpe-grid"><Campo etiqueta="Docenas por caja o bulto" valor={d.docenasPorCaja} onChange={(v) => set('docenasPorCaja', v)} tipo="number" /></div>
-                <label className="tp-campo"><span>Cómo se acomoda en la caja</span><textarea className="tp-input" rows={3} value={d.textos.caja} onChange={(e) => set('textos', { ...d.textos, caja: e.target.value })} /></label>
-                <Fotos titulo="Fotos de la caja" lista={d.fotos.FOTO_CAJA} onCambiar={(l) => set('fotos', { ...d.fotos, FOTO_CAJA: l })} />
+                <div className="tpe-grid">
+                  {/* Caja o bulto (Roberto, 17-sep): siempre va en bolsa, no siempre en caja. */}
+                  <label className="tp-campo"><span>Se embarca en</span>
+                    <select className="tp-input" value={d.embalaje || ''} onChange={(e) => set('embalaje', e.target.value)}>
+                      <option value="">Elige: caja o bulto</option>
+                      <option value="CAJA">CAJA</option>
+                      <option value="BULTO">BULTO</option>
+                    </select>
+                  </label>
+                  <Campo etiqueta={`Docenas por ${d.embalaje === 'BULTO' ? 'bulto' : d.embalaje === 'CAJA' ? 'caja' : 'caja o bulto'}`} valor={d.docenasPorCaja} onChange={(v) => set('docenasPorCaja', v)} tipo="number" />
+                </div>
+                <label className="tp-campo"><span>Cómo se acomoda en la caja o el bulto</span><textarea className="tp-input" rows={3} value={d.textos.caja} onChange={(e) => set('textos', { ...d.textos, caja: e.target.value })} /></label>
+                <Fotos titulo="Fotos de la caja o el bulto" lista={d.fotos.FOTO_CAJA} onCambiar={(l) => set('fotos', { ...d.fotos, FOTO_CAJA: l })} />
               </>
             )}
 

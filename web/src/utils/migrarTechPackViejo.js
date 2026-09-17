@@ -127,7 +127,7 @@ const clasificarHoja = (nombre) => {
   // se meten en las zonas de empaque ("MEDIDAS EN CRUDO Y FINALES" no es caja).
   if (/MEDIDA|DESGLOCE|DESGLOSE|^DESG |MATERIALES|PROVEEDOR|ESPECIFICACION|FICHA|^HOJA ?\d*$/.test(n)) return 'otra'
   if (/BOLSA/.test(n)) return 'bolsa'
-  if (/CAJA|EMPAQUE FINAL/.test(n)) return 'caja'
+  if (/CAJA|BULTO|EMPAQUE FINAL/.test(n)) return 'caja'
   if (/INDIVIDUAL|ACOMODO|HABILITA|PLASTIFLECHA/.test(n)) return 'individual'
   // Hojas con el nombre del diseno ("CPD32-UN01711", "CIW10 - 513089001"):
   // en el formato viejo son el acomodo del empaque individual.
@@ -316,6 +316,30 @@ export function extraerTechPackViejo(libro, ctx = {}) {
     }
   } else faltantes.push('hoja CODIGOS-RUTA DE PROCESOS')
 
+  // PARES POR PACK DICHO CON PALABRAS. Cuando la celda PACK viene vacia pero el
+  // archivo dice "CALCETA UNIPACK" (Roberto, 17-sep, con el BARBIE RUN de Lety
+  // enfrente: "aqui marca que es calceta unipack"), eso ES el dato: 1 par por
+  // pack. Solo se toma si TODO lo que dice el archivo coincide en un numero.
+  if (!paresPorPack) {
+    const PALABRAS = [[/\bUNI ?PACK\b/, 1], [/\b(DUO ?PACK|BI ?PACK)\b/, 2], [/\bTRI ?PACK\b/, 3], [/\bSIX ?PACK\b/, 6]]
+    const dichos = new Map()
+    const frases = [...microsip.map((m) => m.descripcion), ...codigosRuta.map((c) => c.descripcion), modelo?.valor, prenda?.valor]
+    for (const frase of frases) {
+      const t = norm(frase)
+      if (!t) continue
+      for (const [re, n] of PALABRAS) if (re.test(t)) dichos.set(n, re.exec(t)[0])
+      const m = /\b(\d{1,2}) ?PACK\b/.exec(t)
+      if (m && Number(m[1]) >= 1 && Number(m[1]) <= 24) dichos.set(Number(m[1]), m[0])
+    }
+    if (dichos.size === 1) {
+      const [n, palabra] = [...dichos.entries()][0]
+      paresPorPack = n
+      nota('TP_PACK', n, `el archivo dice "${palabra}"`, 'media')
+    } else if (dichos.size > 1) {
+      conflictos.push(`pares por pack: el archivo dice ${[...dichos.values()].join(' y ')}; captura el correcto en Editar`)
+    }
+  }
+
   // ------------------------------------------------ renglones del pedido
   // El formato viejo NO trae el codigo interno junto a la clave Microsip: la
   // hoja de pedido y la de codigos van en el mismo orden. Se juntan por
@@ -459,7 +483,15 @@ export function extraerTechPackViejo(libro, ctx = {}) {
   nota('TP_PACKS_POR_BOLSA', packsPorBolsa, 'texto de empaque en bolsa / etiquetas', 'media')
   nota('TP_DOCENAS_POR_CAJA', docenasPorCaja, 'texto de empaque de caja', 'media')
   if (!packsPorBolsa) faltantes.push('packs por bolsa')
-  if (!docenasPorCaja) faltantes.push('docenas por caja')
+  if (!docenasPorCaja) faltantes.push('docenas por caja o bulto')
+  // ¿CAJA O BULTO? Sale del nombre de la hoja y de su texto. Si dice las dos
+  // cosas no se adivina: se avisa y se captura en Editar.
+  const pistasEmbalaje = norm([...deTipo('caja').map((h) => h.name), textos.caja].join(' '))
+  const diceCaja = /\bCAJAS?\b/.test(pistasEmbalaje)
+  const diceBulto = /\bBULTOS?\b/.test(pistasEmbalaje)
+  const embalaje = diceBulto && !diceCaja ? 'BULTO' : diceCaja && !diceBulto ? 'CAJA' : ''
+  if (diceCaja && diceBulto) conflictos.push('el empaque final dice CAJA y BULTO: elige en Editar en cual se embarca')
+  nota('TP_EMBALAJE', embalaje, 'hoja y texto del empaque final', 'media')
 
   // ------------------------------------------------ fotos por zona
   // El logo viejo va arriba a la derecha (fila 0-1, columna 7 o mas): no es foto.
@@ -574,6 +606,7 @@ export function extraerTechPackViejo(libro, ctx = {}) {
     textos,
     packsPorBolsa: packsPorBolsa || undefined,
     docenasPorCaja: docenasPorCaja || undefined,
+    embalaje: embalaje || undefined,
     fotos
   }
   const reporte = {

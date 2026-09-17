@@ -46,7 +46,7 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
   // Una pantalla por apartado (Roberto, 11-sep: "si me gustarian las diferentes
   // pantallas de uno, dos, tres, cuatro, cinco y seis").
   const [activa, setActiva] = useState(Number(pantallaInicial) >= 1 && Number(pantallaInicial) <= 6 ? Number(pantallaInicial) : 1)
-  const PESTANAS = [[1, 'Modelo', 'pedido'], [2, 'Códigos y ruta', 'ruta'], [3, 'Avíos', 'etiquetas'], [4, 'Empaque individual', 'individual'], [5, 'Packs en bolsa', 'bolsa'], [6, 'Caja', 'caja']]
+  const PESTANAS = [[1, 'Modelo', 'pedido'], [2, 'Códigos y ruta', 'ruta'], [3, 'Avíos', 'etiquetas'], [4, 'Empaque individual', 'individual'], [5, 'Packs en bolsa', 'bolsa'], [6, 'Caja o bulto', 'caja']]
   const c = lectura.campos || {}
   const t = lectura.tablas || {}
   const zona = (n) => (lectura.imagenesZona?.[n] || []).map((im) => urlDe(im.imageId)).filter(Boolean)
@@ -173,10 +173,13 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
         <Fotos urls={zona('FOTO_BOLSA')} alAbrir={setGrande} vacio="Sin foto de la bolsa" grandes />
       </section>}
       {activa === 6 && <section className="tpv-sec">
-        <h4>6 · Caja {seccion('caja')}</h4>
-        <div className="tpv-grid"><Dato etiqueta="Docenas por caja" valor={numero(c.TP_DOCENAS_POR_CAJA)} /></div>
+        <h4>6 · Caja o bulto {seccion('caja')}</h4>
+        <div className="tpv-grid">
+          <Dato etiqueta="Se embarca en" valor={c.TP_EMBALAJE} />
+          <Dato etiqueta={`Docenas por ${String(c.TP_EMBALAJE || '').toUpperCase() === 'BULTO' ? 'bulto' : String(c.TP_EMBALAJE || '').toUpperCase() === 'CAJA' ? 'caja' : 'caja o bulto'}`} valor={numero(c.TP_DOCENAS_POR_CAJA)} />
+        </div>
         {lleno(c.TP_CAJA_TEXTO) && <p className="tpv-texto">{c.TP_CAJA_TEXTO}</p>}
-        <Fotos urls={zona('FOTO_CAJA')} alAbrir={setGrande} vacio="Sin foto de la caja" grandes />
+        <Fotos urls={zona('FOTO_CAJA')} alAbrir={setGrande} vacio="Sin foto de la caja o el bulto" grandes />
       </section>}
 
       {/* Datos del Excel anterior que la conversion no supo acomodar: nada se

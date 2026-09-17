@@ -77,6 +77,23 @@ const TABS = [
   { id: 'miperfil', label: 'Mi perfil' }
 ]
 
+// LOS APARTADOS (Roberto, 17-sep): "ya hay muchas pestanas... una pestana para
+// arriba: procesos iniciales, procesos finales, diseno, maquilas". A quien ve
+// casi todo (Direccion, Lindbergh) ya no le cabian en una fila. Arriba va el
+// apartado y abajo solo las pestanas de ese apartado. Quien tiene pocas
+// pestanas (el equipo de Lety, PT, un pesador) NO ve apartados: una fila le
+// basta y un nivel mas solo le estorbaria.
+const APARTADOS = [
+  { id: 'iniciales', label: 'Procesos iniciales', tabs: ['captura', 'folios', 'tareas', 'historial'] },
+  { id: 'finales', label: 'Procesos finales (PT)', tabs: ['porllegar', 'embarcar', 'inventariopt'] },
+  { id: 'maquilas', label: 'Maquilas', tabs: ['maquilas'] },
+  { id: 'diseno', label: 'Diseño', tabs: ['techpacks', 'diseno'] },
+  { id: 'plan', label: 'Órdenes y reportes', tabs: ['ordenes', 'reportes', 'indicadores', 'registros'] },
+  { id: 'cuenta', label: 'Mi cuenta', tabs: ['miequipo', 'miperfil'] }
+]
+// Con mas pestanas que estas, se agrupan.
+const MAX_PESTANAS_EN_UNA_FILA = 7
+
 // Un pesador (Angel, Juan) SOLO captura: no ve tareas, maquilas, Excel ni
 // registros (decision de Roberto, 2026-08-11).
 const TABS_CAPTURA = ['captura']
@@ -261,14 +278,37 @@ export default function Estacion() {
     .filter(Boolean)
   // La pestana inicial no puede ser 'captura' para quien no la tiene.
   const tabActiva = visibles.some((t) => t.id === tab) ? tab : visibles[0]?.id
+  // Apartados: solo los que tienen algo que este rol puede ver, con sus
+  // pestanas en el orden del rol. Una pestana que no este en ningun apartado
+  // cae en el ultimo, para que nunca desaparezca de la pantalla.
+  const agrupar = visibles.length > MAX_PESTANAS_EN_UNA_FILA
+  const enApartado = new Set(APARTADOS.flatMap((a) => a.tabs))
+  const apartados = APARTADOS
+    .map((a, i) => ({ ...a, visibles: visibles.filter((t) => a.tabs.includes(t.id) || (i === APARTADOS.length - 1 && !enApartado.has(t.id))) }))
+    .filter((a) => a.visibles.length)
+  const apartadoActivo = apartados.find((a) => a.visibles.some((t) => t.id === tabActiva)) || apartados[0]
+  const pestanasDeAbajo = agrupar ? apartadoActivo?.visibles || [] : visibles
 
   // usuario-real (9-sep): a Lety le sobraba "Embarques" en su cabecera. El
   // titulo sigue al rol: desarrollo y produccion no embarcan nada.
   return (
     <Layout titulo={`RAGNAR - ${ETIQUETA_ROL[perfil?.rol] || 'Embarques'}`}>
-      {visibles.length > 1 && (
+      {agrupar && (
+        <div className="apartados" role="tablist" aria-label="Apartados">
+          {apartados.map((a) => (
+            <button
+              key={a.id}
+              className={`apartado ${apartadoActivo?.id === a.id ? 'activo' : ''}`}
+              onClick={() => setTab(a.visibles[0].id)}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {pestanasDeAbajo.length > 1 && (
         <div className="tabs">
-          {visibles.map((t) => (
+          {pestanasDeAbajo.map((t) => (
             <button
               key={t.id}
               className={`tab ${tabActiva === t.id ? 'activo' : ''}`}

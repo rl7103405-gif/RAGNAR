@@ -50,7 +50,12 @@ export function leerPlantilla(libro) {
   const nombres = new Map()
   for (const d of libro.definedNames?.model || []) if (d?.name && d.ranges?.[0]) nombres.set(d.name, d.ranges[0])
   for (const n of [...Object.keys(CAMPOS), ...Object.keys(TABLAS), ...Object.keys(ZONAS_FOTO)]) {
-    if (!nombres.has(n)) { faltaEstructura.push(`nombre ${n}`); continue }
+    if (!nombres.has(n)) {
+      // Un campo agregado despues (TP_EMBALAJE, 17-sep) no vuelve danadas a las
+      // plantillas que se generaron antes: simplemente no traen ese dato.
+      if (!CAMPOS[n]?.estructuraOpcional) faltaEstructura.push(`nombre ${n}`)
+      continue
+    }
     // El nombre existe pero puede apuntar a una hoja borrada o a un rango que
     // no se puede leer: eso tambien es plantilla danada, no un dato ausente
     // (Codex, 17-sep: TP_CLIENTE apuntando a una hoja inexistente se aceptaba
@@ -246,8 +251,13 @@ export function medirPlantilla(l) {
   if (!lleno(c.TP_INDIVIDUAL_TEXTO) && !(f.FOTO_INDIVIDUAL > 0)) falta.individual.push('instrucciones o foto de como se arma el par')
   if (!(num(c.TP_PACKS_POR_BOLSA) > 0)) falta.bolsa.push('packs por bolsa')
   if (!(f.FOTO_BOLSA > 0)) falta.bolsa.push('foto de la bolsa')
-  if (!(num(c.TP_DOCENAS_POR_CAJA) > 0)) falta.caja.push('docenas por caja')
-  if (!(f.FOTO_CAJA > 0)) falta.caja.push('foto de la caja')
+  // CAJA O BULTO (Roberto, 17-sep: "siempre va en bolsa pero no siempre en
+  // caja"). Hay que decir cual, y lo demas se nombra con esa palabra.
+  const emb = lleno(c.TP_EMBALAJE) ? String(c.TP_EMBALAJE).trim().toUpperCase() : ''
+  const enQue = emb === 'BULTO' ? 'bulto' : emb === 'CAJA' ? 'caja' : 'caja o bulto'
+  if (!emb) falta.caja.push('si se embarca en caja o en bulto')
+  if (!(num(c.TP_DOCENAS_POR_CAJA) > 0)) falta.caja.push(`docenas por ${enQue}`)
+  if (!(f.FOTO_CAJA > 0)) falta.caja.push(emb === 'BULTO' ? 'foto del bulto' : emb === 'CAJA' ? 'foto de la caja' : 'foto de la caja o el bulto')
 
   // --- fotos: las cuatro zonas
   for (const z of Object.keys(ZONAS_FOTO)) if (!(f[z] > 0)) falta.fotos.push(ZONAS_FOTO[z].etiqueta)

@@ -478,6 +478,8 @@ export function generarPlantillaTechPack({ Workbook, logoBase64 = null, datos = 
 
   const caja = hojas.caja
   campo(caja, 'TP_DOCENAS_POR_CAJA', libro, datos.docenasPorCaja)
+  // CAJA o BULTO: sin valor por default, para que nadie lo de por sabido.
+  campo(caja, 'TP_EMBALAJE', libro, ['CAJA', 'BULTO'].includes(String(datos.embalaje || '').toUpperCase()) ? String(datos.embalaje).toUpperCase() : undefined)
   caja.mergeCells('A7:J9')
   const cc = campo(caja, 'TP_CAJA_TEXTO', libro)
   cc.value = datos.textos?.caja || ''

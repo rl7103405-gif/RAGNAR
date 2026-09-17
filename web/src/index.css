@@ -317,6 +317,23 @@ table th, table td {
    tiene TODAS las pestanas, quedaban en tres renglones. Se vuelve al scroll,
    pero con la barra VISIBLE y delgada: el problema que se queria resolver era
    que nada avisaba que habia mas pestanas a la derecha. */
+/* LOS APARTADOS: la fila de arriba para quien ve casi todo (Direccion,
+   Lindbergh). Se ven distintos de las pestanas a proposito: son el "donde
+   estoy" y las pestanas el "que hago aqui". */
+.apartados { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.apartado {
+  border: 1px solid var(--borde);
+  background: #fff;
+  color: var(--texto-suave);
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 10px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.apartado:hover { border-color: var(--azul); color: var(--azul); }
+.apartado.activo { background: var(--azul); border-color: var(--azul); color: #fff; }
+
 .tabs {
   display: flex;
   gap: 4px;
