@@ -176,7 +176,11 @@ export async function pasarAlFormatoTPQuini({ contenido, codigo, nombre, sha256O
       faltantes: soloDelTechPack(reporte.faltantes),
       fotosSaltadas: reporte.conteo?.fotosSaltadas || 0,
       usaPorConfirmar,
-      sobrantes: reporte.sobrantes || 0
+      sobrantes: reporte.sobrantes || 0,
+      // El Excel no traia ninguna hoja de caja ni de bulto (BARBIE RUN, 18-sep):
+      // se dice con esas palabras, porque "sin dato" no le decia a Lety que el
+      // hueco estaba en su archivo y no en RAGNAR.
+      sinHojaDeEmbalaje: !(reporte.conteo?.hojas || []).some((h) => /\(caja\)$/.test(h))
     }
   }
 }
@@ -213,6 +217,7 @@ export function resumenDeConversion(r) {
   if (faltan.length) partes.push(`Falta: ${faltan.slice(0, 6).join(', ')}${faltan.length > 6 ? '…' : ''}.`)
   const rev = r.reporte?.conflictos || []
   if (rev.length) partes.push(`Revisa: ${rev.slice(0, 4).join('; ')}${rev.length > 4 ? '…' : ''}.`)
+  if (r.reporte?.sinHojaDeEmbalaje) partes.push('Tu Excel no trae hoja de caja ni de bulto: RAGNAR no sabe en qué se embarca. Dilo en Editar (hoja 6) o agrega esa hoja a tu archivo.')
   if (r.reporte?.fotosSaltadas) partes.push(`${r.reporte.fotosSaltadas} imagen(es) del original no se pudieron acomodar.`)
   partes.push('Conserva tu archivo original: RAGNAR guarda solo la version en la plantilla.')
   return ' ' + partes.join(' ')

@@ -178,6 +178,16 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
           <Dato etiqueta="Se embarca en" valor={c.TP_EMBALAJE} />
           <Dato etiqueta={`Docenas por ${String(c.TP_EMBALAJE || '').toUpperCase() === 'BULTO' ? 'bulto' : String(c.TP_EMBALAJE || '').toUpperCase() === 'CAJA' ? 'caja' : 'caja o bulto'}`} valor={numero(c.TP_DOCENAS_POR_CAJA)} />
         </div>
+        {/* POR QUE DICE "SIN DATO" (Lety, 18-sep, con el BARBIE RUN: "esto continua
+            apareciendo"). Si el Excel que se subio no traia hoja de caja ni de
+            bulto, se dice asi: el hueco esta en el archivo, no en RAGNAR. */}
+        {!lleno(c.TP_EMBALAJE) && lectura.reporteMigracion?.conteo?.hojas && !lectura.reporteMigracion.conteo.hojas.some((h) => /\(caja\)$/.test(h)) && (
+          <p className="tpv-texto" style={{ color: '#92400e' }}>
+            El Excel que se subió no traía hoja de caja ni de bulto
+            ({lectura.reporteMigracion.conteo.hojas.map((h) => h.replace(/\s*\([^)]*\)$/, '').trim()).join(', ')}).
+            Por eso no se sabe en qué se embarca. Captúralo en <strong>Editar</strong>, pantalla 6, o agrega esa hoja al archivo y vuelve a subirlo.
+          </p>
+        )}
         {lleno(c.TP_CAJA_TEXTO) && <p className="tpv-texto">{c.TP_CAJA_TEXTO}</p>}
         <Fotos urls={zona('FOTO_CAJA')} alAbrir={setGrande} vacio="Sin foto de la caja o el bulto" grandes />
       </section>}
