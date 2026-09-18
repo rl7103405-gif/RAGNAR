@@ -531,20 +531,39 @@ export async function historialDelTechPack(codigo, cuantos = 30) {
  * que se está aprobando. Si alguien subió otro mientras tanto, el servidor lo
  * rechaza en vez de aprobar a ciegas lo que no se vio (Codex, 16-sep).
  */
-export async function aprobarTechPack({ codigo, techPack, usuario, aprobar = true }) {
+export async function aprobarTechPack({ codigo, techPack, usuario, aprobar = true, aprobacionVigente = null }) {
   const id = codigoComoId(codigo)
   if (!id) throw new ErrorBiblioteca('Codigo invalido.')
   if (!usuario?.uid || !usuario?.nombre) throw new ErrorBiblioteca('Tu cuenta no tiene nombre configurado.')
   if (aprobar && !techPack?.sha256) throw new ErrorBiblioteca('Ese codigo no tiene archivo que aprobar.')
+  // HISTORIAL DE APROBACIONES (Roberto, 18-sep: "que quede guardado"). Cada
+  // aprobar o retirar deja un EVENTO inmutable en techPacks/{id}/aprobaciones,
+  // en la MISMA escritura, y el documento apunta a el. Las reglas exigen las
+  // dos cosas juntas: sin evento no hay visto bueno.
+  const nombre = String(usuario.nombre).slice(0, 120)
+  const refEvento = doc(collection(db, 'techPacks', id, 'aprobaciones'))
+  const lote = writeBatch(db)
+  lote.update(refDoc(id), {
+    aprobacion: aprobar
+      ? { version: techPack.version || 1, sha256: techPack.sha256, porUid: usuario.uid, porNombre: nombre, en: serverTimestamp() }
+      : null,
+    ultimoEventoAprobacionId: refEvento.id,
+    actualizadoEn: serverTimestamp(),
+    actualizadoPorUid: usuario.uid,
+    actualizadoPorNombre: nombre
+  })
+  // Al retirar, el evento dice QUE version se retiro (la del sello vigente).
+  const deQue = aprobar ? techPack : aprobacionVigente || techPack
+  lote.set(refEvento, {
+    accion: aprobar ? 'aprobar' : 'retirar',
+    version: deQue?.version || 1,
+    sha256: deQue?.sha256 || '',
+    porUid: usuario.uid,
+    porNombre: nombre,
+    en: serverTimestamp()
+  })
   try {
-    await updateDoc(refDoc(id), {
-      aprobacion: aprobar
-        ? { version: techPack.version || 1, sha256: techPack.sha256, porUid: usuario.uid, porNombre: String(usuario.nombre).slice(0, 120), en: serverTimestamp() }
-        : null,
-      actualizadoEn: serverTimestamp(),
-      actualizadoPorUid: usuario.uid,
-      actualizadoPorNombre: String(usuario.nombre).slice(0, 120)
-    })
+    await lote.commit()
   } catch (e) {
     if (e?.code === 'permission-denied') {
       throw new ErrorBiblioteca(
@@ -561,6 +580,20 @@ export async function aprobarTechPack({ codigo, techPack, usuario, aprobar = tru
 export function estaAprobado(b) {
   const a = b?.aprobacion
   return Boolean(a && b?.techPack?.sha256 && a.sha256 === b.techPack.sha256)
+}
+
+/** El historial de aprobaciones (aprobar, retirar, y los traslados que hizo
+ *  RAGNAR al rellenar datos del original), el mas nuevo primero. [] si falla. */
+export async function aprobacionesDelTechPack(codigo, cuantos = 30) {
+  const id = codigoComoId(codigo)
+  if (!id) return []
+  try {
+    const snap = await getDocs(query(collection(db, 'techPacks', id, 'aprobaciones'), orderBy('en', 'desc'), limit(cuantos)))
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  } catch (err) {
+    console.warn('[TechPacks] No se pudo leer el historial de aprobaciones:', err?.code || err)
+    return []
+  }
 }
 
 /** Las versiones subidas (tech pack y FTT), la mas nueva primero. [] si falla. */

@@ -38,6 +38,7 @@ import {
   guardarEnBiblioteca,
   historialDelTechPack,
   versionesDelTechPack,
+  aprobacionesDelTechPack,
   mismosDatos,
   otsPorCodigo,
   otsSinTechPack,
@@ -610,7 +611,7 @@ export default function PanelTechPacks() {
     setTrabajando(true)
     setError('')
     try {
-      await aprobarTechPack({ codigo: item.codigo, techPack: item.techPack, usuario, aprobar })
+      await aprobarTechPack({ codigo: item.codigo, techPack: item.techPack, usuario, aprobar, aprobacionVigente: item.aprobacion })
       setAviso(
         aprobar
           ? `${item.codigo} aprobado: ya está en la biblioteca y se le puede mandar a una maquila.`
@@ -1139,7 +1140,7 @@ export default function PanelTechPacks() {
                             <span className="tp-meta texto-suave" style={{ fontSize: 12 }}>
                               {b.techPack?.version ? `v${b.techPack.version} · ` : ''}{fecha(b.techPack?.subidoEn || b.actualizadoEn)}
                               {b.techPack?.subidoPorNombre ? ` · lo subió ${b.techPack.subidoPorNombre}` : b.actualizadoPorNombre ? ` · ${b.actualizadoPorNombre}` : ''}
-                              {b.aprobacion?.porNombre ? ` · aprobó ${b.aprobacion.porNombre}` : ''}
+                              {b.aprobacion?.porNombre ? ` · aprobó ${b.aprobacion.porNombre}${b.aprobacion.trasladadaPor ? ' (RAGNAR le rellenó datos de su original)' : ''}` : ''}
                             </span>
                           </div>
                           <div className="tp-acciones-lista">
@@ -1733,12 +1734,14 @@ function QuienLoModifico({ codigo }) {
   useEffect(() => {
     let vivo = true
     const ms = (t) => (t?.toMillis ? t.toMillis() : 0)
-    Promise.all([historialDelTechPack(codigo).catch(() => []), versionesDelTechPack(codigo)])
-      .then(([h, v]) => {
+    Promise.all([historialDelTechPack(codigo).catch(() => []), versionesDelTechPack(codigo), aprobacionesDelTechPack(codigo)])
+      .then(([h, v, ap]) => {
         if (!vivo) return
         const ediciones = h.map((x) => ({ ...x, clase: 'datos', id: 'h-' + x.id }))
         const subidas = v.map((x) => ({ id: 'v-' + x.id, clase: 'archivo', quienNombre: x.subidoPorNombre, cuando: x.subidoEn, tipo: x.tipo, version: x.version }))
-        setHistorial([...ediciones, ...subidas].sort((a, b) => ms(b.cuando) - ms(a.cuando)))
+        // Las aprobaciones tambien (Roberto, 18-sep: "que quede guardado").
+        const vistos = ap.map((x) => ({ id: 'a-' + x.id, clase: 'aprobacion', quienNombre: x.porNombre, cuando: x.trasladadaEn || x.en, accion: x.accion, version: x.version, trasladadaDe: x.trasladadaDe, motivo: x.motivo }))
+        setHistorial([...ediciones, ...subidas, ...vistos].sort((a, b) => ms(b.cuando) - ms(a.cuando)))
       })
     return () => { vivo = false }
   }, [codigo])
@@ -1757,7 +1760,13 @@ function QuienLoModifico({ codigo }) {
                 {' '}· {fecha(h.cuando)} ·{' '}
                 {h.clase === 'archivo'
                   ? `guardo ${h.tipo === 'ftt' ? 'la FTT' : 'el tech pack'} (version ${h.version})`
-                  : `cambio ${resumirCambio(h)}`}
+                  : h.clase === 'aprobacion'
+                    ? h.trasladadaDe
+                      ? `su visto bueno pasó a la versión ${h.version}: RAGNAR rellenó huecos con datos del archivo original que ya estaba aprobado`
+                      : h.accion === 'retirar'
+                        ? `retiró el visto bueno (versión ${h.version})`
+                        : `aprobó la versión ${h.version}`
+                    : `cambio ${resumirCambio(h)}`}
               </span>
             </li>
           ))}

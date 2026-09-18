@@ -3721,6 +3721,37 @@ service cloud.firestore {
         && v.subidoPorUid == request.auth.uid
         && v.subidoPorNombre == yo.nombre;
     }
+    // EL EVENTO DE APROBACION (18-sep). Copia fiel de lo que pasa en el padre
+    // en ESTA misma escritura: el padre tiene que apuntar a este evento, antes
+    // no apuntaba, y lo que dice el evento cuadra con el antes y el despues
+    // reales. No se puede sembrar un evento suelto ni uno que mienta.
+    function puedeRegistrarEventoAprobacionTechPack(codigo, eventoId, e) {
+      let yo = perfilResumido();
+      let antes = get(/databases/$(database)/documents/techPacks/$(codigo)).data;
+      let despues = getAfter(/databases/$(database)/documents/techPacks/$(codigo)).data;
+      return yo.jefaDiseno
+        && antes.esPrueba == yo.esPrueba
+        && e.keys().hasAll(['accion', 'version', 'sha256', 'porUid', 'porNombre', 'en'])
+        && e.keys().hasOnly(['accion', 'version', 'sha256', 'porUid', 'porNombre', 'en'])
+        && e.porUid == request.auth.uid
+        && e.porNombre == yo.nombre
+        && e.en == request.time
+        && despues.get('ultimoEventoAprobacionId', '') == eventoId
+        && antes.get('ultimoEventoAprobacionId', '') != eventoId
+        && (
+          ( e.accion == 'aprobar'
+            && despues.get('aprobacion', null) != null
+            && despues.aprobacion.version == e.version
+            && despues.aprobacion.sha256 == e.sha256
+            && despues.aprobacion.en == e.en )
+          ||
+          ( e.accion == 'retirar'
+            && despues.get('aprobacion', null) == null
+            && antes.get('aprobacion', null) != null
+            && antes.aprobacion.version == e.version
+            && antes.aprobacion.sha256 == e.sha256 )
+        );
+    }
     // RAMA 2: editar los datos. SIEMPRE deja historial: la regla exige que en
     // el MISMO batch nazca el renglon de historial y que su contenido cuadre
     // exactamente con el antes y el despues reales. No hay forma de editar sin
@@ -3807,7 +3838,7 @@ service cloud.firestore {
         // expresiones (medido: escenario techpack-datos-2m).
         // Las marcas de quien y cuando se exigen en las DOS ramas.
         && sellosDeEdicionSegun(despues, yo.nombre)
-        && ((tocaAprobacion && updateDeAprobacionTechPack(antes, despues, yo))
+        && ((tocaAprobacion && updateDeAprobacionTechPack(codigo, antes, despues, yo))
             || (!tocaAprobacion && tocaArchivo && updateDeArchivoTechPack(codigo, antes, despues, yo.nombre))
             // Editar los DATOS (modelo, codigos, checklist) es SOLO de Lety y
             // su equipo (Roberto, 11-sep: "serian las unicas personas que lo
@@ -3826,9 +3857,21 @@ service cloud.firestore {
     // (Codex, 16-sep). Y cada subida nueva borra la aprobacion anterior
     // (updateDeArchivoTechPack la exige en null), asi que nadie hereda el
     // visto bueno de un archivo que ya no esta.
-    function updateDeAprobacionTechPack(antes, despues, yo) {
+    function updateDeAprobacionTechPack(codigo, antes, despues, yo) {
       return despues.diff(antes).affectedKeys()
-             .hasOnly(['aprobacion', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+             .hasOnly(['aprobacion', 'ultimoEventoAprobacionId', 'actualizadoEn', 'actualizadoPorUid', 'actualizadoPorNombre'])
+        // HISTORIAL DE APROBACIONES (Roberto, 18-sep: "que quede guardado").
+        // Cada aprobar o retirar deja un EVENTO inmutable en la MISMA
+        // escritura, y el documento apunta a el. Sin evento no hay visto bueno
+        // (Codex, 18-sep: un registro por version solo guardaba la primera
+        // aprobacion y ningun retiro).
+        && despues.get('ultimoEventoAprobacionId', '') != ''
+        && despues.get('ultimoEventoAprobacionId', '') != antes.get('ultimoEventoAprobacionId', '')
+        && existsAfter(/databases/$(database)/documents/techPacks/$(codigo)/aprobaciones/$(despues.ultimoEventoAprobacionId))
+        // ...y NACE en esta escritura: sin esto, tras retirar se podia volver a
+        // aprobar apuntando al evento de la aprobacion anterior, sin dejar uno
+        // nuevo (Codex, 18-sep). Asi el evento pasa si o si por su regla de alta.
+        && !exists(/databases/$(database)/documents/techPacks/$(codigo)/aprobaciones/$(despues.ultimoEventoAprobacionId))
         // SOLO la JEFA de diseno (Lety). Ni el equipo se aprueba solo, ni un
         // alias se aprueba nunca (no tiene archivo propio), NI EL ADMIN: Roberto
         // entro con la cuenta de Direccion, vio el boton Aprobar y lo quito
@@ -3964,6 +4007,15 @@ service cloud.firestore {
     }
     // LAS VERSIONES DEL ARCHIVO (15-sep): quien subio cada tech pack o FTT y
     // cuando. Nacen solo con la subida (ver puedeRegistrarVersionTechPack).
+    // EL HISTORIAL DE APROBACIONES (18-sep): cada vez que Lety aprueba o
+    // retira un visto bueno. Nace solo con esa escritura; no se corrige ni se
+    // borra.
+    match /techPacks/{codigo}/aprobaciones/{eventoId} {
+      allow read: if puedeVerTechPacks()
+        && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;
+      allow create: if puedeRegistrarEventoAprobacionTechPack(codigo, eventoId, request.resource.data);
+      allow update, delete: if false;
+    }
     match /techPacks/{codigo}/versiones/{versionId} {
       allow read: if puedeVerTechPacks()
         && esCuentaDePrueba() == get(/databases/$(database)/documents/techPacks/$(codigo)).data.esPrueba;

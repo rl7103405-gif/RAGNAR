@@ -215,6 +215,10 @@ const APROBACION = (u) => ({ version: 1, sha256: 'a'.repeat(64), porUid: u.uid, 
 const P_VER_TP1 = P_TP + '/versiones/tp-1-' + 'a'.repeat(64)
 const VERSION_TP1 = { tipo: 'tp', version: 1, nombre: 'TECH PACK ZZTEST.xlsx', tamano: 123456, sha256: 'a'.repeat(64), subidoEn: T, subidoPorUid: JEFA.uid, subidoPorNombre: JEFA.nombreCompleto }
 const sinResultado = (fn, path) => ({ function: fn, args: [{ exactValue: path }], result: { undefined: {} } })
+// El evento de aprobacion que acompana cada aprobar/retirar (18-sep).
+const EV = 'EVAPROB0001'
+const P_EV = P_TP + '/aprobaciones/' + EV
+const EVENTO = (u, accion) => ({ accion, version: 1, sha256: 'a'.repeat(64), porUid: u.uid, porNombre: u.nombreCompleto, en: T })
 Object.assign(ESCENARIOS, {
   'techpack-archivo': {
     que: 'Lety sube el archivo de un tech pack (manifiesto nuevo, version 1)',
@@ -418,34 +422,84 @@ Object.assign(ESCENARIOS, {
     resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA) }), functionMocks: [...perfilMocks([JEFA])]
   },
   'techpack-aprobar': {
-    que: 'Lety APRUEBA un tech pack (entra a la biblioteca)',
+    que: 'Lety APRUEBA un tech pack (entra a la biblioteca) y deja su evento',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA), ultimoEventoAprobacionId: EV, ...sellos(JEFA) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_EV), mExists(P_EV, false)]
+  },
+  'techpack-retirar-aprobacion': {
+    que: 'Lety RETIRA la aprobacion (sale de la biblioteca) y deja su evento',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: null, ultimoEventoAprobacionId: EV, ...sellos(JEFA) }) },
+    resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA) }), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_EV), mExists(P_EV, false)]
+  },
+  'neg-aprobar-reusando-evento': {
+    expectation: 'DENY', que: 'NEG: volver a aprobar apuntando a un evento VIEJO, sin dejar uno nuevo (Codex, 18-sep)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA), ultimoEventoAprobacionId: EV, ...sellos(JEFA) }) },
+    resource: doc({ ...TP_SUBIDO, aprobacion: null, ultimoEventoAprobacionId: 'EVRETIRO001' }), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_EV), mExists(P_EV, true)]
+  },
+  'neg-aprobar-sin-evento': {
+    expectation: 'DENY', que: 'NEG: aprobar SIN dejar el evento en el historial (18-sep)',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA), ultimoEventoAprobacionId: EV, ...sellos(JEFA) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_EV, false), mExists(P_EV, false)]
+  },
+  'neg-aprobar-sin-puntero': {
+    expectation: 'DENY', que: 'NEG: aprobar como antes, sin apuntar a ningun evento',
     request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA), ...sellos(JEFA) }) },
     resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA])]
   },
-  'techpack-retirar-aprobacion': {
-    que: 'Lety RETIRA la aprobacion (sale de la biblioteca)',
-    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: null, ...sellos(JEFA) }) },
-    resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(JEFA) }), functionMocks: [...perfilMocks([JEFA])]
+  'evento-aprobar': {
+    que: 'el EVENTO de aprobar nace junto con la aprobacion del padre',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_EV, time: T, resource: doc(EVENTO(JEFA, 'aprobar')) },
+    functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SUBIDO), mAfter(P_TP, { ...TP_SUBIDO, aprobacion: APROBACION(JEFA), ultimoEventoAprobacionId: EV })]
+  },
+  'evento-retirar': {
+    que: 'el EVENTO de retirar nace junto con el retiro del padre',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_EV, time: T, resource: doc(EVENTO(JEFA, 'retirar')) },
+    functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, { ...TP_SUBIDO, aprobacion: APROBACION(JEFA) }), mAfter(P_TP, { ...TP_SUBIDO, aprobacion: null, ultimoEventoAprobacionId: EV })]
+  },
+  'neg-evento-suelto': {
+    expectation: 'DENY', que: 'NEG: sembrar un evento de aprobar SIN que el padre cambie en la misma escritura',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_EV, time: T, resource: doc(EVENTO(JEFA, 'aprobar')) },
+    functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, { ...TP_SUBIDO, aprobacion: APROBACION(JEFA), ultimoEventoAprobacionId: EV }), mAfter(P_TP, { ...TP_SUBIDO, aprobacion: APROBACION(JEFA), ultimoEventoAprobacionId: EV })]
+  },
+  'neg-evento-equipo': {
+    expectation: 'DENY', que: 'NEG: alguien del equipo escribe un evento de aprobacion',
+    request: { auth: { uid: EQUIPO.uid }, method: 'create', path: P_EV, time: T, resource: doc(EVENTO(EQUIPO, 'aprobar')) },
+    functionMocks: [...perfilMocks([EQUIPO]), mGet(P_TP, TP_SUBIDO), mAfter(P_TP, { ...TP_SUBIDO, aprobacion: APROBACION(EQUIPO), ultimoEventoAprobacionId: EV })]
+  },
+  'neg-evento-editar': {
+    expectation: 'DENY', que: 'NEG: editar un evento del historial',
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_EV, time: T, resource: doc({ ...EVENTO(JEFA, 'aprobar'), porNombre: 'Otra persona' }) },
+    resource: doc(EVENTO(JEFA, 'aprobar')), functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SUBIDO)]
+  },
+  'neg-evento-borrar': {
+    expectation: 'DENY', que: 'NEG: borrar un evento del historial',
+    request: { auth: { uid: JEFA.uid }, method: 'delete', path: P_EV, time: T },
+    resource: doc(EVENTO(JEFA, 'aprobar')), functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SUBIDO)]
+  },
+  'neg-evento-miente': {
+    expectation: 'DENY', que: 'NEG: el evento dice una huella distinta a la que se aprobo',
+    request: { auth: { uid: JEFA.uid }, method: 'create', path: P_EV, time: T, resource: doc({ ...EVENTO(JEFA, 'aprobar'), sha256: 'b'.repeat(64) }) },
+    functionMocks: [...perfilMocks([JEFA]), mGet(P_TP, TP_SUBIDO), mAfter(P_TP, { ...TP_SUBIDO, aprobacion: APROBACION(JEFA), ultimoEventoAprobacionId: EV })]
   },
   'neg-aprobar-el-equipo': {
     expectation: 'DENY', que: 'NEG: alguien del equipo (Monica) se aprueba su propio tech pack',
-    request: { auth: { uid: EQUIPO.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(EQUIPO), ...sellos(EQUIPO) }) },
-    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([EQUIPO])]
+    request: { auth: { uid: EQUIPO.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(EQUIPO), ultimoEventoAprobacionId: EV, ...sellos(EQUIPO) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([EQUIPO]), mExistsAfter(P_EV), mExists(P_EV, false)]
   },
   'neg-aprobar-el-admin': {
     expectation: 'DENY', que: 'NEG: el ADMIN (Direccion) aprueba un tech pack: solo Lety puede (Roberto, 17-sep)',
-    request: { auth: { uid: ADMIN.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(ADMIN), ...sellos(ADMIN) }) },
-    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([ADMIN])]
+    request: { auth: { uid: ADMIN.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: APROBACION(ADMIN), ultimoEventoAprobacionId: EV, ...sellos(ADMIN) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([ADMIN]), mExistsAfter(P_EV), mExists(P_EV, false)]
   },
   'neg-aprobar-otra-version': {
     expectation: 'DENY', que: 'NEG: aprobar con la huella de OTRO archivo (subieron uno nuevo mientras revisaba)',
-    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: { ...APROBACION(JEFA), sha256: 'b'.repeat(64) }, ...sellos(JEFA) }) },
-    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA])]
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: { ...APROBACION(JEFA), sha256: 'b'.repeat(64) }, ultimoEventoAprobacionId: EV, ...sellos(JEFA) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_EV), mExists(P_EV, false)]
   },
   'neg-aprobar-firma-ajena': {
     expectation: 'DENY', que: 'NEG: aprobar firmando con el nombre de otra persona',
-    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: { ...APROBACION(JEFA), porNombre: 'Roberto Linares' }, ...sellos(JEFA) }) },
-    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA])]
+    request: { auth: { uid: JEFA.uid }, method: 'update', path: P_TP, time: T, resource: doc({ ...TP_SUBIDO, aprobacion: { ...APROBACION(JEFA), porNombre: 'Roberto Linares' }, ultimoEventoAprobacionId: EV, ...sellos(JEFA) }) },
+    resource: doc(TP_SUBIDO), functionMocks: [...perfilMocks([JEFA]), mExistsAfter(P_EV), mExists(P_EV, false)]
   },
   'neg-subir-conservando-aprobacion': {
     expectation: 'DENY', que: 'NEG: subir una version NUEVA conservando el visto bueno de la anterior',
