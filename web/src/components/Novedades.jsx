@@ -98,7 +98,7 @@ function fechaLegible(iso) {
 }
 
 export default function Novedades() {
-  const { authUser, esMaquila } = useAuth()
+  const { authUser, esMaquila, soloCaptura } = useAuth()
   const uid = authUser?.uid ?? 'anon'
   const clave = PREFIJO + uid
 
@@ -147,7 +147,9 @@ export default function Novedades() {
   // Las novedades hablan de las pantallas de Quini (America, Valeria, Cielo):
   // a la maquila no le dicen nada y le salia la campana en rojo con avisos
   // ajenos (usuario-real, 14-sep; Roberto, 15-sep: "quitarlo para las maquilas").
-  if (esMaquila) return null
+  // Ni al PESADOR (Angel, Juan): solo captura y le soltaba el changelog de
+  // tech packs y PT, que no es suyo (Roberto, 18-sep).
+  if (esMaquila || soloCaptura) return null
 
   return (
     <>
