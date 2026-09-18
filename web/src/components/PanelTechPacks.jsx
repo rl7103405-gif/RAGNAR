@@ -45,7 +45,7 @@ import {
   TIPOS
 } from '../utils/techPacks'
 import { avanceDelTechPack, RUBROS_TECH_PACK, faltaElRubro } from '../utils/completadoTechPack'
-import { agruparPorClienteYModelo, coincideTechPack, modelosDelTechPack, textoDe } from '../utils/clienteModeloTechPack'
+import { agruparPorClienteYModelo, codigosCubiertosDe, coincideTechPack, modelosDelTechPack, textoDe } from '../utils/clienteModeloTechPack'
 import VisorTechPack from './VisorTechPack'
 import EditorPlantillaTechPack from './EditorPlantillaTechPack'
 import { escucharEdiciones, marcarEdicion, textoEdiciones } from '../utils/editandoTechPack'
@@ -769,7 +769,16 @@ export default function PanelTechPacks() {
     () => biblioteca.filter((b) => !b.apuntaA && b.techPack?.totalChunks && !estaAprobado(b)),
     [biblioteca]
   )
-  const aprobados = useMemo(() => biblioteca.filter((b) => b.apuntaA || !b.techPack?.totalChunks || estaAprobado(b)), [biblioteca])
+  // Un documento SIN archivo cuyo codigo ya lo cubre otro tech pack con archivo
+  // no se pinta: es el cascaron que queda cuando alguien sube el mismo modelo
+  // bajo otro codigo (Lety, 18-sep: BARBIE RUN subido como 'BARBIE' y '2838'
+  // vacio al lado, que se leia como "sin tech pack" junto al bueno).
+  const aprobados = useMemo(() => {
+    const cubiertos = new Set(
+      biblioteca.filter((b) => !b.apuntaA && b.techPack?.totalChunks).flatMap((b) => codigosCubiertosDe(b).filter((c) => c !== b.codigo))
+    )
+    return biblioteca.filter((b) => (b.apuntaA || !b.techPack?.totalChunks || estaAprobado(b)) && !(!b.apuntaA && !b.techPack?.totalChunks && cubiertos.has(b.codigo)))
+  }, [biblioteca])
   // Los que tienen archivo pero su archivo no dice de qué cliente es: se
   // muestran aparte para que nadie los pierda de vista (Roberto, 17-sep).
   const sinCliente = useMemo(
