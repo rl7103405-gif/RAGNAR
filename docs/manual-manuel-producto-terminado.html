@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Manual RAGNAR - Manuel (Producto Terminado)</title>
+<style>
+  @page { size: letter; margin: 15mm 16mm 16mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2937; font-size: 10.6pt; line-height: 1.45; margin: 0; }
+  h1 { font-size: 21pt; margin: 0 0 2px; color: #0f172a; letter-spacing: .01em; }
+  .sub { color: #475569; font-size: 11.5pt; margin: 0 0 12px; }
+  .marca { font-size: 8.5pt; letter-spacing: .14em; color: #1d4ed8; font-weight: 700; margin-bottom: 4px; }
+  h2 { font-size: 14pt; color: #0f172a; margin: 18px 0 6px; padding-bottom: 3px; border-bottom: 2px solid #1d4ed8; break-after: avoid-page; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; color: #1e3a8a; margin: 12px 0 4px; break-after: avoid-page; page-break-after: avoid; }
+  p { margin: 0 0 7px; orphans: 3; widows: 3; }
+  .acceso { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; margin: 8px 0 12px; }
+  .acceso > div { padding: 7px 10px; border-right: 1px solid #cbd5e1; }
+  .acceso > div:last-child { border-right: none; }
+  .acceso .et { font-size: 7.8pt; letter-spacing: .1em; color: #64748b; font-weight: 700; }
+  .acceso .va { font-size: 12pt; font-weight: 700; color: #0f172a; min-height: 20px; }
+  .linea { border-bottom: 1px solid #94a3b8; height: 18px; }
+  .caja { background: #eff6ff; border-left: 4px solid #1d4ed8; padding: 8px 12px; margin: 8px 0 10px; border-radius: 0 6px 6px 0; }
+  .ojo { background: #fef3c7; border-left: 4px solid #d97706; padding: 8px 12px; margin: 8px 0 10px; border-radius: 0 6px 6px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 9.8pt; }
+  tr { break-inside: avoid; page-break-inside: avoid; }
+  th { text-align: left; background: #f1f5f9; color: #334155; font-size: 8.3pt; letter-spacing: .06em; text-transform: uppercase; padding: 5px 8px; border-bottom: 1px solid #cbd5e1; }
+  td { padding: 5px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  .flujo { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; margin: 8px 0 6px; }
+  .paso-f { flex: 1 1 0; min-width: 0; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 7px; font-size: 8.7pt; line-height: 1.3; background: #fff; }
+  .paso-f b { display: block; font-size: 9pt; color: #0f172a; margin-bottom: 2px; }
+  .paso-f.tu { border-color: #1d4ed8; background: #eff6ff; }
+  .flecha { align-self: center; color: #94a3b8; font-weight: 700; }
+  ol.pasos { margin: 4px 0 8px; padding-left: 0; list-style: none; counter-reset: p; }
+  ol.pasos li { counter-increment: p; position: relative; padding-left: 30px; margin-bottom: 6px; }
+  ol.pasos li::before { content: counter(p); position: absolute; left: 0; top: 0; width: 21px; height: 21px; border-radius: 50%; background: #1d4ed8; color: #fff; font-weight: 700; font-size: 9.5pt; text-align: center; line-height: 21px; }
+  .btn { display: inline-block; border: 1px solid #1d4ed8; color: #1d4ed8; border-radius: 4px; padding: 0 5px; font-weight: 600; font-size: 9.4pt; white-space: nowrap; }
+  .pill { display: inline-block; border-radius: 999px; padding: 0 7px; font-weight: 600; font-size: 8.8pt; white-space: nowrap; }
+  .ok { background: #dcfce7; color: #15803d; } .mal { background: #fee2e2; color: #b91c1c; } .mas { background: #ffedd5; color: #c2410c; } .gris { background: #f1f5f9; color: #475569; }
+  .caso { margin: 0 0 8px; }
+  .caso b { color: #0f172a; }
+  ul { margin: 3px 0 8px; padding-left: 18px; }
+  li { margin-bottom: 3px; }
+  .check li { list-style: none; margin-left: -18px; padding-left: 22px; position: relative; }
+  .check li::before { content: ""; position: absolute; left: 0; top: 3px; width: 11px; height: 11px; border: 1.5px solid #475569; border-radius: 2px; }
+  .pie { margin-top: 14px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 9pt; color: #475569; }
+  code { font-family: Consolas, monospace; font-size: 9.6pt; background: #f1f5f9; padding: 0 3px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="marca">DEPORTIVOS QUINI · RAGNAR</div>
+<h1>Manual de uso · Producto Terminado</h1>
+<p class="sub">Manuel · Recibir lo que regresa de las maquilas, embarcar al cliente y saber lo que falta por surtir</p>
+
+<div class="acceso">
+  <div><div class="et">PÁGINA</div><div class="va">quini-ragnar.web.app</div></div>
+  <div><div class="et">USUARIO</div><div class="va">manuel</div></div>
+  <div><div class="et">CONTRASEÑA</div><div class="linea"></div></div>
+</div>
+
+<p>Tu trabajo en RAGNAR son dos momentos del día. Cuando una maquila regresa mercancía ya armada, <b>tú la cuentas y la registras</b> (pestaña <b>Recibir</b>). Y cuando sale al cliente, <b>registras la entrega</b> y RAGNAR arma solo el packing list (pestaña <b>Embarcar al cliente</b>). Con esas dos cosas se llena solo tu <b>Inventario de PT</b>: lo que está en bodega y lo que falta por surtir a cada cliente.</p>
+<div class="caja">Si no se registra, para el sistema no llegó. Lo que no está en RAGNAR, sale en ceros en el inventario.</div>
+
+<h2>Quini en dos minutos</h2>
+<p>Quini hace calcetines y calcetas para clientes grandes. Así se mueve un pedido, de principio a fin; lo azul es lo tuyo:</p>
+<div class="flujo">
+  <div class="paso-f"><b>1. El cliente pide</b>Manda su orden de compra (OC).</div><div class="flecha">›</div>
+  <div class="paso-f"><b>2. Se planea</b>La OC se parte en órdenes de trabajo (OT). Vive en el plan maestro.</div><div class="flecha">›</div>
+  <div class="paso-f"><b>3. Se teje</b>Sale en bultos; cada bulto se pesa y lleva su folio.</div><div class="flecha">›</div>
+  <div class="paso-f"><b>4. Va a maquila</b>Sale con una remisión de RAGNAR a quien lo arma y empaca.</div><div class="flecha">›</div>
+  <div class="paso-f tu"><b>5. Regresa a PT</b>Tú lo cuentas y lo registras en Recibir.</div><div class="flecha">›</div>
+  <div class="paso-f tu"><b>6. Sale al cliente</b>Tú registras la entrega y sale el PL.</div>
+</div>
+
+<h3>Las palabras que vas a oír todo el día</h3>
+<table>
+  <tr><th style="width:24%">Palabra</th><th>Qué es</th></tr>
+  <tr><td>OC · orden de compra</td><td>El pedido del cliente. Una OC grande se parte en muchas OT.</td></tr>
+  <tr><td>PO#</td><td>El número con el que viene la orden en tu packing list (por ejemplo 2449). Es el que usas para embarcar.</td></tr>
+  <tr><td>OT · orden de trabajo</td><td>El pedazo en que la fábrica parte una OC para producirla. Se escribe con 4 dígitos (7945).</td></tr>
+  <tr><td>Código</td><td>El producto exacto: modelo, talla y color. Una OT trae varios códigos.</td></tr>
+  <tr><td>Bulto y folio</td><td>La mercancía viaja en bultos; cada bulto tiene un folio de 6 dígitos en su etiqueta (446739).</td></tr>
+  <tr><td>Maquila</td><td>Taller de fuera que arma y empaca (Hugo, Javier, Araceli, Edgar...).</td></tr>
+  <tr><td>Remisión o salida</td><td>El documento de RAGNAR con el que la mercancía sale a una maquila. Tiene su folio interno (302).</td></tr>
+  <tr><td>Docena</td><td>12 pares. Lo que sale y lo que regresa de maquila se cuenta en docenas.</td></tr>
+  <tr><td>Pack y pares por pack</td><td>Cómo se vende: un pack trae 1, 3, 6... pares (unipack, tripack, six pack). Al cliente se le entrega en packs.</td></tr>
+  <tr><td>PL · packing list</td><td>La lista de lo que se le entrega al cliente en cada embarque. RAGNAR la arma sola.</td></tr>
+</table>
+
+<h2>Cómo entrar</h2>
+<ol class="pasos">
+  <li>Abre <b>quini-ragnar.web.app</b> en la computadora, la tablet o el celular. Guárdala en favoritos; no se instala nada.</li>
+  <li>En <b>Usuario</b> escribe <code>manuel</code> y en <b>Contraseña</b> la que te dieron.</li>
+  <li>La primera vez, entra a <b>Mi perfil</b> y cámbiala por una que solo tú sepas.</li>
+</ol>
+
+<h3>Tus pestañas</h3>
+<p>La app abre directo en <b>Recibir</b>, que es tu trabajo del día.</p>
+<table>
+  <tr><th style="width:24%">Pestaña</th><th>Para qué</th></tr>
+  <tr><td>Recibir</td><td>Registrar lo que llega de las maquilas y ver lo que ya recibiste.</td></tr>
+  <tr><td>Embarcar al cliente</td><td>Registrar cada entrega al cliente; el packing list se arma solo.</td></tr>
+  <tr><td>Inventario de PT</td><td>Lo que falta por surtir a cada cliente, por orden de compra.</td></tr>
+  <tr><td>Maquilas</td><td>En qué va lo que se les encargó, lo que reportaron, su material y los precios. Solo consulta.</td></tr>
+  <tr><td>Reportes</td><td>Las remisiones con las que salió la mercancía a las maquilas. Solo consulta.</td></tr>
+  <tr><td>Mi perfil</td><td>Tus datos y tu contraseña.</td></tr>
+</table>
+
+<h2>Recibir: registrar una entrega</h2>
+<p>No capturas nada de cero. Todo lo que sale a una maquila sale con una remisión de RAGNAR, que ya trae la maquila, las órdenes de trabajo y las docenas. Tú eliges esa salida, escribes lo que contaste y la pantalla lo compara sola.</p>
+<ol class="pasos">
+  <li><b>Encuentra la salida.</b> En el buscador (<i>“Buscar por folio, bulto, OT, OC o maquila”</i>) escribe el folio interno de la salida (302), el folio de cualquier bulto que venga en la mercancía (446739), la OT (7976), la OC (2449) o el nombre de la maquila. Puedes combinar: <code>hugo 7945</code>. Salen las 12 más recientes que coinciden.</li>
+  <li>Pica <span class="btn">Es esta</span>. Las demás desaparecen para que no te confundas. Si te equivocaste, pica <span class="btn">Quitar</span>.</li>
+  <li><b>Cuenta por orden de trabajo.</b> Sale un renglón por cada OT de esa salida, con su OC y cuántas docenas salieron. En <b>Llegaron</b> escribe las docenas que contaste de esa OT (acepta medias: 12.5). A un lado, en <b>Cómo quedó</b>, te dice solo el resultado:
+    <br><span class="pill ok">Llegó completo</span> cuadra con lo que salió · <span class="pill mal">Faltó</span> llegó menos · <span class="pill mas">Llegó de más</span> llegó más · <span class="pill gris">Sin contar</span> dejaste esa OT vacía</li>
+  <li>Cada OT tiene su <b>Nota</b>, y abajo hay una <b>Nota de la entrega</b> para lo general (cajas mojadas, quién la trajo, llegó incompleto). Pica <span class="btn">Guardar recepción</span>. Hay que contar al menos una OT; las que dejes vacías quedan como “sin contar”.</li>
+</ol>
+
+<h3>Tres reglas</h3>
+<ul>
+  <li><b>Escribe lo que contaste tú, no lo que diga el papel de la maquila.</b> Si no coincide con lo que salió, queda registrado, y eso es lo que se le reclama.</li>
+  <li><b>No hace falta que la maquila avise nada ni que su papel traiga la OT.</b> La OT ya viene en la salida de RAGNAR.</li>
+  <li><b>Una vez guardada no se edita.</b> Es tu acta, con tu nombre y la hora. Si te equivocas, registra otra de la misma salida y explícalo en la nota.</li>
+</ul>
+<p>En <b>Ya recibido</b> está tu historial: cuándo, el folio de la salida, la maquila, si <b>¿Cuadró?</b> y el detalle de cada OT. En <b>En las maquilas</b> ves, solo como referencia, lo que tienen en sus manos: lo que ya avisaron que terminaron, lo que están armando y lo encargado sin empezar. Para recibir no hace falta que algo aparezca ahí.</p>
+
+<h3>Los casos difíciles</h3>
+<p class="caso"><b>El papel de la maquila no se parece a mi pantalla.</b> Es normal: la maquila escribe su remisión por código, y tu pantalla va por OT, que es como salió de la fábrica. No intentes cuadrar un papel con el otro: separa la mercancía por OT, cuéntala y escribe lo que contaste. Si no sabes de qué OT es un bulto, busca su folio en Recibir y te dice de qué salida y de qué OT es.</p>
+<p class="caso"><b>La maquila no puso la OT ni el folio en su papel.</b> No importa. Busca la salida por el nombre de la maquila y la fecha, o por el folio de cualquier bulto: RAGNAR te lleva a la salida donde iba ese bulto, con su OT.</p>
+<p class="caso"><b>Me entregaron 2 o 3 OT revueltas.</b> Sepáralas por OT antes de contar. Si salieron en remisiones distintas, es una recepción por cada salida; si salieron en la misma remisión, es una sola recepción con un renglón por OT. Si de plano no se puede saber cuántas son de cada OT, registra lo que sí sepas, deja vacía la que no puedas contar y explícalo en la nota.</p>
+<p class="caso"><b>Dice “Ojo: esta salida ya tiene una recepción registrada”.</b> Ya se registró algo de esa salida. Si es otra parte que llegó después (entrega parcial), regístrala y dilo en la nota. Si es una corrección, regístrala también y escribe qué corriges.</p>
+<p class="caso"><b>No encuentro la salida.</b> Prueba con el folio de un bulto, la OT o solo el nombre de la maquila. Si aun así no aparece, mándame foto del papel de la maquila: puede ser mercancía que salió sin documento de RAGNAR.</p>
+
+<h2>Embarcar al cliente (PL)</h2>
+<p>Aquí registras cada entrega al cliente contra su orden de compra. La app le pone a cada código su OT, lee los bultos del empaque y arma el packing list con lo que vayas registrando.</p>
+<ol class="pasos">
+  <li>En <b>Orden de compra (el PO# de tu PL)</b> escribe el PO#, por ejemplo <code>2449</code>. Es como viene la orden en el plan maestro; <b>no uses el OC#</b>. Pica <span class="btn">Traer del plan</span>: te dice cuántos códigos tiene esa orden.</li>
+  <li>Revisa el encabezado: <b>Subcliente, PO#, PL, Entrega #</b> (la app propone el siguiente número), <b>Factura (Microsip)</b> y <b>Bitácora</b>.</li>
+  <li>En cada renglón llena lo que sale en <b>esta</b> entrega: <b>Clave cliente</b> (el UPC o código con el que el cliente conoce el producto; es lo que se imprime en el PL), <b>Empaque</b> como lo escribes siempre (<code>2/200 1/58</code> son dos bultos de 200 y uno de 58), y revisa <b>Bultos</b> y <b>Packs</b>, que la app lee del empaque. Revisa también el <b>Precio</b>.</li>
+  <li>La columna <b>Cierre</b> no se llena: te dice lo pedido en el plan contra lo entregado contando esta entrega. Abajo ves el total: <i>“Esta entrega: bultos · packs · importe”</i>.</li>
+  <li>Pica <span class="btn">Registrar entrega</span>. Abajo aparece el <b>Packing list de la orden</b> con todas sus entregas. Desde ahí bajas el <span class="btn">Excel: balance del pedido</span> (lo pedido contra lo entregado) y el <span class="btn">PDF de la entrega</span> de cada una, que es el papel que se imprime y se firma.</li>
+</ol>
+<div class="ojo"><b>Antes de guardar, la app te frena en tres casos.</b> Si no entendió el texto de un empaque (el campo se pone en rojo), te pregunta si sigues: de ese renglón solo toma los bultos y packs que tecleaste. Si hay packs <b>sin precio</b>, te avisa que su importe saldrá en $0 y que el PL se factura con eso: no sigas hasta confirmar el precio. Y si esa entrega ya estaba registrada, te pide cambiar el número de entrega.</div>
+
+<h2>Inventario de PT</h2>
+<p>Lo que falta por surtir a cada cliente, por orden de compra, como el reporte de Microsip “Pendientes de surtir por cliente”, pero armado solo:</p>
+<table>
+  <tr><th style="width:24%">Columna</th><th>De dónde sale</th></tr>
+  <tr><td>Solicitado</td><td>El plan maestro (lo sube Adrián).</td></tr>
+  <tr><td>Recibido de maquilas</td><td>Tus recepciones en Recibir.</td></tr>
+  <tr><td>Embarcado</td><td>Tus entregas en Embarcar al cliente.</td></tr>
+  <tr><td>Pendiente de surtir</td><td>Solicitado menos embarcado.</td></tr>
+  <tr><td>En bodega</td><td>Recibido menos embarcado: lo que está físicamente en PT.</td></tr>
+</table>
+<p>Busca por cliente, OC u OT. La casilla <b>Solo las que todavía deben algo</b> viene marcada y esconde las ya surtidas. Pica <span class="btn">Detalle</span> para ver la orden código por código. Si una columna sale en cero, casi siempre es porque esa recepción o esa entrega todavía no se registró. Una celda vacía no es un cero: es un dato que falta.</p>
+<h3>Cuando el pack no está claro</h3>
+<p>El plan y las recepciones van en docenas; el cliente recibe packs. Para convertir, RAGNAR necesita saber cuántos pares trae el pack de cada código, y lo busca en Microsip, en el pedido y en el tech pack. Si esas fuentes no coinciden, en el Detalle verás <b>pack en conflicto</b>; si ninguna lo dice, verás <b>suelto (supuesto)</b>. En esos casos tú puedes decidirlo: en la columna <b>Pack</b> pica <span class="btn">Decidir</span>, escribe los <b>Pares por pack</b> y en la <b>Nota</b> de dónde lo sacaste (la etiqueta, el pedido, lo que te dijo Lety). Si el modelo tiene más códigos con el mismo pack, puedes aplicarlo a todos de una vez. Queda con tu nombre, y el valor anterior nunca se borra.</p>
+
+<h2>Maquilas y Reportes</h2>
+<p>Todo es de consulta, sin botones para mover material. En <b>Maquilas</b>: <b>Avance de lo encargado</b> (en qué va cada tarea de cada maquila y cuántas docenas ya te llegaron de esa OT), <b>Lo que reportaron</b> (bultos que una maquila rechazó o no le llegaron), y el <b>Inventario</b>, el <b>Catálogo de material</b> y los <b>Precios de ensamble</b>, que puedes ver pero no cambiar: los precios los pone Cielo. En <b>Reportes</b> están las remisiones de salida a maquilas, con su desglose por bulto (folio, código, modelo, docenas y OT): son las mismas salidas que eliges en Recibir, y desde ahí puedes reimprimir el original.</p>
+<p><b>La campanita</b>, arriba a la derecha, te avisa cada vez que se corrige algo o se agrega una función. El punto rojo se quita cuando la abres.</p>
+
+<h2>Tu primera semana</h2>
+<ul class="check">
+  <li>Entrar con tu usuario y cambiar la contraseña en Mi perfil.</li>
+  <li>Registrar tu primera recepción junto con alguien que ya la haya hecho.</li>
+  <li>Buscar una salida de cuatro formas distintas: por folio de salida, por folio de bulto, por OT y por maquila.</li>
+  <li>Registrar una entrega al cliente y bajar su PDF para firma.</li>
+  <li>Abrir el Inventario de PT de una orden y explicar con tus palabras de dónde sale cada columna.</li>
+  <li>Escribir aquí las dudas que te salgan, para verlas juntos:</li>
+</ul>
+<div class="linea" style="margin:4px 0 10px"></div><div class="linea" style="margin:0 0 10px"></div>
+
+<p>Si algo no te cuadra, te estorba o no lo encuentras, dímelo. Cada vez que alguien ha dicho “esto no puede ser”, apareció algo real que arreglar.</p>
+<div class="pie">Roberto Linares · WhatsApp 22 16 67 57 76 · roberto.linares@quini.com.mx<br>Manual actualizado el 18 de septiembre de 2026, con las pantallas de RAGNAR de ese día.</div>
+
+</body>
+</html>
