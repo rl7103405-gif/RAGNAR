@@ -27,7 +27,11 @@ const QUE_HACE = {
   completo: 'Capturas, embarcas, generas remisiones y encargas tareas a las maquilas.',
   captura: 'Capturas folios en la bascula y generas sus etiquetas.',
   almacen: 'Mandas material a las maquilas y llevas el inventario de avios.',
-  consulta: 'Consultas reportes e indicadores, y el catalogo de avios.'
+  consulta: 'Consultas reportes e indicadores, y el catalogo de avios.',
+  // Faltaba (18-sep, preparando el manual de Manuel): Producto Terminado veia
+  // este parrafo vacio.
+  pt: 'Recibes lo que regresa de las maquilas, embarcas al cliente con su packing list y llevas el inventario de producto terminado.',
+  desarrollo: 'Subes y revisas los tech packs de empaque de cada modelo.'
 }
 
 const NIVEL = {
@@ -86,8 +90,12 @@ export default function PanelMiPerfil() {
           {puedeSubirPlanMaestro && <li>Subir el plan maestro de produccion</li>}
           {/* Un pesador NO ve historial ni indicadores: prometerselo aqui seria
               mandarlo a buscar una pestaña que no tiene. */}
-          {perfil?.rol !== 'captura' && <li>Consultar el historial y los indicadores</li>}
+          {/* Ni al pesador ni a PT, desarrollo o produccion: no tienen esas
+              pestañas, y prometerselas aqui los manda a buscar algo que no ven. */}
+          {!['captura', 'pt', 'desarrollo', 'produccion'].includes(perfil?.rol) && <li>Consultar el historial y los indicadores</li>}
           {perfil?.rol === 'captura' && <li>Capturar folios y generar sus etiquetas</li>}
+          {perfil?.rol === 'pt' && <li>Recibir lo que regresa de las maquilas y embarcar al cliente</li>}
+          {perfil?.rol === 'pt' && <li>Ver lo que falta por surtir a cada cliente (Inventario de PT)</li>}
           <li>Cambiar tu contrasena aqui mismo</li>
         </ul>
       </div>
