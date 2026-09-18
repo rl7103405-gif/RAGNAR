@@ -13,7 +13,8 @@
 // Las fotos se conservan como bytes (de libro.model.media) y se pueden quitar
 // o agregar (PNG/JPG). Los textos "sin acomodar" de la migracion se conservan.
 import { useEffect, useState } from 'react'
-import { LISTAS, ZONAS_FOTO } from '../utils/plantillaTechPack'
+import { DOCENAS_POR_BULTO_ESTANDAR, LISTAS, ZONAS_FOTO } from '../utils/plantillaTechPack'
+import { clasificarSobrantes } from '../utils/sobrantesTechPack'
 import { descargarDeBiblioteca, ErrorBiblioteca, guardarEnBiblioteca } from '../utils/techPacks'
 import { resumenDeConversion } from '../utils/convertirTechPackAlSubir'
 import { cargarWorkbook, ErrorLibreriaExcel } from '../utils/excelJs'
@@ -127,6 +128,8 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, aprob
           packsPorBolsa: c.TP_PACKS_POR_BOLSA ?? '', docenasPorCaja: c.TP_DOCENAS_POR_CAJA ?? '', embalaje: String(c.TP_EMBALAJE || '').toUpperCase(),
           fotos: Object.fromEntries(ZONAS.map((z) => [z, (l.imagenesZona?.[z] || []).map((im) => media(im.imageId)).filter(Boolean)])),
           sobrantes: l.noMigrado || [],
+          // Para separar el ruido de lo que si falta acomodar (18-sep).
+          lecturaBase: { campos: l.campos, tablas: l.tablas },
           // Lo que el tech pack traia del pedido (v1): no se ve, pero se conserva.
           // Abrir un v1 y guardarlo lo convierte a v2 sin perder el dato.
           pedidoAnterior: l.pedidoAnterior || leerPedidoV1(libro) || null,
@@ -175,6 +178,10 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, aprob
           paresPorPack: num(d.paresPorPack), packsPorBolsa: num(d.packsPorBolsa), docenasPorCaja: num(d.docenasPorCaja), embalaje: d.embalaje || undefined,
           renglones: d.renglones.map((r) => ({ talla: r.talla, codigo: r.codigo, claveMicrosip: r.claveMicrosip, descripcion: r.descripcion, upc: r.upc })),
           pedidoAnterior: d.pedidoAnterior || null,
+          // Solo lo que el archivo traia: sin pistas ni motivos de la pantalla.
+          // Solo lo que el archivo traia (sin pistas), y el aviso de recorte tal cual.
+          sobrantes: (d.sobrantes || []).map((x) => (x?.recortado ? { recortado: true, faltan: x.faltan } : { hoja: x.hoja, celda: x.celda, texto: x.texto })),
+          lecturaBase: undefined,
           migradoDe: d.migradoDe || null,
           reporteMigracion: d.reporteMigracion || null,
           avios: d.avios.map((a) => ({ ...a, usa: num(a.usa) ?? null })),
@@ -332,7 +339,7 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, aprob
                 <div className="tpe-grid">
                   {/* Caja o bulto (Roberto, 17-sep): siempre va en bolsa, no siempre en caja. */}
                   <label className="tp-campo"><span>Se embarca en</span>
-                    <select className="tp-input" value={d.embalaje || ''} onChange={(e) => set('embalaje', e.target.value)}>
+                    <select className="tp-input" value={d.embalaje || ''} onChange={(e) => { const v = e.target.value; set('embalaje', v); if (v === 'BULTO' && !String(d.docenasPorCaja ?? '').trim()) set('docenasPorCaja', DOCENAS_POR_BULTO_ESTANDAR) }}>
                       <option value="">Elige: caja o bulto</option>
                       <option value="CAJA">CAJA</option>
                       <option value="BULTO">BULTO</option>
@@ -340,19 +347,45 @@ export default function EditorPlantillaTechPack({ item, usuario, esPrueba, aprob
                   </label>
                   <Campo etiqueta={`Docenas por ${d.embalaje === 'BULTO' ? 'bulto' : d.embalaje === 'CAJA' ? 'caja' : 'caja o bulto'}`} valor={d.docenasPorCaja} onChange={(v) => set('docenasPorCaja', v)} tipo="number" />
                 </div>
+                {d.embalaje === 'BULTO' && <p className="texto-suave" style={{ fontSize: 12, margin: '0 0 8px' }}>El estándar es {DOCENAS_POR_BULTO_ESTANDAR} docenas por bulto. Cámbialo solo si este modelo lleva otra cantidad.</p>}
                 <label className="tp-campo"><span>Cómo se acomoda en la caja o el bulto</span><textarea className="tp-input" rows={3} value={d.textos.caja} onChange={(e) => set('textos', { ...d.textos, caja: e.target.value })} /></label>
                 <Fotos titulo="Fotos de la caja o el bulto" lista={d.fotos.FOTO_CAJA} onCambiar={(l) => set('fotos', { ...d.fotos, FOTO_CAJA: l })} />
               </>
             )}
 
-            {d.sobrantes.length > 0 && (
-              <details className="tpv-sobrantes">
-                <summary>Datos del archivo anterior sin acomodar ({d.sobrantes.length}): cópialos donde van y quítalos</summary>
-                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 13 }}>
-                  {d.sobrantes.map((x, i) => <li key={i}>{x.texto} <span className="texto-suave">({x.hoja} {x.celda})</span> <button type="button" className="tp-quitar" onClick={() => set('sobrantes', d.sobrantes.filter((_, j) => j !== i))}>quitar</button></li>)}
-                </ul>
-              </details>
-            )}
+            {d.sobrantes.length > 0 && (() => {
+              // Lo real, con su pista; el ruido (encabezados, fechas, lo que ya
+              // esta en su lugar) aparte y se quita de un jalon (18-sep).
+              const { reales, ruido } = clasificarSobrantes(d.sobrantes, d.lecturaBase)
+              // Quita TODAS las copias de ese texto en esa celda (el archivo viejo
+              // podia traerlo repetido y se muestra una sola vez).
+              const quitar = (x) => set('sobrantes', d.sobrantes.filter((y) => !(y && y.hoja === x.hoja && y.celda === x.celda && y.texto === x.texto)))
+              const recorte = d.sobrantes.find((y) => y?.recortado)
+              return (
+                <details className="tpv-sobrantes" open={reales.length > 0}>
+                  <summary>Datos del archivo anterior sin acomodar ({reales.length}): cópialos donde van y quítalos</summary>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 13 }}>
+                    {reales.map((x, i) => (
+                      <li key={i} style={{ marginBottom: 4 }}>
+                        <strong>{x.texto}</strong> <span className="texto-suave">({x.hoja} {x.celda})</span> <button type="button" className="tp-quitar" onClick={() => quitar(x)}>quitar</button>
+                        <div className="texto-suave" style={{ fontSize: 12 }}>{x.pista}</div>
+                      </li>
+                    ))}
+                  </ul>
+                  {recorte && <p className="texto-suave" style={{ fontSize: 12, margin: '6px 0 0' }}>… y {recorte.faltan} texto{recorte.faltan === 1 ? '' : 's'} más del original que no cupieron: consérvalo aparte.</p>}
+                  {/* El ruido se ve y se quita UNO POR UNO: un "quitar todos" podia
+                      llevarse un dato real mal clasificado (Codex, 18-sep). */}
+                  {ruido.length > 0 && (
+                    <details style={{ marginTop: 6 }}>
+                      <summary className="texto-suave" style={{ fontSize: 12 }}>Y {ruido.length} texto{ruido.length === 1 ? '' : 's'} que RAGNAR cree que no son datos (ver)</summary>
+                      <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 12 }}>
+                        {ruido.map((x, i) => <li key={i}>{x.texto} <span className="texto-suave">· {x.motivo}</span> <button type="button" className="tp-quitar" onClick={() => quitar(x)}>quitar</button></li>)}
+                      </ul>
+                    </details>
+                  )}
+                </details>
+              )
+            })()}
 
             </fieldset>
             {error && <p className="alerta-error">{error}</p>}

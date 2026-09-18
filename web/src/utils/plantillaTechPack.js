@@ -23,6 +23,11 @@
 // _RAGNAR, clave 'pedidoAnterior' ("que no se vea, chance nos sirve").
 export const PLANTILLA = { id: 'TP-QUINI', version: 2, marca: 'TP-QUINI v2' }
 
+// El estandar de BULTO: 50 docenas (Lety, 15-sep, junta del 14 con Lindbergh).
+// La CAJA todavia no tiene estandar confirmado (Roberto recuerda 6 six packs =
+// 36 pares; en la junta el ejemplo fue 60 packs por caja): no se asume.
+export const DOCENAS_POR_BULTO_ESTANDAR = 50
+
 export const HOJAS = {
   pedido: '1 PEDIDO',
   codigos: '2 CODIGOS Y RUTA',

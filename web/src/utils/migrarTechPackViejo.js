@@ -15,7 +15,7 @@
 //
 // Funcion pura sobre un Workbook de ExcelJS ya abierto: no toca Firestore.
 import { normalizarClaveAvio, valorPlano } from './aviosTechPack.js'
-import { LISTAS } from './plantillaTechPack.js'
+import { DOCENAS_POR_BULTO_ESTANDAR, LISTAS } from './plantillaTechPack.js'
 
 const norm = (v) =>
   String(valorPlano(v) ?? '')
@@ -492,7 +492,6 @@ export function extraerTechPackViejo(libro, ctx = {}) {
   nota('TP_PACKS_POR_BOLSA', packsPorBolsa, 'texto de empaque en bolsa / etiquetas', 'media')
   nota('TP_DOCENAS_POR_CAJA', docenasPorCaja, 'texto de empaque de caja', 'media')
   if (!packsPorBolsa) faltantes.push('packs por bolsa')
-  if (!docenasPorCaja) faltantes.push('docenas por caja o bulto')
   // ¿CAJA O BULTO? Sale del nombre de la hoja y de su texto. Si dice las dos
   // cosas no se adivina: se avisa y se captura en Editar.
   const pistasEmbalaje = norm([...deTipo('caja').map((h) => h.name), textos.caja].join(' '))
@@ -501,6 +500,17 @@ export function extraerTechPackViejo(libro, ctx = {}) {
   const embalaje = diceBulto && !diceCaja ? 'BULTO' : diceCaja && !diceBulto ? 'CAJA' : ''
   if (diceCaja && diceBulto) conflictos.push('el empaque final dice CAJA y BULTO: elige en Editar en cual se embarca')
   nota('TP_EMBALAJE', embalaje, 'hoja y texto del empaque final', 'media')
+  // ESTANDAR DE BULTO: 50 docenas (Lety lo confirmo el 15-sep, junta del 14).
+  // Si el archivo dice bulto pero no cuantas docenas, va el estandar, y se avisa
+  // para que lo corrija quien sepa que ese modelo lleva otro. La CAJA no tiene
+  // estandar confirmado todavia: sin dato, se queda vacia.
+  let docenasPorEmbalaje = docenasPorCaja
+  if (!docenasPorEmbalaje && embalaje === 'BULTO') {
+    docenasPorEmbalaje = DOCENAS_POR_BULTO_ESTANDAR
+    nota('TP_DOCENAS_POR_CAJA', docenasPorEmbalaje, 'estandar de bulto (50 docenas)', 'media')
+    conflictos.push(`se puso el estandar de ${DOCENAS_POR_BULTO_ESTANDAR} docenas por bulto: si este modelo lleva otra cantidad, corrigela en Editar`)
+  }
+  if (!docenasPorEmbalaje) faltantes.push('docenas por caja o bulto')
 
   // ------------------------------------------------ fotos por zona
   // El logo viejo va arriba a la derecha (fila 0-1, columna 7 o mas): no es foto.
@@ -614,7 +624,7 @@ export function extraerTechPackViejo(libro, ctx = {}) {
     avios: avios.map(({ clave, descripcion, usa, comoSeUsa, talla, imagen, confianza }) => ({ clave, descripcion, usa, comoSeUsa, talla, imagen, confianza })),
     textos,
     packsPorBolsa: packsPorBolsa || undefined,
-    docenasPorCaja: docenasPorCaja || undefined,
+    docenasPorCaja: docenasPorEmbalaje || undefined,
     embalaje: embalaje || undefined,
     fotos
   }

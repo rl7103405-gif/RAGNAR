@@ -10,6 +10,7 @@
 import { useState } from 'react'
 import { CAMPOS, TABLAS, ZONAS_FOTO } from '../utils/plantillaTechPack'
 import { RUBROS_TECH_PACK } from '../utils/completadoTechPack'
+import { clasificarSobrantes } from '../utils/sobrantesTechPack'
 
 const lleno = (v) => v !== null && v !== undefined && String(v).trim() !== ''
 const fecha = (v) => {
@@ -194,20 +195,36 @@ export default function VistaPlantillaTechPack({ lectura, medicion, urlDe, panta
 
       {/* Datos del Excel anterior que la conversion no supo acomodar: nada se
           pierde, Lety los pone donde van (Roberto, 11-sep). */}
-      {lectura.noMigrado?.length > 0 && (
-        <details className="tpv-sec tpv-sobrantes">
-          <summary>Datos del archivo anterior sin acomodar ({lectura.noMigrado.length}) · revisar y poner donde van</summary>
-          <div className="tabla-marco">
-            <table className="tpv-tabla">
-              <thead><tr><th>Hoja</th><th>Celda</th><th>Texto</th></tr></thead>
-              <tbody>{lectura.noMigrado.map((x, i) => x.recortado
-                ? <tr key={i}><td colSpan={3} className="texto-suave">… y {x.faltan} texto{x.faltan === 1 ? '' : 's'} mas del original que no cupieron; consérvalo aparte.</td></tr>
-                : <tr key={i}><td>{x.hoja}</td><td>{x.celda}</td><td>{x.texto}</td></tr>
-              )}</tbody>
-            </table>
-          </div>
-        </details>
-      )}
+      {lectura.noMigrado?.length > 0 && (() => {
+        // Lo que SI falta acomodar, con una pista de que parece y a donde va; el
+        // ruido (encabezados, fechas, lo que ya esta en su lugar) no se borra,
+        // se esconde con su motivo (Roberto, 18-sep: "no se pueden olvidar").
+        const { reales, ruido } = clasificarSobrantes(lectura.noMigrado, lectura)
+        const recorte = lectura.noMigrado.find((x) => x?.recortado)
+        if (!reales.length && !recorte) {
+          return ruido.length > 0 ? (
+            <details className="tpv-sec">
+              <summary className="texto-suave" style={{ fontSize: 13 }}>Del archivo anterior no quedó nada por acomodar ({ruido.length} texto{ruido.length === 1 ? '' : 's'} que no son datos)</summary>
+              <ul style={{ fontSize: 12, margin: '6px 0 0' }}>{ruido.map((x, i) => <li key={i}>{x.texto} <span className="texto-suave">· {x.motivo}</span></li>)}</ul>
+            </details>
+          ) : null
+        }
+        return (
+          <details className="tpv-sec tpv-sobrantes" open>
+            <summary>Datos del archivo anterior sin acomodar ({reales.length}) · revisar y poner donde van</summary>
+            <div className="tabla-marco">
+              <table className="tpv-tabla">
+                <thead><tr><th>Texto</th><th>Qué parece y a dónde va</th><th>Dónde estaba</th></tr></thead>
+                <tbody>
+                  {reales.map((x, i) => <tr key={i}><td><strong>{x.texto}</strong></td><td>{x.pista}</td><td className="texto-suave">{x.hoja} {x.celda}</td></tr>)}
+                  {recorte && <tr><td colSpan={3} className="texto-suave">… y {recorte.faltan} texto{recorte.faltan === 1 ? '' : 's'} más del original que no cupieron; consérvalo aparte.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            {ruido.length > 0 && <p className="texto-suave" style={{ fontSize: 12, margin: '6px 0 0' }}>Además, {ruido.length} texto{ruido.length === 1 ? '' : 's'} del archivo anterior que no son datos (encabezados, fechas, lo que ya está en su lugar): se quitan en Editar.</p>}
+          </details>
+        )
+      })()}
 
       {grande && (
         <div className="tpv-lightbox" onClick={() => setGrande(null)}>
